@@ -36,10 +36,14 @@ def layout(title=None):
             html.Div([
                 html.Span(id="macro-stats", style={"fontSize": "10px",
                                                    "marginRight": "14px"}),
+                # `persistence` : fenêtre et décalage survivent au
+                # rechargement — et au passage par un autre onglet de la
+                # cellule, qui reconstruit ce layout à ses défauts.
                 dcc.RadioItems(
                     id="macro-window",
                     options=[{"label": k, "value": k} for k in WINDOWS],
                     value=DEFAULT_WINDOW, inline=True, className="tf-radio",
+                    persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px"},
                 ),
                 dcc.RadioItems(
@@ -47,6 +51,7 @@ def layout(title=None):
                     options=[{"label": f"+{lag}M" if lag else "0", "value": lag}
                              for lag in LAGS],
                     value=0, inline=True, className="tf-radio",
+                    persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px",
                            "marginLeft": "12px"},
                 ),

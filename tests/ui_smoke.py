@@ -321,6 +321,37 @@ def run(capture_dir: Path | None) -> int:
         time.sleep(2)
         check("agrandit le panneau", "cell-max" in browser.js(
             "return document.getElementById('cell-arb').className;"))
+
+        print("\nPersistance au rechargement")
+        # Retour à la grille, puis un réglage à retrouver : le carnet sur
+        # Kraken. Les onglets laissés actifs par les sections précédentes
+        # (liquidations, calendrier) servent de témoins.
+        browser.js("document.body.dispatchEvent("
+                   "new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));")
+        time.sleep(1.5)
+        browser.js("""
+            Array.from(document.querySelectorAll('#book-exchange label'))
+                 .find(l => l.textContent.trim() === 'KRK').click();
+        """)
+        time.sleep(1.5)
+        browser.get(URL)
+        browser.wait_for("document.querySelectorAll('.js-plotly-plot').length >= 1")
+        time.sleep(3)
+        check("le plein écran ne survit pas, la grille oui",
+              browser.js("return document.getElementById('cell-arb').className;")
+              == "cell")
+        check("l'onglet liquidations est restauré, panneau compris",
+              browser.js("""
+                  return document.querySelector('#cell-arb .cell-tab-active')
+                      .textContent === 'LIQUIDATIONS'
+                      && !!document.getElementById('liq-table');
+              """))
+        check("l'onglet calendrier est restauré",
+              browser.js("return document.querySelector('#cell-news .cell-tab-active')"
+                         ".textContent;") == "CALENDRIER")
+        check("le carnet retrouve Kraken", browser.js(
+            "return (document.querySelector('#book-exchange label.selected')"
+            " || {}).textContent;") == "KRK")
     finally:
         browser.close()
 

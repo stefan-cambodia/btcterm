@@ -34,6 +34,10 @@ def layout(title=None):
                          (("BIN", "Binance"), ("KRK", "Kraken"), ("BYB", "Bybit"),
                           ("OKX", "OKX"), ("CBS", "Coinbase"))],
                 value="Binance", inline=True, className="tf-radio",
+                # La plateforme choisie survit au rechargement et au
+                # passage par l'onglet profondeur, qui reconstruit ce
+                # layout à ses défauts.
+                persistence=True, persistence_type="local",
                 style={"fontSize": "9px", "whiteSpace": "nowrap"},
             ),
         ], style=TITLE_STYLE),

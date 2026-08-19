@@ -455,6 +455,26 @@ l'agrandissement, ce qui est précisément le geste qu'on fait pour examiner une
 zone de plus près. Elle change en revanche quand on change d'intervalle, de
 devise, d'échelle ou de sous-graphiques : le recadrage est alors ce qu'on veut.
 
+L'état survit aussi **au rechargement de la page** : tous les sélecteurs —
+intervalle, devise, échelle, sous-graphiques, plateforme du carnet, fenêtre et
+décalage du panneau macro — portent `persistence="local"`, et l'onglet actif de
+chaque cellule est un `Store` en localStorage. On ne reconfigure pas sa station
+de travail à chaque session ; accessoirement, la persistance des sélecteurs
+règle aussi le cas du changement d'onglet, qui reconstruit le layout du panneau
+quitté à ses défauts. Le plein écran, lui, reste volontairement en mémoire :
+un rechargement rend la grille.
+
+Deux pièges, découverts par le contrôle Firefox plutôt qu'en théorie :
+
+- un `Store` persisté auquel le layout fournit `data=` **réécrit cette donnée
+  dans le localStorage à chaque chargement** — écrasant précisément ce qu'on
+  voulait restaurer. Le Store n'a donc pas de valeur initiale ; le repli sur
+  les défauts appartient aux callbacks, qui le faisaient déjà ;
+- le montage d'un onglet déclenche le callback pattern-matching des clics avec
+  `n_clicks` à zéro. Sans garde, le premier rendu écrivait dans le Store — et
+  aurait pu y écrire le mauvais onglet d'une cellule. Un déclencheur sans
+  valeur est ignoré : ce n'est pas un clic.
+
 ### 3.4 Plein écran
 
 Une grille de six cellules ne laisse pas assez de place pour lire finement un
@@ -551,8 +571,12 @@ Il vérifie les cellules posées, la visibilité et le non-recouvrement du bouto
 l'agrandissement réel, le retour par `Échap`, le double-clic, que le carnet
 montre bien ses deux côtés, que la barre de titre du panneau prix tient sur une
 ligne, que la bascule LOG atteint l'axe, que le panneau macro trace ses deux
-séries — et que changer d'onglet remplace bien un panneau par l'autre, rempli
-dès son apparition. Les captures qu'il dépose ont mis au jour deux
+séries, que changer d'onglet remplace bien un panneau par l'autre, rempli dès
+son apparition — et qu'un rechargement restaure onglets et sélecteurs mais pas
+le plein écran (§3.3), en rechargeant réellement la page, seule façon d'éprouver
+ce que le localStorage garde et ce qu'il écrase. C'est ce contrôle qui a mis au
+jour le Store persisté qu'un `data=` initial réécrivait à chaque chargement.
+Les captures qu'il dépose ont mis au jour deux
 défauts qu'aucun test logique n'aurait signalés : la légende du graphique
 recouvrait les bougies, et le carnet, trop haut pour son panneau, n'affichait
 que les ventes. C'est aussi ainsi qu'a été repérée une feuille de style qui ne

@@ -85,7 +85,11 @@ Tout ce qu'on décoche rend sa hauteur au cours. Par défaut : RSI, volume et
 profil de volume ; le CRSI est disponible mais masqué.
 
 Le graphique conserve zoom et pan pendant que les données coulent — c'est ce qui
-permet d'analyser une zone sans être recadré à chaque tour d'horloge.
+permet d'analyser une zone sans être recadré à chaque tour d'horloge. Les
+réglages, eux, survivent au rechargement de la page : intervalle, devise,
+échelle, sous-graphiques, plateforme du carnet, fenêtre et décalage macro, et
+l'onglet actif de chaque cellule sont conservés dans le navigateur
+(localStorage). Seul le plein écran ne revient pas : recharger rend la grille.
 
 **Hors ligne** — si Binance est injoignable au démarrage, le panneau prix sert
 une série de démonstration générée localement plutôt qu'un cadre vide, et le

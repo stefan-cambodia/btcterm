@@ -46,11 +46,15 @@ def layout(title=None):
             html.Span("BTC/USDT", style={"fontSize": "9px",
                                          "letterSpacing": "0.02em",
                                          "whiteSpace": "nowrap"}),
+            # `persistence` : les réglages survivent au rechargement de la
+            # page (localStorage) — on ne reconfigure pas sa station de
+            # travail à chaque session.
             html.Div([
                 dcc.RadioItems(
                     id="price-interval",
                     options=[{"label": k, "value": k} for k in INTERVALS],
                     value=DEFAULT_INTERVAL, inline=True, className="tf-radio",
+                    persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px"},
                 ),
                 dcc.RadioItems(
@@ -60,6 +64,7 @@ def layout(title=None):
                     options=[{"label": "$", "value": "USD"},
                              {"label": "€", "value": "EUR"}],
                     value="USD", inline=True, className="tf-radio",
+                    persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px",
                            "marginLeft": "10px"},
                 ),
@@ -67,6 +72,7 @@ def layout(title=None):
                     id="price-scale",
                     options=[{"label": "LOG", "value": "log"}],
                     value=[], inline=True, className="tf-check",
+                    persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px",
                            "marginLeft": "10px"},
                 ),
@@ -74,6 +80,7 @@ def layout(title=None):
                     id="price-extras",
                     options=EXTRAS, value=DEFAULT_EXTRAS,
                     inline=True, className="tf-check",
+                    persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px",
                            "marginLeft": "10px"},
                 ),

@@ -179,7 +179,17 @@ def create_app(hub: MarketHub) -> dash.Dash:
         dcc.Interval(id="tick-slow", interval=REFRESH_SLOW_MS),
         dcc.Interval(id="tick-rare", interval=REFRESH_RARE_MS),
         dcc.Store(id="maximized"),
-        dcc.Store(id="tabs", data=DEFAULT_TABS),
+        # `local` : l'onglet actif de chaque cellule survit au
+        # rechargement. Le plein écran, lui, reste en mémoire — restaurer
+        # un panneau agrandi sans les classes CSS qui vont avec laisserait
+        # la page dans un état incohérent, et revenir à la grille est le
+        # comportement attendu d'un rechargement.
+        #
+        # Surtout pas de `data=DEFAULT_TABS` ici : une donnée fournie par
+        # le layout est réécrite dans le localStorage à chaque chargement,
+        # ce qui écraserait précisément ce qu'on veut restaurer. Le repli
+        # sur les défauts appartient aux callbacks, qui le font déjà.
+        dcc.Store(id="tabs", storage_type="local"),
         _header(),
         html.Div([_cell(area) for area in AREAS], id="grid", style=_GRID),
     ], style={"background": C["bg"], "margin": "0", "height": "100vh",
@@ -279,6 +289,13 @@ def _register_tabs(app: dash.Dash) -> None:
             if (!context.triggered.length) {
                 return dash_clientside.no_update;
             }
+            // Un onglet qui vient d'être monté déclenche aussi ce
+            // callback, avec n_clicks à zéro — c'est le rendu initial ou
+            // un changement d'onglet, pas un clic. L'ignorer évite
+            // d'écraser l'état restauré du localStorage.
+            if (!context.triggered[0].value) {
+                return dash_clientside.no_update;
+            }
             const current = args[args.length - 1] || {};
             const id = JSON.parse(
                 context.triggered[0].prop_id.replace(/\.n_clicks$/, ''));
@@ -300,14 +317,22 @@ def _register_tabs(app: dash.Dash) -> None:
         if len(panels) < 2:
             continue
 
+        # Pas de `prevent_initial_call` : le Store étant persisté, le
+        # premier tour sert à synchroniser la cellule avec l'onglet
+        # restauré du localStorage — sans lui, la page rechargée
+        # marquerait l'onglet actif sans afficher son panneau.
         @app.callback(
             Output(f"cell-{area}-body", "children"),
             Input("tabs", "data"),
-            prevent_initial_call=True,
         )
         def _switch(tabs, area=area):
-            return _body(area, (tabs or DEFAULT_TABS).get(area,
-                                                          DEFAULT_TABS[area]))
+            active = (tabs or {}).get(area, DEFAULT_TABS[area])
+            # Un localStorage peut dater d'avant un renommage de panneau :
+            # un identifiant inconnu retombe sur l'onglet par défaut au
+            # lieu de casser le rendu de la cellule.
+            if active not in {panel_id for panel_id, _, _ in CELLS[area]}:
+                active = DEFAULT_TABS[area]
+            return _body(area, active)
 
 
 def main() -> None:
