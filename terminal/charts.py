@@ -91,7 +91,7 @@ def build_price_chart(
     # ── 1. Candlesticks ──────────────────────────
     fig.add_trace(go.Candlestick(
         x=df["time"], open=open_, high=high, low=low, close=close,
-        name="BTC",
+        name="BTC", showlegend=False,
         increasing_fillcolor=C["green"], increasing_line_color=C["green"],
         decreasing_fillcolor=C["red"],   decreasing_line_color=C["red"],
         line_width=1, whiskerwidth=0.4,
@@ -186,7 +186,7 @@ def build_price_chart(
     ]
     fig.add_trace(go.Bar(
         x=vp_norm, y=centers * mult,
-        orientation="h", name="Liq. Clusters",
+        orientation="h", name="Liq. Clusters", showlegend=False,
         marker=dict(color=vp_clr, opacity=0.75),
         hovertemplate="Vol: %{x:.2f}<br>%{y:,.0f}<extra></extra>",
     ), row=1, col=2)
@@ -199,7 +199,7 @@ def build_price_chart(
         for v in df["rsi"].fillna(50)
     ]
     fig.add_trace(go.Scatter(
-        x=df["time"], y=df["rsi"], name="RSI 14",
+        x=df["time"], y=df["rsi"], name="RSI 14", showlegend=False,
         line=dict(color=C["blue"], width=1.4), mode="lines",
         hovertemplate="RSI: %{y:.1f}<extra></extra>",
     ), row=2, col=1)
@@ -210,7 +210,7 @@ def build_price_chart(
 
     # ── 8. CRSI panel ────────────────────────────
     fig.add_trace(go.Scatter(
-        x=df["time"], y=df["crsi"], name="CRSI",
+        x=df["time"], y=df["crsi"], name="CRSI", showlegend=False,
         line=dict(color=C["purple"], width=1.4), mode="lines",
         hovertemplate="CRSI: %{y:.1f}<extra></extra>",
     ), row=3, col=1)
@@ -225,7 +225,7 @@ def build_price_chart(
         for i in range(len(df))
     ]
     fig.add_trace(go.Bar(
-        x=df["time"], y=df["volume"], name="Volume",
+        x=df["time"], y=df["volume"], name="Volume", showlegend=False,
         marker_color=v_clr, opacity=0.75,
         hovertemplate="Vol: %{y:,.0f}<extra></extra>",
     ), row=4, col=1)
@@ -243,14 +243,15 @@ def build_price_chart(
         paper_bgcolor=C["bg"],
         plot_bgcolor=C["panel"],
         font=dict(family=MONO, color=C["text"], size=11),
-        margin=dict(l=12, r=12, t=8, b=8),
+        # La marge haute accueille la légende : posée sur le tracé, elle
+        # recouvrait les bougies dès que le panneau était petit.
+        margin=dict(l=12, r=12, t=44, b=8),
         hovermode="x unified",
         hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
                         font_color=C["text"], font_size=11),
         legend=dict(
-            bgcolor="rgba(14,17,23,0.92)", bordercolor=C["border"],
-            borderwidth=1, orientation="h",
-            x=0.0, y=1.015, font=dict(size=10),
+            bgcolor="rgba(0,0,0,0)", orientation="h",
+            x=0.0, y=1.0, yanchor="bottom", font=dict(size=10),
             itemsizing="constant",
         ),
         xaxis_rangeslider_visible=False,

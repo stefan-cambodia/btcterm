@@ -278,6 +278,11 @@ Un détail qui n'est pas optionnel : la fonction émet un événement `resize` s
 la fenêtre après la bascule. Plotly ne redimensionne ses figures qu'à cet
 événement — sans lui, le graphique agrandi garderait la taille de sa vignette.
 
+La bascule s'ouvre par le bouton ⛶ — **toujours visible**, une première version
+qui ne l'affichait qu'au survol s'étant révélée introuvable — ou par un
+double-clic sur le panneau. Le double-clic ignore les graphiques : Plotly y
+réserve ce geste à la réinitialisation des axes.
+
 Cette logique vivant en JavaScript, elle échapperait aux tests Python.
 `tests/test_fullscreen_toggle.py` extrait la fonction de `app.py` et l'exécute
 sous Node avec un faux `dash_clientside` (test ignoré si Node est absent).
@@ -293,7 +298,27 @@ Un panneau ne fait aucun appel réseau : il demande au hub, qui mutualise. Il
 n'écrit rien non plus — le panneau news lit la base du tracker en lecture seule,
 la collecte et le scoring restant la responsabilité de `news/btc_news.py`.
 
-### 3.5 Câblage vérifié
+### 3.5 Contrôle visuel
+
+Une partie des défauts d'interface ne se voit qu'à l'écran, et aucune quantité
+de tests Python ne les révèle. `tests/ui_smoke.py` pilote donc Firefox par
+**Marionette** — le protocole d'automatisation intégré au navigateur — via un
+client d'une soixantaine de lignes (`tests/marionette_client.py`), ce qui évite
+d'installer geckodriver ou Selenium.
+
+```bash
+python -m terminal.app &
+python tests/ui_smoke.py --capture /tmp/captures
+```
+
+Il vérifie les panneaux posés, la visibilité et le non-recouvrement du bouton,
+l'agrandissement réel, le retour par `Échap`, le double-clic, et que le carnet
+montre bien ses deux côtés. Les captures qu'il dépose ont mis au jour deux
+défauts qu'aucun test logique n'aurait signalés : la légende du graphique
+recouvrait les bougies, et le carnet, trop haut pour son panneau, n'affichait
+que les ventes.
+
+### 3.6 Câblage vérifié
 
 `terminal/panels/__init__.py` déclare `PANELS`, et `app.py` enregistre les
 callbacks en parcourant cette liste : ajouter un module suffit à le brancher.

@@ -8,27 +8,34 @@ sérialiser quelques dizaines de lignes.
 
 from __future__ import annotations
 
-from dash import Input, Output, dcc, html
+from dash import Input, Output, State, dcc, html
 
 from ..charts import build_depth_chart
 from ..theme import C, MONO, PANEL_STYLE, TABLE_STYLE, TITLE_STYLE
 
-DEPTH = 12
+#: Dans la grille, le panneau ne peut afficher qu'une douzaine de lignes :
+#: au-delà, les meilleures offres d'achat sortaient du cadre et seules les
+#: ventes restaient visibles. En plein écran, la place ne manque plus.
+DEPTH = 6
+DEPTH_MAX = 20
 
 
 def layout():
     return html.Div([
         html.Div([
             html.Span("Carnet"),
+            # Libellés abrégés : les noms complets faisaient passer le
+            # sélecteur à la ligne dans la largeur du panneau.
             dcc.RadioItems(
                 id="book-exchange",
-                options=[{"label": n, "value": n} for n in
-                         ("Binance", "Kraken", "Bybit", "OKX", "Coinbase")],
+                options=[{"label": short, "value": name} for short, name in
+                         (("BIN", "Binance"), ("KRK", "Kraken"), ("BYB", "Bybit"),
+                          ("OKX", "OKX"), ("CBS", "Coinbase"))],
                 value="Binance", inline=True, className="tf-radio",
-                style={"fontSize": "9px"},
+                style={"fontSize": "9px", "whiteSpace": "nowrap"},
             ),
         ], style=TITLE_STYLE),
-        html.Div(id="book-table", style={"flex": "1", "overflow": "hidden"}),
+        html.Div(id="book-table", style={"flex": "1", "overflowY": "auto"}),
     ], style=PANEL_STYLE)
 
 
@@ -63,11 +70,13 @@ def register(app, hub):
         Output("book-table", "children"),
         Input("tick-fast", "n_intervals"),
         Input("book-exchange", "value"),
+        State("maximized", "data"),
     )
-    def _refresh_book(_tick, exchange):
+    def _refresh_book(_tick, exchange, maximized):
         book = hub.books[exchange]
-        bids = book.top("bids", DEPTH)
-        asks = book.top("asks", DEPTH)
+        depth = DEPTH_MAX if maximized == "book" else DEPTH
+        bids = book.top("bids", depth)
+        asks = book.top("asks", depth)
 
         if not bids or not asks:
             message = book.error or "connexion en cours…"

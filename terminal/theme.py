@@ -39,6 +39,9 @@ PANEL_STYLE = {
 }
 
 TITLE_STYLE = {
+    # La marge droite réserve la place du bouton plein écran, qui est
+    # posé en absolu par la grille et recouvrirait sinon les sélecteurs.
+    "paddingRight": "30px",
     "color": C["muted"],
     "fontFamily": MONO,
     "fontSize": "10px",

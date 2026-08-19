@@ -31,10 +31,16 @@ ssh -L 8050:localhost:8050 <machine>
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
 | **News** | fil scoré + indice Fear & Greed | 5 min |
 
-**Plein écran** : survolez un panneau et cliquez le ⛶ en haut à droite — il
-occupe alors toute la fenêtre. Recliquez, ou appuyez sur `Échap`, pour revenir à
-la grille. Cliquer le ⛶ d'un autre panneau bascule directement de l'un à
-l'autre.
+**Plein écran** — trois façons d'agrandir un panneau :
+
+- le **⛶** en haut à droite du panneau,
+- un **double-clic** n'importe où dessus (sauf sur un graphique, où Plotly
+  garde le double-clic pour réinitialiser les axes),
+- puis `Échap` ou un second clic pour revenir à la grille.
+
+Cliquer le ⛶ d'un autre panneau bascule directement de l'un à l'autre. Le carnet
+d'ordres affiche 20 niveaux de chaque côté en plein écran, contre 6 dans la
+grille.
 
 Le graphique conserve zoom et pan pendant que les données coulent — c'est ce qui
 permet d'analyser une zone sans être recadré à chaque tour d'horloge.
@@ -112,14 +118,22 @@ plus une fonction fish `btcnews`.
 python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
 python tests/test_terminal_wiring.py     # panneaux posés et branchés
 python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node)
+
+python -m terminal.app &                 # puis, terminal lancé :
+python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
 ```
 
 Le premier vérifie que les indicateurs du socle produisent exactement les mêmes
 valeurs que les implémentations d'avant l'extraction. Le deuxième qu'aucun
 panneau n'a été écrit puis oublié — ni dans la grille, ni dans l'enregistrement
 des callbacks. Le troisième exécute la fonction JavaScript du plein écran sous
-Node, faute de quoi elle échapperait à toute couverture. Aucun ne touche au
-réseau.
+Node, faute de quoi elle échapperait à toute couverture. Aucun des trois ne
+touche au réseau.
+
+`ui_smoke.py` est à part : il pilote Firefox pour contrôler ce qui ne se voit
+qu'à l'écran — panneaux posés, bouton visible et sans recouvrement, bascule
+effective, carnet montrant ses deux côtés — et sait déposer des captures. Il
+suppose le terminal déjà lancé, et s'ignore si Firefox est absent.
 
 ## Les outils en détail
 

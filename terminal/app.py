@@ -92,8 +92,10 @@ def _header():
                                          "fontWeight": "600"}),
         html.Span(id="hdr-change", style=_STAT),
         html.Span(id="hdr-spread", style=_STAT),
-        html.Span(id="hdr-status", style={**_STAT, "marginLeft": "auto",
-                                          "color": C["muted"]}),
+        html.Span("⛶ ou double-clic sur un panneau · Échap pour revenir",
+                  style={**_STAT, "marginLeft": "auto", "color": C["muted"],
+                         "fontSize": "10px"}),
+        html.Span(id="hdr-status", style={**_STAT, "color": C["muted"]}),
     ], style={
         "display": "flex", "alignItems": "center", "padding": "0 14px",
         "height": "38px", "background": C["panel"],
