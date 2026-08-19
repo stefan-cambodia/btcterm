@@ -27,7 +27,7 @@ __all__ = [
     "BINANCE_REST", "OHLCV_COLUMNS", "RSS_FEEDS",
     "fetch_klines", "fetch_ticker_24h", "fetch_depth",
     "KLINE_FREQ", "KLINE_HOURS", "generate_demo_ohlcv",
-    "fetch_eur_rate",
+    "fetch_eur_rate", "fetch_m2_supply",
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
 ]
@@ -36,6 +36,12 @@ BINANCE_REST = "https://api.binance.com/api/v3"
 FX_URL = "https://api.exchangerate-api.com/v4/latest/USD"
 FARSIDE_URL = "https://farside.co.uk/btc/"
 FEAR_GREED_URL = "https://api.alternative.me/fng/?limit=1"
+
+#: Masse monétaire M2 des États-Unis (série H.6 de la Réserve fédérale,
+#: mensuelle, désaisonnalisée), servie par DBnomics. FRED publie la même
+#: série, mais son export CSV réclame une clé pour l'API et ne répond pas
+#: de façon fiable sans navigateur ; DBnomics la miroite sans clé.
+M2_URL = "https://api.db.nomics.world/v22/series/FED/H6_H6_M2/M2.M"
 
 OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
 
@@ -205,6 +211,27 @@ def fetch_eur_rate(default: float = 0.924) -> float:
 # ─────────────────────────────────────────────────────────────
 # Flux des ETF Bitcoin spot
 # ─────────────────────────────────────────────────────────────
+
+def fetch_m2_supply(start: str = "2013-01-01") -> pd.DataFrame:
+    """Masse monétaire M2 des États-Unis, en milliards de dollars.
+
+    Série mensuelle désaisonnalisée, publiée avec environ deux mois de
+    retard — c'est le rythme de la donnée, pas un défaut de collecte.
+
+    Retourne un DataFrame `time` / `m2` trié, tronqué à `start` : la
+    série remonte à 1959, alors que le Bitcoin ne cote que depuis 2010.
+    """
+    response = requests.get(M2_URL, params={"observations": "true"}, timeout=20)
+    response.raise_for_status()
+
+    document = response.json()["series"]["docs"][0]
+    df = pd.DataFrame({
+        "time": pd.to_datetime(document["period_start_day"]),
+        "m2": pd.to_numeric(document["value"], errors="coerce"),
+    })
+    df = df.dropna().sort_values("time")
+    return df[df["time"] >= pd.Timestamp(start)].reset_index(drop=True)
+
 
 def fetch_etf_flows() -> pd.DataFrame:
     """Flux quotidiens des ETF Bitcoin spot américains, en millions de $.

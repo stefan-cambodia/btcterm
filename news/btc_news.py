@@ -9,161 +9,28 @@ Stockage : SQLite local (~/.btc_news/news.db)
 """
 
 import argparse
-import hashlib
 import json
 import sqlite3
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
 # Le socle vit à la racine du dépôt, un niveau au-dessus de ce fichier.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from btcterm import sources  # noqa: E402
+from btcterm import newsdb  # noqa: E402
+from btcterm.newsdb import DB_PATH, MIN_SCORE, init_db  # noqa: E402
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-DB_DIR  = Path.home() / ".btc_news"
-DB_PATH = DB_DIR / "news.db"
-CFG_PATH = DB_DIR / "config.json"
-
-# Seuil de score minimum pour qu'une news soit conservée (0-100)
-MIN_SCORE = 30
+# Schéma, scoring et collecte vivent dans `btcterm/newsdb.py` : le
+# terminal remplit la même base avec les mêmes règles, et ce fichier ne
+# garde que ce qui lui est propre — la ligne de commande et l'affichage.
 
 # Clé CryptoPanic (optionnelle – laisser vide pour n'utiliser que les RSS)
 CRYPTOPANIC_API_KEY = ""
-
-# ── Mots-clés et pondérations ────────────────────────────────────────────────
-
-KEYWORDS: dict[str, int] = {
-    # Macro / régulation (très fort impact)
-    "sec":             25, "etf":             25, "federal reserve":  20,
-    "fed rate":        20, "interest rate":   20, "regulation":      18,
-    "ban":             18, "lawsuit":         15, "congress":        15,
-    "senate":          15, "legislation":     15, "treasury":        15,
-    "blackrock":       18, "fidelity":        15, "vanguard":        12,
-    "spot etf":        25, "bitcoin etf":     25,
-
-    # Adoption institutionnelle
-    "microstrategy":   18, "strategy":        10, "tesla":           15,
-    "institutional":   15, "corporate":       10, "reserve":         12,
-    "sovereign":       18, "nation":          12, "government":      12,
-
-    # On-chain / marché
-    "whale":           15, "exchange outflow":20, "exchange inflow": 15,
-    "halving":         22, "mining":          10, "hash rate":       10,
-    "mempool":          8, "lightning":        8,
-
-    # Macro économique
-    "inflation":       15, "cpi":             18, "gdp":             12,
-    "recession":       15, "dollar":          12, "usd":             10,
-    "gold":            10, "oil":             8,
-
-    # Événements extrêmes
-    "hack":            20, "exploit":         20, "breach":          18,
-    "bankruptcy":      20, "insolvency":      20, "collapse":        20,
-    "liquidation":     18, "short squeeze":   18,
-
-    # Signaux de prix
-    "all-time high":   20, "ath":             20, "rally":           12,
-    "crash":           18, "dump":            15, "bull":            10,
-    "bear":            10, "correction":      12, "resistance":       8,
-    "support":          8,
-
-    # Bitcoin spécifique
-    "bitcoin":          5, "btc":              5, "satoshi":          5,
-    "taproot":         10, "ordinals":        10, "runes":           10,
-}
-
-# ── Base de données ───────────────────────────────────────────────────────────
-
-def init_db() -> sqlite3.Connection:
-    DB_DIR.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS news (
-            id          TEXT PRIMARY KEY,
-            title       TEXT NOT NULL,
-            summary     TEXT,
-            url         TEXT,
-            source      TEXT,
-            published   TEXT,
-            fetched_at  TEXT,
-            score       INTEGER DEFAULT 0,
-            keywords    TEXT,
-            sentiment   TEXT,
-            read        INTEGER DEFAULT 0
-        )
-    """)
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS fear_greed (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            value       INTEGER,
-            label       TEXT,
-            fetched_at  TEXT
-        )
-    """)
-    conn.commit()
-    return conn
-
-
-def article_id(url: str, title: str) -> str:
-    return hashlib.sha1(f"{url}{title}".encode()).hexdigest()
-
-
-def save_article(conn: sqlite3.Connection, article: dict) -> bool:
-    """Retourne True si l'article est nouveau."""
-    aid = article_id(article.get("url", ""), article["title"])
-    try:
-        conn.execute("""
-            INSERT INTO news (id, title, summary, url, source, published,
-                              fetched_at, score, keywords, sentiment)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, (
-            aid,
-            article["title"],
-            article.get("summary", ""),
-            article.get("url", ""),
-            article.get("source", ""),
-            article.get("published", ""),
-            datetime.now(timezone.utc).isoformat(),
-            article.get("score", 0),
-            json.dumps(article.get("keywords", [])),
-            article.get("sentiment", "neutral"),
-        ))
-        conn.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False  # déjà en base
-
-# ── Scoring ───────────────────────────────────────────────────────────────────
-
-def score_article(title: str, summary: str = "") -> tuple[int, list[str]]:
-    """Retourne (score, [mots-clés trouvés])."""
-    text = (title + " " + summary).lower()
-    total = 0
-    found: list[str] = []
-    for kw, weight in KEYWORDS.items():
-        if kw in text:
-            total += weight
-            found.append(kw)
-    return min(total, 100), found
-
-
-def detect_sentiment(title: str, summary: str = "") -> str:
-    text = (title + " " + summary).lower()
-    positive = ["rally", "bull", "surge", "ath", "all-time high", "adoption",
-                 "approved", "launch", "partnership", "growth", "soar"]
-    negative = ["crash", "dump", "ban", "hack", "exploit", "bankruptcy",
-                 "collapse", "liquidation", "lawsuit", "plunge", "fear"]
-    p = sum(1 for w in positive if w in text)
-    n = sum(1 for w in negative if w in text)
-    if p > n:   return "bullish"
-    if n > p:   return "bearish"
-    return "neutral"
 
 # ── Sources ───────────────────────────────────────────────────────────────────
 
@@ -172,80 +39,28 @@ def _report(article: dict, label: str) -> None:
     print(f"  {icon} [{article['score']:3d}] {label}: {article['title'][:80]}")
 
 
+def _warn(name: str, exc: Exception) -> None:
+    print(f"  ⚠️  Erreur {name}: {exc}", file=sys.stderr)
+
+
 def fetch_rss(conn: sqlite3.Connection, verbose: bool = False) -> int:
-    """Score puis stocke les articles des flux RSS. Retourne le nombre de nouveaux."""
-    def on_error(name: str, exc: Exception) -> None:
-        print(f"  ⚠️  Erreur RSS {name}: {exc}", file=sys.stderr)
-
-    new_count = 0
-    for entry in sources.fetch_rss_entries(on_error=on_error):
-        score, kws = score_article(entry["title"], entry["summary"])
-        if score < MIN_SCORE:
-            continue
-
-        article = {
-            **entry,
-            "summary": entry["summary"][:500],
-            "score": score,
-            "keywords": kws,
-            "sentiment": detect_sentiment(entry["title"], entry["summary"]),
-        }
-        if save_article(conn, article):
-            new_count += 1
-            if verbose:
-                _report(article, entry["source"])
-    return new_count
+    """Flux RSS : collecte du socle, compte rendu en ligne de commande."""
+    return newsdb.collect_rss(
+        conn, on_new=_report if verbose else None, on_error=_warn
+    )
 
 
-def fetch_cryptopanic(conn: sqlite3.Connection, api_key: str, verbose: bool = False) -> int:
-    """Idem pour CryptoPanic, dont les votes affinent score et sentiment."""
-    new_count = 0
-    try:
-        posts = sources.fetch_cryptopanic_posts(api_key)
-    except Exception as e:
-        print(f"  ⚠️  Erreur CryptoPanic: {e}", file=sys.stderr)
-        return 0
-
-    for post in posts:
-        votes = post["votes"]
-        # Bonus de score selon les votes CryptoPanic
-        bonus = min(votes.get("important", 0) * 5 + votes.get("liked", 0) * 2, 30)
-        score, kws = score_article(post["title"])
-        score = min(score + bonus, 100)
-        if score < MIN_SCORE:
-            continue
-
-        # Le sentiment de la communauté prime sur la détection lexicale
-        if votes.get("bullish", 0) > votes.get("bearish", 0):
-            sentiment = "bullish"
-        elif votes.get("bearish", 0) > votes.get("bullish", 0):
-            sentiment = "bearish"
-        else:
-            sentiment = detect_sentiment(post["title"])
-
-        article = {k: v for k, v in post.items() if k != "votes"}
-        article.update(score=score, keywords=kws, sentiment=sentiment)
-
-        if save_article(conn, article):
-            new_count += 1
-            if verbose:
-                _report(article, "CryptoPanic")
-    return new_count
+def fetch_cryptopanic(conn: sqlite3.Connection, api_key: str,
+                      verbose: bool = False) -> int:
+    """Idem pour CryptoPanic."""
+    return newsdb.collect_cryptopanic(
+        conn, api_key, on_new=_report if verbose else None, on_error=_warn
+    )
 
 
 def fetch_fear_greed(conn: sqlite3.Connection) -> Optional[dict]:
-    """Récupère l'indice Fear & Greed et l'historise."""
-    data = sources.fetch_fear_greed()
-    if data is None:
-        print("  ⚠️  Erreur Fear&Greed: source injoignable", file=sys.stderr)
-        return None
-
-    conn.execute(
-        "INSERT INTO fear_greed (value, label, fetched_at) VALUES (?, ?, ?)",
-        (data["value"], data["label"], datetime.now(timezone.utc).isoformat()),
-    )
-    conn.commit()
-    return data
+    """Idem pour l'indice Fear & Greed, historisé en base."""
+    return newsdb.record_fear_greed(conn, on_error=_warn)
 
 
 # ── Affichage ─────────────────────────────────────────────────────────────────

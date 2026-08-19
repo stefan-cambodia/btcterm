@@ -21,7 +21,9 @@ from btcterm import indicators as ind
 
 from .theme import C, MONO
 
-__all__ = ["VOL_BINS", "prepare_price_frame", "build_price_chart", "build_depth_chart"]
+__all__ = ["VOL_BINS", "prepare_price_frame", "build_price_chart",
+           "build_depth_chart", "prepare_macro_frame", "macro_stats",
+           "build_macro_chart"]
 
 VOL_BINS = 60
 
@@ -393,4 +395,121 @@ def build_depth_chart(books: dict, uirevision: str = "depth") -> go.Figure:
     )
     fig.update_xaxes(title_text="écart au prix médian (%)", **axis_common)
     fig.update_yaxes(title_text="volume cumulé (BTC)", **axis_common)
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────
+# Macro : cours contre masse monétaire
+# ─────────────────────────────────────────────────────────────
+
+def prepare_macro_frame(
+    btc: pd.DataFrame, m2: pd.DataFrame, lag_months: int = 0
+) -> pd.DataFrame:
+    """Aligne le cours mensuel et la masse monétaire sur le même calendrier.
+
+    Les deux séries ne tombent pas aux mêmes dates — Binance ouvre ses
+    bougies au premier du mois, la Fed publie M2 en fin de mois — d'où
+    l'alignement par période mensuelle plutôt que par horodatage.
+
+    `lag_months` décale la masse monétaire **vers l'avant** : c'est la
+    forme qu'a l'hypothèse courante, où le cours réagit à la liquidité
+    avec un ou deux trimestres de retard. La jointure est faite à gauche
+    sur le cours, pour que les derniers mois — M2 paraît avec deux mois
+    de décalage — restent tracés côté Bitcoin.
+    """
+    columns = ["time", "btc", "m2"]
+    if btc.empty or m2.empty:
+        return pd.DataFrame(columns=columns)
+
+    prix = pd.DataFrame({
+        "time": pd.to_datetime(btc["time"]),
+        "btc": btc["close"].astype(float),
+    })
+    prix["mois"] = prix["time"].dt.to_period("M")
+
+    masse = pd.DataFrame({
+        "mois": pd.to_datetime(m2["time"]).dt.to_period("M") + lag_months,
+        "m2": m2["m2"].astype(float),
+    })
+
+    frame = prix.merge(masse, on="mois", how="left")
+    return frame[columns]
+
+
+def macro_stats(frame: pd.DataFrame) -> dict:
+    """Corrélations et croissance annuelle de la masse monétaire.
+
+    Deux corrélations valent mieux qu'une. Celle des **niveaux** (log du
+    cours contre M2) est toujours forte, deux séries qui montent depuis
+    dix ans ne pouvant qu'aller ensemble ; elle dit peu. Celle des
+    **variations sur trois mois** enlève cette tendance commune et dit ce
+    qui reste : les deux séries accélèrent-elles vraiment ensemble ?
+    """
+    stats = {"niveaux": None, "variations": None, "m2_yoy": None, "points": 0}
+    valid = frame.dropna(subset=["btc", "m2"])
+    stats["points"] = len(valid)
+    if len(valid) < 12:
+        return stats
+
+    stats["niveaux"] = float(np.log(valid["btc"]).corr(valid["m2"]))
+
+    variations_btc = valid["btc"].pct_change(3)
+    variations_m2 = valid["m2"].pct_change(3)
+    stats["variations"] = float(variations_btc.corr(variations_m2))
+
+    if len(valid) >= 13:
+        recent, ancien = valid["m2"].iloc[-1], valid["m2"].iloc[-13]
+        stats["m2_yoy"] = float((recent / ancien - 1) * 100)
+    return stats
+
+
+def build_macro_chart(
+    frame: pd.DataFrame, uirevision: str = "macro", maximized: bool = False
+) -> go.Figure:
+    """Cours et masse monétaire sur deux axes, l'un logarithmique.
+
+    Deux axes plutôt qu'une normalisation : normaliser oblige à choisir
+    une date de départ, et le graphique change de forme selon ce choix.
+    L'axe des prix est logarithmique — le Bitcoin a fait ×20 quand M2
+    faisait ×1,4, et en linéaire la masse monétaire serait une ligne
+    plate collée au bas du cadre.
+    """
+    fig = go.Figure()
+
+    if not frame.empty:
+        fig.add_trace(go.Scatter(
+            x=frame["time"], y=frame["btc"], name="BTC",
+            line=dict(color=C["yellow"], width=1.8), mode="lines",
+            hovertemplate="BTC $%{y:,.0f}<extra></extra>",
+        ))
+        fig.add_trace(go.Scatter(
+            x=frame["time"], y=frame["m2"] / 1000, name="M2 (US)",
+            line=dict(color=C["cyan"], width=1.8), mode="lines", yaxis="y2",
+            connectgaps=False,
+            hovertemplate="M2 %{y:,.2f} T$<extra></extra>",
+        ))
+
+    axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
+                       tickfont=dict(size=9, color=C["muted"]))
+    fig.update_layout(
+        paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
+        font=dict(family=MONO, color=C["text"], size=10),
+        margin=dict(l=8, r=8, t=18 if maximized else 4, b=4),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
+                        font_color=C["text"], font_size=10),
+        legend=dict(orientation="h", y=1.02, x=0, yanchor="bottom",
+                    font=dict(size=9), bgcolor="rgba(0,0,0,0)"),
+        xaxis=dict(**axis_common),
+        yaxis=dict(title_text="BTC ($, log)", type="log", **axis_common),
+        yaxis2=dict(title_text="M2 (T$)", overlaying="y", side="right",
+                    showgrid=False, tickfont=dict(size=9, color=C["cyan"])),
+        uirevision=uirevision,
+    )
+    if frame.empty:
+        fig.add_annotation(
+            text="masse monétaire indisponible", xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(family=MONO, size=11, color=C["muted"]),
+        )
     return fig

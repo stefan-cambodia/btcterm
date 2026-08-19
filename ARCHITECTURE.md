@@ -24,7 +24,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant six panneaux sur une grille, avec trois régimes de
+  regroupant sept panneaux sur une grille, avec trois régimes de
   rafraîchissement et un hub qui n'ouvre qu'une connexion par plateforme.
 
 ```bash
@@ -33,9 +33,10 @@ python -m terminal.app        # http://127.0.0.1:8050
 
 Les quatre scripts que le terminal remplace — les deux dashboards Dash et les
 deux fenêtres matplotlib — ont été supprimés à l'étape 4, après récupération de
-ce qu'ils avaient de propre. Ce qui subsiste ([§5](#5-détail-des-panneaux)) ne
-fait pas double emploi avec un panneau : le moniteur d'arbitrage en TUI,
-l'export des flux ETF et le tracker de news. Ce qui manque encore pour atteindre
+ce qu'ils avaient de propre, et `m2supply.html` a suivi à l'étape 5, remplacé
+par le panneau macro. Ce qui subsiste ([§5](#5-détail-des-panneaux)) ne fait pas
+double emploi avec un panneau : le moniteur d'arbitrage en TUI, l'export des
+flux ETF et le tracker de news. Ce qui manque encore pour atteindre
 la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 
 ```
@@ -48,7 +49,8 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 │   ├── indicators.py              calculs techniques purs
 │   ├── exchanges.py               carnet normalisé + connecteurs WebSocket
 │   ├── arbitrage.py               moteur d'écarts inter-plateformes
-│   ├── sources.py                 collecteurs REST, ETF, news, sentiment
+│   ├── sources.py                 collecteurs REST, ETF, M2, news, sentiment
+│   ├── newsdb.py                  base de news : schéma, scoring, collecte
 │   └── hub.py                     connexions mutualisées + caches
 │
 ├── terminal/                  ← TERMINAL : l'application Dash
@@ -56,17 +58,18 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 │   ├── theme.py                   palette et styles
 │   ├── charts.py                  figures Plotly
 │   ├── assets/                    CSS et JS servis au navigateur
-│   └── panels/                    price · orderbook · arbitrage · etf · news
+│   └── panels/                    price · orderbook · arbitrage · etf ·
+│                                   news · macro
 │
 ├── tests/
-│   ├── test_indicators_parity.py  non-régression de l'extraction
+│   ├── test_indicators_parity.py  non-régression des indicateurs
+│   ├── test_news_scoring.py       non-régression du scoring des news
 │   ├── test_terminal_wiring.py    panneaux posés et branchés
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
 │   ├── marionette_client.py       pilotage minimal de Firefox
 │   └── ui_smoke.py                contrôle de l'interface à l'écran
 │
 ├── etf_bitcoin_flows.py       ← CLI flux ETF
-├── m2supply.html              ← page statique (incomplète)
 │
 ├── arbitrage/                 ← TUI Rich, partage le moteur du socle
 │   ├── main.py
@@ -98,9 +101,10 @@ deux familles de plus ; leur suppression est ce qui a ramené la liste à trois.
 
 ## 2. Le socle `btcterm`
 
-Trois modules sans dépendance à une quelconque interface. Ils ne connaissent
-ni Dash, ni matplotlib, ni Rich : ce sont les panneaux qui les composent, jamais
-l'inverse. Aucun n'écrit sur disque ni n'affiche quoi que ce soit.
+Six modules sans dépendance à une quelconque interface. Ils ne connaissent ni
+Dash ni Rich : ce sont les panneaux qui les composent, jamais l'inverse. Aucun
+n'affiche quoi que ce soit, et seul `newsdb` écrit sur disque — c'est sa raison
+d'être.
 
 ### 2.1 `indicators` — calculs techniques
 
@@ -172,29 +176,63 @@ son premier état — et le moteur d'arbitrage, qui écarte les carnets de plus 
 | Domaine | Fonctions |
 |---|---|
 | Marché REST | `fetch_klines`, `fetch_ticker_24h`, `fetch_depth` |
-| Marché ccxt | `fetch_ohlcv_ccxt` |
 | Hors ligne | `generate_demo_ohlcv` |
 | Change | `fetch_eur_rate` |
 | Institutionnel | `fetch_etf_flows` |
+| Macro | `fetch_m2_supply` |
 | News | `fetch_rss_entries`, `fetch_cryptopanic_posts`, `fetch_fear_greed` |
 
 Ces fonctions récupèrent et normalisent, rien de plus : ni écriture en base, ni
-affichage, ni filtrage métier. Le scoring des news et leur stockage SQLite
-restent dans `news/btc_news.py`, dont ce sont les décisions propres.
+affichage, ni filtrage métier. Ce qui relève du métier des news — scorer,
+dédoublonner, stocker — vit à côté, dans `newsdb` (§2.4).
 
-Les dépendances optionnelles (`ccxt`, `feedparser`) sont importées à
-l'intérieur des fonctions qui les utilisent, pour qu'un panneau n'ait pas à les
-installer s'il ne s'en sert pas.
+`fetch_m2_supply` passe par DBnomics plutôt que par FRED : c'est la même série
+H.6 de la Réserve fédérale, mais sans clé d'API — l'export CSV de FRED ne
+répond pas de façon fiable hors navigateur.
 
-### 2.4 Non-régression
+`feedparser`, dépendance optionnelle, est importé à l'intérieur de la fonction
+qui l'utilise, pour qu'un usage du socle sans news n'ait pas à l'installer.
+
+### 2.4 `newsdb` — la base de news partagée
+
+Le tracker `news/btc_news.py` savait seul scorer un article et où vivent les
+news ; le panneau du terminal ne pouvait que lire une base en espérant que
+quelqu'un l'ait remplie. `newsdb` tient ce que les deux partagent :
+
+| Couche | Contenu |
+|---|---|
+| Schéma | tables `news` et `fear_greed`, `init_db`, `connect` (lecture seule) |
+| Scoring | `KEYWORDS`, `MIN_SCORE`, `score_article`, `detect_sentiment` |
+| Collecte | `collect_rss`, `collect_cryptopanic`, `record_fear_greed` |
+| Lecture | `latest`, `last_fear_greed` |
+| Boucle | `NewsCollector` — collecte périodique en thread démon |
+
+Aucune fonction n'affiche quoi que ce soit : ce qu'elles trouvent et ce qui
+échoue passe par des rappels (`on_new`, `on_error`), que le tracker branche sur
+ses `print` en couleurs et que le terminal branche sur son bandeau d'état.
+
+`NewsCollector` existe parce que le terminal ne peut pas attendre six flux RSS
+dans un callback Dash : la collecte tourne dans son propre thread, avec sa
+propre connexion SQLite — une connexion n'étant pas partageable entre threads —
+et les panneaux se contentent de lire. L'état de la dernière tournée est publié
+dans `status`, ce qui permet à la barre de titre d'afficher son âge, et de dire
+quand elle échoue.
+
+### 2.5 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
 valeurs — RSI, streak, rang centile, Connors RSI, Bollinger, ATR, volatilité,
 profil de volume, signaux gradués et marqueurs.
 
+`tests/test_news_scoring.py` fait de même pour le scoring extrait du tracker —
+mêmes scores, mêmes mots-clés, mêmes sentiments qu'avant — et vérifie en prime
+ce que l'extraction rend enfin testable sans réseau ni base réelle : la collecte
+écarte ce qui passe sous le seuil et n'insère pas deux fois le même article.
+
 ```bash
 python tests/test_indicators_parity.py
+python tests/test_news_scoring.py
 ```
 
 Le comparateur refuse les séries comportant moins de 100 valeurs exploitables :
@@ -220,7 +258,8 @@ terminal/
     ├── orderbook.py     carnet + profondeur comparée
     ├── arbitrage.py     écarts inter-plateformes
     ├── etf.py           flux des ETF spot
-    └── news.py          fil de news + Fear & Greed
+    ├── news.py          fil de news + Fear & Greed
+    └── macro.py         cours contre masse monétaire M2
 ```
 
 ```
@@ -230,8 +269,16 @@ terminal/
 │         │ profo. │           │
 │         ├────────┤   news    │
 │         │  etf   │           │
-└─────────┴────────┴───────────┘
+│         ├────────┴───────────┤
+│         │       macro        │
+└─────────┴────────────────────┘
 ```
+
+Le panneau macro occupe une rangée basse sur toute la largeur restante :
+deux séries mensuelles sur dix ans se lisent en longueur, et cette forme
+est celle qui coûte le moins de hauteur aux autres. Le carnet, lui, est
+passé de six à cinq niveaux par côté dans la grille — la rangée
+supplémentaire a raccourci les cellules d'une centaine de pixels.
 
 ### 3.1 Trois régimes de rafraîchissement
 
@@ -244,12 +291,19 @@ un carnet d'ordres.
 |---|---|---|---|
 | `tick-fast` | 250 ms | carnet, profondeur, arbitrage | 8–33 ms, 6–25 Ko |
 | `tick-slow` | 2 s | prix, bandeau | 0,3–1,3 s, 162 Ko |
-| `tick-rare` | 5 min | ETF, news, Fear & Greed | 0,3–0,5 s, 8–10 Ko |
+| `tick-rare` | 5 min | ETF, macro, Fear & Greed | 0,3–0,5 s, 8–10 Ko |
 
 Les panneaux rapides ne touchent jamais le réseau : ils lisent les carnets que
 le hub entretient en mémoire, ce qui explique l'écart d'un facteur cinquante
 avec le panneau prix. Ce dernier n'a de toute façon aucune raison d'aller plus
 vite : une bougie journalière ne change pas quatre fois par seconde.
+
+Un quatrième rythme échappe aux horloges : la **collecte des news**, toutes les
+quinze minutes, dans un thread démon du hub (§2.4). Elle ne pouvait pas vivre
+dans un callback — six flux RSS prennent plusieurs secondes, et le panneau
+serait resté figé pendant ce temps. Les panneaux lisent la base, jamais le
+réseau ; le fil affiche l'âge de la dernière tournée, un fil de news figé devant
+se voir.
 
 Une conséquence pratique : `update_title=None` désactive le « Updating… » que
 Dash affiche par défaut dans l'onglet, sans quoi il clignoterait en permanence
@@ -313,7 +367,7 @@ devise, d'échelle ou de sous-graphiques : le recadrage est alors ce qu'on veut.
 
 ### 3.4 Plein écran
 
-Une grille de six panneaux ne laisse pas assez de place pour lire finement un
+Une grille de sept panneaux ne laisse pas assez de place pour lire finement un
 graphique. Chaque panneau porte donc un bouton ⛶ qui le fait couvrir la fenêtre
 entière, les autres étant masqués ; un second clic, ou `Échap`, rend la grille.
 
@@ -421,6 +475,7 @@ Chaque source distante a une stratégie de repli explicite :
 | toute donnée REST déjà servie | dernière valeur connue, conservée par `TTLCache` |
 | chandeliers Binance, sans rien en cache | série de démonstration, signalée par un bandeau |
 | taux EUR | constante `0.924` |
+| masse monétaire M2 | tableau vide, le panneau macro le dit |
 | ticker 24 h | dict vide, le bandeau affiche `—` |
 | WebSocket (tous) | reconnexion (3 s fixes, ou backoff exponentiel plafonné à 30 s) |
 | flux RSS (`news`) | le feed en échec est sauté, les autres continuent |
@@ -448,8 +503,9 @@ de commande gardent la leur en tête de fichier. Convention constante :
 
 Les quatre scripts que le terminal a remplacés ne sont plus décrits ici : ils
 ont été supprimés à l'étape 4 ([§7](#7-feuille-de-route-vers-le-terminal)), et
-leur contenu vit maintenant dans le socle et les panneaux. Restent trois outils
-qui ne font double emploi avec aucun panneau, plus une page à reprendre.
+leur contenu vit maintenant dans le socle et les panneaux, comme celui de
+`m2supply.html`, repris par le panneau macro à l'étape 5. Restent trois outils
+qui ne font double emploi avec aucun panneau.
 
 ### 5.1 `arbitrage/main.py` — moteur d'arbitrage
 
@@ -546,24 +602,16 @@ interceptant `sqlite3.IntegrityError` — pas de `SELECT` préalable.
 **Pipeline d'ingestion** — la récupération vient du socle, le scoring et le
 stockage restent ici :
 
-```
-fetch_rss(conn)          sources.fetch_rss_entries   (6 flux, feedparser)
-fetch_cryptopanic(conn)  sources.fetch_cryptopanic_posts (sautée sans clé)
-fetch_fear_greed(conn)   sources.fetch_fear_greed → table fear_greed
-        │
-        ├─ score_article(title, summary)  → (score plafonné à 100, mots-clés trouvés)
-        ├─ detect_sentiment(title, summary) → bullish / bearish / neutral
-        └─ filtre score < MIN_SCORE (30), puis save_article()
-```
+**Ce qui n'est plus ici** — schéma, scoring et collecte sont partis dans
+`btcterm/newsdb.py` (§2.4), que le terminal partage : même base, mêmes
+pondérations, mêmes déduplications. Les fonctions `fetch_*` du script sont
+devenues des enveloppes de trois lignes autour de `newsdb.collect_*`, leur seul
+apport étant les rappels d'affichage.
 
-`KEYWORDS` est un simple `dict[str, int]` — c'est le point d'extension
-principal : le scoring est une somme de pondérations sur recherche de
-sous-chaîne dans `titre + résumé` en minuscules. Les poids sont regroupés par
-thème (macro/régulation 15-25, adoption 10-18, on-chain 8-22, événements
-extrêmes 18-20, signaux de prix 8-20, termes génériques 5-10).
-
-Pour CryptoPanic, le sentiment issu des votes prime sur la détection lexicale ;
-`detect_sentiment` n'est utilisé qu'en repli.
+`KEYWORDS` reste le point d'extension principal du scoring : une somme de
+pondérations sur recherche de sous-chaîne dans `titre + résumé` en minuscules,
+regroupées par thème (macro/régulation 15-25, adoption 10-18, on-chain 8-22,
+événements extrêmes 18-20, signaux de prix 8-20, termes génériques 5-10).
 
 **Couche CLI** — `argparse` avec sous-parseurs, puis un dict `dispatch`
 associant nom de commande → `cmd_*(args, conn)` : `fetch`, `list`, `unread`,
@@ -582,19 +630,6 @@ dépendance à une bibliothèque de rendu.
 `~/.config/fish/functions/btcnews.fish` pointant sur le python du venv.
 `systemd_timer.conf` fournit, en commentaires, les unités `.service` et
 `.timer` utilisateur (`OnUnitActiveSec=30min`, `Persistent=true`).
-
-### 5.4 `m2supply.html`
-
-Page Plotly autonome censée superposer BTC et masse monétaire M2 normalisés
-(deux axes Y, `rangeslider`, `hovermode: 'x unified'`, rafraîchissement par
-`setInterval` de 300 000 ms).
-
-**Le fichier est tronqué** : après `<!DOCTYPE html>` il reprend directement au
-milieu de la définition de `traceM2`. Sont absents le `<head>`, le `<script>`
-de chargement de Plotly, le conteneur `<div id="chart">`, la déclaration de
-`loadData(range)` et toute la récupération des séries BTC et M2. Il faut
-reconstituer ces parties avant de pouvoir l'utiliser ; en l'état c'est un
-fragment, pas une page fonctionnelle.
 
 ---
 
@@ -708,20 +743,32 @@ raccourcis vers `1d` et `1w`. Les copies conformes des indicateurs d'origine
 restent dans `tests/test_indicators_parity.py` : c'est ce qui permet de
 supprimer les fichiers sans perdre la garantie de non-régression.
 
-### Étape 5 — Compléter la couverture
+### Étape 5 — Compléter la couverture ⏳ *engagée*
 
-- **Contexte macro** : `m2supply.html` est tronqué (§5.4). La corrélation
-  BTC / masse monétaire M2 mérite un panneau ; la couche de rendu étant
-  tranchée, autant l'écrire directement en panneau Dash plutôt que réparer la
-  page.
-- **Collecte des news** : le panneau lit la base du tracker mais ne la remplit
-  pas. Il faut soit brancher `fetch` sur l'horloge lente du terminal, soit
-  documenter le timer systemd comme prérequis.
+Fait :
+
+- **Contexte macro** — `m2supply.html`, qui n'était qu'un fragment de page, est
+  supprimé au profit d'un septième panneau : cours contre masse monétaire M2
+  des États-Unis, décalage réglable de zéro à trois mois, et deux corrélations
+  dont seule celle des variations informe. La série vient de la Fed par
+  DBnomics, sans clé d'API.
+- **Collecte des news** — le terminal remplit désormais la base qu'il lisait,
+  toutes les quinze minutes, avec les règles du tracker devenues communes
+  (§2.4). Le timer systemd n'est plus un prérequis, seulement une façon de
+  garder la base à jour quand le terminal ne tourne pas. `--no-news` rend la
+  base au seul tracker.
+
+Reste :
+
 - **Panneaux absents** d'un terminal Bitcoin complet : dominance et
   capitalisation, funding rates et open interest sur les perpétuels,
   liquidations, métriques on-chain (hashrate, flux exchanges), calendrier macro.
 - `order/` est un répertoire vide — soit il matérialise un panneau prévu et
   reste à écrire, soit il est à supprimer.
+- **La grille est pleine.** Sept panneaux tiennent sur quatre rangées ; le
+  huitième ne tiendra pas sans changer de principe — onglets, panneaux
+  empilables ou espaces de travail commutables. C'est la question à trancher
+  avant d'ajouter les panneaux ci-dessus.
 
 ### Chantiers d'hygiène (indépendants)
 

@@ -13,10 +13,12 @@ from dash import Input, Output, State, dcc, html
 from ..charts import build_depth_chart
 from ..theme import C, MONO, PANEL_STYLE, TABLE_STYLE, TITLE_STYLE
 
-#: Dans la grille, le panneau ne peut afficher qu'une douzaine de lignes :
+#: Dans la grille, le panneau ne peut afficher qu'une dizaine de lignes :
 #: au-delà, les meilleures offres d'achat sortaient du cadre et seules les
-#: ventes restaient visibles. En plein écran, la place ne manque plus.
-DEPTH = 6
+#: ventes restaient visibles. Cinq niveaux de chaque côté depuis que la
+#: rangée macro a raccourci les cellules. En plein écran, la place ne
+#: manque plus.
+DEPTH = 5
 DEPTH_MAX = 20
 
 

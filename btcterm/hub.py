@@ -21,6 +21,7 @@ import pandas as pd
 
 from . import sources
 from .arbitrage import ArbitrageEngine
+from .newsdb import NewsCollector
 from .exchanges import (
     BinanceConnector,
     BybitConnector,
@@ -80,8 +81,22 @@ class MarketHub:
     TTL_EUR = 3600
     TTL_ETF = 1800
     TTL_FEAR_GREED = 900
+    #: La masse monétaire est mensuelle et publiée avec deux mois de
+    #: retard : la rafraîchir plus souvent qu'une fois par demi-journée
+    #: ne peut rien apprendre.
+    TTL_M2 = 21600
 
-    def __init__(self, symbol: str = "BTCUSDT", min_profit_pct: float = 0.1):
+    #: Période de collecte des news, en secondes. Les flux RSS publient
+    #: quelques articles par heure : un quart d'heure suffit largement.
+    NEWS_INTERVAL = 900
+
+    def __init__(
+        self,
+        symbol: str = "BTCUSDT",
+        min_profit_pct: float = 0.1,
+        collect_news: bool = True,
+        cryptopanic_key: str = "",
+    ):
         self.symbol = symbol
         self.books: dict[str, OrderBook] = {
             name: OrderBook(exchange=name)
@@ -89,6 +104,14 @@ class MarketHub:
         }
         self.engine = ArbitrageEngine(self.books, min_profit_pct=min_profit_pct)
         self.started_at = time.time()
+
+        # Le panneau news lisait une base que personne ne remplissait
+        # dans le terminal ; le collecteur s'en charge en tâche de fond,
+        # sans rendre le timer systemd du tracker obligatoire.
+        self.collect_news = collect_news
+        self.news = NewsCollector(
+            interval=self.NEWS_INTERVAL, api_key=cryptopanic_key
+        )
 
         self._cache = TTLCache()
         self._connectors: list = []
@@ -109,9 +132,13 @@ class MarketHub:
         ]
         self._thread = run_connectors_in_thread(self._connectors)
 
+        if self.collect_news:
+            self.news.start()
+
     def stop(self) -> None:
         for connector in self._connectors:
             connector.stop()
+        self.news.stop()
 
     @property
     def connected_count(self) -> int:
@@ -162,6 +189,18 @@ class MarketHub:
 
     def etf_flows(self) -> pd.DataFrame:
         return self._cache.get("etf", self.TTL_ETF, sources.fetch_etf_flows)
+
+    def m2_supply(self) -> pd.DataFrame:
+        """Masse monétaire M2 des États-Unis, pour le panneau macro.
+
+        Retourne un tableau vide plutôt que de lever si la source est
+        injoignable et que rien n'est en cache : le panneau le dit, les
+        autres continuent de vivre.
+        """
+        try:
+            return self._cache.get("m2", self.TTL_M2, sources.fetch_m2_supply)
+        except Exception:
+            return pd.DataFrame(columns=["time", "m2"])
 
     def fear_greed(self) -> Optional[dict]:
         return self._cache.get(

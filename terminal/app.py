@@ -17,13 +17,14 @@ Lancement :
 from __future__ import annotations
 
 import argparse
+import os
 
 import dash
 from dash import Input, Output, State, dcc, html
 
 from btcterm.hub import MarketHub
 
-from .panels import PANELS, arbitrage, etf, news, orderbook, price
+from .panels import PANELS, arbitrage, etf, macro, news, orderbook, price
 from .theme import C, MONO
 
 REFRESH_FAST_MS = 250
@@ -40,15 +41,23 @@ REFRESH_RARE_MS = 300_000
 #     │         │ profo. │           │
 #     │         ├────────┤   news    │
 #     │         │  etf   │           │
-#     └─────────┴────────┴───────────┘
+#     │         ├────────┴───────────┤
+#     │         │       macro        │
+#     └─────────┴────────────────────┘
+#
+# Le panneau macro prend toute la largeur restante sur une rangée basse :
+# deux séries mensuelles sur dix ans se lisent en longueur, pas en
+# hauteur, et c'est la forme qui coûte le moins aux autres panneaux.
 #
 # Les hauteurs sont fixées en fractions du viewport : Plotly a besoin
 # d'une hauteur explicite pour que le zoom se comporte correctement.
 _GRID = {
     "display": "grid",
-    "gridTemplateAreas": '"price book arb" "price depth news" "price etf news"',
+    "gridTemplateAreas": ('"price book arb" "price depth news"'
+                          ' "price etf news" "price macro macro"'),
     "gridTemplateColumns": "1.35fr 1fr 1fr",
-    "gridTemplateRows": "minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr)",
+    "gridTemplateRows": ("minmax(0, 1.05fr) minmax(0, 1fr)"
+                         " minmax(0, 1fr) minmax(0, 0.85fr)"),
     "gap": "8px",
     "padding": "8px",
     "height": "calc(100vh - 46px)",
@@ -59,7 +68,7 @@ _GRID = {
 
 #: Zones de la grille, dans l'ordre où elles sont posées. C'est aussi
 #: l'ordre des sorties du callback de plein écran.
-AREAS = ("price", "book", "arb", "depth", "etf", "news")
+AREAS = ("price", "book", "arb", "depth", "etf", "news", "macro")
 
 
 def _cell(area: str, content):
@@ -124,6 +133,7 @@ def create_app(hub: MarketHub) -> dash.Dash:
             _cell("depth", orderbook.depth_layout()),
             _cell("etf", etf.layout()),
             _cell("news", news.layout()),
+            _cell("macro", macro.layout()),
         ], id="grid", style=_GRID),
     ], style={"background": C["bg"], "margin": "0", "height": "100vh",
               "overflow": "hidden"})
@@ -215,9 +225,22 @@ def main() -> None:
              "le port sur le réseau",
     )
     parser.add_argument("--debug", action="store_true")
+    parser.add_argument(
+        "--no-news", action="store_true",
+        help="ne pas alimenter ~/.btc_news/news.db : le panneau news se "
+             "contente alors de lire ce que le tracker y a mis",
+    )
+    parser.add_argument(
+        "--cryptopanic-key", default=os.environ.get("CRYPTOPANIC_API_KEY", ""),
+        help="clé CryptoPanic pour la collecte de news (défaut : variable "
+             "d'environnement CRYPTOPANIC_API_KEY)",
+    )
     args = parser.parse_args()
 
-    hub = MarketHub()
+    hub = MarketHub(
+        collect_news=not args.no_news,
+        cryptopanic_key=args.cryptopanic_key,
+    )
     hub.start()
 
     app = create_app(hub)

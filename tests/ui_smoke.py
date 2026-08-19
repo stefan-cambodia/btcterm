@@ -47,10 +47,10 @@ def run(capture_dir: Path | None) -> int:
         time.sleep(2.5)
 
         print("\nGrille")
-        check("6 panneaux posés",
-              browser.js("return document.querySelectorAll('.cell').length;") == 6)
-        check("6 boutons plein écran",
-              browser.js("return document.querySelectorAll('.zoom-btn').length;") == 6)
+        check("7 panneaux posés",
+              browser.js("return document.querySelectorAll('.cell').length;") == 7)
+        check("7 boutons plein écran",
+              browser.js("return document.querySelectorAll('.zoom-btn').length;") == 7)
         check("feuille de style chargée", browser.js(
             "return !!Array.from(document.styleSheets)"
             ".find(s => (s.href || '').includes('terminal.css'));"))
@@ -110,7 +110,7 @@ def run(capture_dir: Path | None) -> int:
               f"{geometry['couvre']*100:.0f} %")
         check("graphique redimensionné", geometry["graphe"] > 900,
               f"{geometry['graphe']} px")
-        check("autres panneaux masqués", geometry["autres"] == 5)
+        check("autres panneaux masqués", geometry["autres"] == 6)
         if capture_dir:
             browser.screenshot(str(capture_dir / "plein-ecran.png"))
 
@@ -161,6 +161,22 @@ def run(capture_dir: Path | None) -> int:
         time.sleep(2)
         check("Échap restaure la grille",
               browser.js("return document.getElementById('cell-price').className;") == "cell")
+
+        print("\nPanneau macro")
+        macro = browser.js("""
+            const gd = document.getElementById('macro-chart')
+                .querySelector('.js-plotly-plot');
+            return {series: gd.data.length,
+                    axes: (gd.layout.yaxis || {}).type + '/' +
+                          ((gd.layout.yaxis2 || {}).side || '—'),
+                    stats: document.getElementById('macro-stats').textContent};
+        """)
+        check("cours et masse monétaire tracés", macro["series"] == 2,
+              f"{macro['series']} séries")
+        check("axe des prix log, M2 à droite", macro["axes"] == "log/right",
+              macro["axes"])
+        check("corrélations affichées", "r niveaux" in macro["stats"],
+              macro["stats"][:48])
 
         print("\nDouble-clic")
         browser.js("document.querySelector('#cell-arb')"

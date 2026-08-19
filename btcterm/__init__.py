@@ -1,14 +1,17 @@
 """
 btcterm — socle commun du terminal Bitcoin.
 
-Trois couches, indépendantes de toute interface :
+Six modules, indépendants de toute interface :
 
 - `indicators` : calculs techniques purs sur des séries pandas
 - `exchanges`  : carnet d'ordres normalisé et connecteurs WebSocket
-- `sources`    : collecteurs REST, ETF, news et sentiment
+- `sources`    : collecteurs REST — marché, ETF, masse monétaire, news
+- `arbitrage`  : moteur d'écarts inter-plateformes
+- `newsdb`     : base de news partagée — schéma, scoring, collecte
+- `hub`        : connexions mutualisées, caches et collecte de fond
 
 Les panneaux du terminal, comme les outils en ligne de commande qui
 subsistent, composent ces briques ; aucune ne dépend d'eux en retour.
 """
 
-__all__ = ["indicators", "exchanges", "sources"]
+__all__ = ["indicators", "exchanges", "sources", "arbitrage", "newsdb", "hub"]

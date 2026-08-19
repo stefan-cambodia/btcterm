@@ -25,11 +25,12 @@ ssh -L 8050:localhost:8050 <machine>
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
 | **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels | 2 s |
-| **Carnet** | 12 niveaux de chaque côté, spread, âge du flux, choix de la plateforme | 250 ms |
+| **Carnet** | 5 niveaux de chaque côté, spread, âge du flux, choix de la plateforme | 250 ms |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
-| **News** | fil scoré + indice Fear & Greed | 5 min |
+| **News** | fil scoré + indice Fear & Greed, collecte comprise | 5 min |
+| **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
 
 **Plein écran** — trois façons d'agrandir un panneau :
 
@@ -44,7 +45,7 @@ Les panneaux s'adaptent à la place disponible :
 
 - le **cours** occupe 69 % de la hauteur du graphique dans la grille, 77 % en
   plein écran, et **100 %** si l'on décoche tout ;
-- le **carnet** affiche 6 niveaux de chaque côté dans la grille, 20 en plein
+- le **carnet** affiche 5 niveaux de chaque côté dans la grille, 20 en plein
   écran.
 
 **Intervalles** — `15m` `30m` `1h` `4h` `6h` `12h` `1d` `1w` `1M`, à la casse
@@ -66,9 +67,23 @@ permet d'analyser une zone sans être recadré à chaque tour d'horloge.
 une série de démonstration générée localement plutôt qu'un cadre vide, et le
 signale par un bandeau orange : les chiffres affichés ne sont alors pas réels.
 
-Le panneau news **lit** la base alimentée par `news/btc_news.py` ; il ne la
-remplit pas. Pour l'alimenter : `python news/btc_news.py fetch`, ou le timer
-systemd fourni.
+**News** — le terminal **remplit** lui-même `~/.btc_news/news.db`, toutes les
+quinze minutes, avec les règles de scoring du tracker : plus besoin du timer
+systemd pour avoir un fil vivant. La barre de titre du panneau donne l'âge de la
+dernière collecte, et le nombre d'articles qu'elle a rapportés.
+
+```bash
+python -m terminal.app --no-news                 # laisser la base au tracker
+CRYPTOPANIC_API_KEY=… python -m terminal.app     # ajouter CryptoPanic aux RSS
+```
+
+**Macro** — le panneau du bas confronte le cours à la masse monétaire M2 des
+États-Unis (série H.6 de la Fed, mensuelle). Le sélecteur `+1M` … `+3M` décale
+M2 vers l'avant pour éprouver l'idée d'un cours qui suivrait la liquidité avec
+un trimestre de retard ; les deux corrélations affichées disent ce qu'il en est.
+Celle des **niveaux** est toujours forte et n'apprend rien — deux séries qui
+montent depuis dix ans vont ensemble ; celle des **variations sur trois mois**
+est la seule qui informe.
 
 ## Architecture
 
@@ -86,7 +101,8 @@ Ce que le terminal ne couvre pas encore garde sa ligne de commande : le
 moniteur d'arbitrage en TUI, l'export des flux ETF et le tracker de news, tous
 bâtis sur le même socle. Les quatre scripts que le terminal a remplacés —
 `btc-dash.py`, `btc_dashboard2.py`, `btc-liquidity.py`, `btc_orderbook_live.py` —
-ont été supprimés, de même qu'`etf.py`, doublon antérieur d'`etf_bitcoin_flows.py`.
+ont été supprimés, de même qu'`etf.py`, doublon antérieur d'`etf_bitcoin_flows.py`,
+et `m2supply.html`, page tronquée que le panneau macro remplace.
 
 > Données de marché : APIs publiques (Binance, Kraken, Coinbase, Bybit, OKX) —
 > **aucune clé API n'est requise**, aucun ordre n'est jamais passé.
@@ -101,7 +117,6 @@ ont été supprimés, de même qu'`etf.py`, doublon antérieur d'`etf_bitcoin_fl
 | `arbitrage/main.py` | TUI terminal (Rich) | WebSockets 5 exchanges | `python arbitrage/main.py` |
 | `etf_bitcoin_flows.py` | CLI | farside.co.uk (scraping) | `python etf_bitcoin_flows.py --days 90` |
 | `news/btc_news.py` | CLI + SQLite | RSS, CryptoPanic, Fear & Greed | `python news/btc_news.py fetch` |
-| `m2supply.html` | Page statique Plotly | — | ⚠️ fichier incomplet, voir plus bas |
 
 Voir [`ARCHITECTURE.md`](ARCHITECTURE.md) pour le détail interne de chaque module.
 
@@ -135,6 +150,7 @@ plus une fonction fish `btcnews`.
 
 ```bash
 python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
+python tests/test_news_scoring.py        # scoring et collecte des news
 python tests/test_terminal_wiring.py     # panneaux posés et branchés
 python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node)
 
@@ -145,10 +161,13 @@ python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
 Le premier vérifie que les indicateurs du socle produisent exactement les mêmes
 valeurs que les implémentations des dashboards d'origine, dont il conserve des
 copies conformes — c'est ce qui a permis de supprimer ces scripts sans perdre
-la garantie. Le deuxième qu'aucun
+la garantie. Le deuxième fait de même pour le scoring des news, extrait du
+tracker, et vérifie en prime ce que l'extraction rend enfin testable : la
+collecte filtre sous le seuil et n'insère pas deux fois le même article. Le
+troisième qu'aucun
 panneau n'a été écrit puis oublié — ni dans la grille, ni dans l'enregistrement
-des callbacks. Le troisième exécute la fonction JavaScript du plein écran sous
-Node, faute de quoi elle échapperait à toute couverture. Aucun des trois ne
+des callbacks. Le quatrième exécute la fonction JavaScript du plein écran sous
+Node, faute de quoi elle échapperait à toute couverture. Aucun des quatre ne
 touche au réseau.
 
 `ui_smoke.py` est à part : il pilote Firefox pour contrôler ce qui ne se voit
@@ -213,23 +232,19 @@ btcnews stats
 btcnews watch --interval 30      # boucle de surveillance
 ```
 
+Le scoring, le schéma et la collecte vivent dans `btcterm/newsdb.py` : ce script
+en garde la ligne de commande et l'affichage, le terminal la même base et les
+mêmes règles. Le tracker reste utile quand le terminal ne tourne pas — et
 `news/systemd_timer.conf` contient (en commentaires, à décommenter et adapter)
 les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
-
-### 4. `m2supply.html` — ⚠️ fichier incomplet
-
-Page Plotly censée superposer le cours du BTC et la masse monétaire M2
-normalisés. **En l'état le fichier est tronqué** : il ne contient que la fin du
-script (fin de `loadData`, layout, `Plotly.newPlot`, `setInterval` de 5 min).
-Il manque le `<head>`, le chargement de la bibliothèque Plotly, le `<div
-id="chart">` et tout le début de `loadData` — donc la récupération des données
-BTC et M2. Ouvert tel quel dans un navigateur, il ne produit rien.
 
 ---
 
 ## Notes
 
 - `order/` est un répertoire vide.
+- Le terminal écrit dans `~/.btc_news/news.db` — la base du tracker, mêmes
+  règles, mêmes déduplications. `--no-news` l'en dispense.
 - Aucun de ces scripts n'écrit d'ordre sur un exchange ; ils sont en lecture
   seule sur des endpoints publics.
 - Le terminal se lie à `127.0.0.1:8050` ; `--host` et `--port` permettent d'en
