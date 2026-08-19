@@ -253,18 +253,42 @@ Une conséquence pratique : `update_title=None` désactive le « Updating… » 
 Dash affiche par défaut dans l'onglet, sans quoi il clignoterait en permanence
 au rythme de l'horloge rapide.
 
-### 3.2 Préserver l'état d'analyse
+### 3.2 Le cours d'abord
+
+Le panneau prix est un `make_subplots` dont la **structure est construite à la
+demande** : `build_price_chart` reçoit la liste des sous-graphiques voulus
+(`rsi`, `crsi`, `volume`) et un drapeau pour le profil de volume, puis compose
+la grille en conséquence.
+
+La hauteur laissée au cours dépend de deux choses — combien de sous-graphiques
+l'accompagnent, et si le panneau est agrandi :
+
+| Sous-graphiques | Dans la grille | En plein écran |
+|---|---|---|
+| 3 | 66 % | 75 % |
+| 2 (défaut) | 72 % | 80 % |
+| 1 | 80 % | 86 % |
+| 0 | 100 % | 100 % |
+
+C'est le cours qu'on vient lire en séance d'analyse ; les oscillateurs
+l'accompagnent, ils ne le concurrencent pas. Un partage fixe à 54 % — celui de
+l'ancien dashboard — le rendait illisible dès que le panneau rétrécissait.
+
+### 3.3 Préserver l'état d'analyse
 
 Toutes les figures portent un `uirevision`. Sans lui, chaque rafraîchissement
 réinitialiserait le zoom, le pan et la sélection de légende : impossible
 d'examiner une zone de prix pendant que les données coulent, ce qui viderait de
 son sens l'usage en séance d'analyse.
 
-La valeur encode la série affichée (`"1d:USD"`, `"4h:EUR"`) : elle reste stable
-d'un rafraîchissement à l'autre, mais change quand on change d'intervalle ou de
-devise — cas où le recadrage est justement ce qu'on veut.
+La valeur encode la série affichée et la structure du graphique
+(`"1d:USD:profile,rsi,volume"`). Elle reste stable d'un rafraîchissement à
+l'autre **et au passage en plein écran** — le zoom en cours survit donc à
+l'agrandissement, ce qui est précisément le geste qu'on fait pour examiner une
+zone de plus près. Elle change en revanche quand on change d'intervalle, de
+devise ou de sous-graphiques : le recadrage est alors ce qu'on veut.
 
-### 3.3 Plein écran
+### 3.4 Plein écran
 
 Une grille de six panneaux ne laisse pas assez de place pour lire finement un
 graphique. Chaque panneau porte donc un bouton ⛶ qui le fait couvrir la fenêtre
@@ -287,7 +311,7 @@ Cette logique vivant en JavaScript, elle échapperait aux tests Python.
 `tests/test_fullscreen_toggle.py` extrait la fonction de `app.py` et l'exécute
 sous Node avec un faux `dash_clientside` (test ignoré si Node est absent).
 
-### 3.4 Anatomie d'un panneau
+### 3.5 Anatomie d'un panneau
 
 Chaque module de `panels/` expose exactement deux fonctions :
 
@@ -298,7 +322,7 @@ Un panneau ne fait aucun appel réseau : il demande au hub, qui mutualise. Il
 n'écrit rien non plus — le panneau news lit la base du tracker en lecture seule,
 la collecte et le scoring restant la responsabilité de `news/btc_news.py`.
 
-### 3.5 Contrôle visuel
+### 3.6 Contrôle visuel
 
 Une partie des défauts d'interface ne se voit qu'à l'écran, et aucune quantité
 de tests Python ne les révèle. `tests/ui_smoke.py` pilote donc Firefox par
@@ -316,9 +340,12 @@ l'agrandissement réel, le retour par `Échap`, le double-clic, et que le carnet
 montre bien ses deux côtés. Les captures qu'il dépose ont mis au jour deux
 défauts qu'aucun test logique n'aurait signalés : la légende du graphique
 recouvrait les bougies, et le carnet, trop haut pour son panneau, n'affichait
-que les ventes.
+que les ventes. C'est aussi ainsi qu'a été repérée une feuille de style qui ne
+prenait pas : les sélecteurs étaient stylés via `input:checked + span`, alors
+que Dash enveloppe la case dans un `<span>` et marque le `<label>` d'une classe
+`selected` — rien n'indiquait donc l'option active.
 
-### 3.6 Câblage vérifié
+### 3.7 Câblage vérifié
 
 `terminal/panels/__init__.py` déclare `PANELS`, et `app.py` enregistre les
 callbacks en parcourant cette liste : ajouter un module suffit à le brancher.

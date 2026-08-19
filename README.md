@@ -24,7 +24,7 @@ ssh -L 8050:localhost:8050 <machine>
 
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
-| **Prix** | chandeliers, MA 9/26/200, Bollinger, POC + Value Area, RSI, CRSI, volume, signaux, bascule USD/EUR | 2 s |
+| **Prix** | chandeliers, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule USD/EUR, sous-graphiques optionnels | 2 s |
 | **Carnet** | 12 niveaux de chaque côté, spread, âge du flux, choix de la plateforme | 250 ms |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
@@ -38,9 +38,19 @@ ssh -L 8050:localhost:8050 <machine>
   garde le double-clic pour réinitialiser les axes),
 - puis `Échap` ou un second clic pour revenir à la grille.
 
-Cliquer le ⛶ d'un autre panneau bascule directement de l'un à l'autre. Le carnet
-d'ordres affiche 20 niveaux de chaque côté en plein écran, contre 6 dans la
-grille.
+Cliquer le ⛶ d'un autre panneau bascule directement de l'un à l'autre.
+
+Les panneaux s'adaptent à la place disponible :
+
+- le **cours** occupe 69 % de la hauteur du graphique dans la grille, 77 % en
+  plein écran, et **100 %** si l'on décoche tout ;
+- le **carnet** affiche 6 niveaux de chaque côté dans la grille, 20 en plein
+  écran.
+
+**Sous-graphiques optionnels** — les cases `RSI` · `CRSI` · `VOL` · `PROFIL` de
+la barre de titre du panneau prix décident de ce qui accompagne les chandeliers.
+Tout ce qu'on décoche rend sa hauteur au cours. Par défaut : RSI, volume et
+profil de volume ; le CRSI est disponible mais masqué.
 
 Le graphique conserve zoom et pan pendant que les données coulent — c'est ce qui
 permet d'analyser une zone sans être recadré à chaque tour d'horloge.

@@ -69,22 +69,36 @@ body {
     border-color: #fbbf24;
 }
 
-/* ── Sélecteurs de barre de titre ──────────────────────────*/
+/* ── Sélecteurs de barre de titre ──────────────────────────
+   Dash enveloppe la case dans un <span> et marque le <label> de la
+   classe `selected` : c'est sur elle qu'il faut styler, un sélecteur
+   `input:checked + span` ne correspondant à rien dans ce balisage. */
 
-.tf-radio label {
-    margin-left: 8px;
+.tf-radio label,
+.tf-check label {
+    margin-left: 9px;
     color: #4b5563;
     cursor: pointer;
     white-space: nowrap;
 }
 
-.tf-radio input[type="radio"] {
+.tf-radio .dash-options-list-option-wrapper,
+.tf-check .dash-options-list-option-wrapper {
     display: none;
 }
 
-.tf-radio input[type="radio"]:checked + span {
+.tf-radio label:hover,
+.tf-check label:hover {
+    color: #94a3b8;
+}
+
+.tf-radio label.selected {
     color: #fbbf24;
     border-bottom: 1px solid #fbbf24;
+}
+
+.tf-check label.selected {
+    color: #22d3ee;
 }
 
 /* ── Barres de défilement ──────────────────────────────────*/

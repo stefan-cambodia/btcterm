@@ -9,6 +9,16 @@ from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
 INTERVALS = {"1H": "1h", "4H": "4h", "1D": "1d", "1W": "1w"}
 
+#: Sous-graphiques et profil de volume, décochables. Le cours récupère la
+#: hauteur libérée : c'est lui qu'on vient lire en séance d'analyse.
+EXTRAS = [
+    {"label": "RSI", "value": "rsi"},
+    {"label": "CRSI", "value": "crsi"},
+    {"label": "VOL", "value": "volume"},
+    {"label": "PROFIL", "value": "profile"},
+]
+DEFAULT_EXTRAS = ["rsi", "volume", "profile"]
+
 _BTN = {
     "background": "transparent", "color": C["muted"],
     "border": f"1px solid {C['border']}", "borderRadius": "3px",
@@ -36,6 +46,13 @@ def layout():
                     style={"display": "inline-block", "fontSize": "10px",
                            "marginLeft": "14px"},
                 ),
+                dcc.Checklist(
+                    id="price-extras",
+                    options=EXTRAS, value=DEFAULT_EXTRAS,
+                    inline=True, className="tf-check",
+                    style={"display": "inline-block", "fontSize": "10px",
+                           "marginLeft": "16px"},
+                ),
             ], style={"display": "flex", "alignItems": "center"}),
         ], style=TITLE_STYLE),
         dcc.Graph(
@@ -56,10 +73,24 @@ def register(app, hub):
         Input("tick-slow", "n_intervals"),
         Input("price-interval", "value"),
         Input("price-currency", "value"),
+        Input("price-extras", "value"),
+        Input("maximized", "data"),
     )
-    def _refresh(_tick, interval, currency):
+    def _refresh(_tick, interval, currency, extras, maximized):
+        extras = extras or []
         df = prepare_price_frame(hub.klines(interval, limit=350))
         rate = hub.eur_rate() if currency == "EUR" else 1.0
-        # La clé de révision inclut intervalle et devise : changer l'un des
-        # deux doit recadrer, un simple rafraîchissement ne doit pas.
-        return build_price_chart(df, currency, rate, uirevision=f"{interval}:{currency}")
+
+        # La clé de révision décrit la série et la structure du graphique :
+        # elle ne change pas au rafraîchissement, ni au passage en plein
+        # écran — le zoom en cours survit donc à l'agrandissement — mais
+        # change quand le contenu affiché change, ce qui recadre à propos.
+        revision = f"{interval}:{currency}:{','.join(sorted(extras))}"
+
+        return build_price_chart(
+            df, currency, rate,
+            uirevision=revision,
+            subpanels=tuple(e for e in extras if e != "profile"),
+            profile="profile" in extras,
+            maximized=(maximized == "price"),
+        )

@@ -96,6 +96,36 @@ def run(capture_dir: Path | None) -> int:
         if capture_dir:
             browser.screenshot(str(capture_dir / "plein-ecran.png"))
 
+        print("\nPart du cours")
+        share = browser.js("""
+            const gd = document.getElementById('price-chart')
+                .querySelector('.js-plotly-plot');
+            const d = gd.layout.yaxis.domain;
+            return Math.round((d[1] - d[0]) * 100);
+        """)
+        check("le cours domine en plein écran", share >= 75, f"{share} %")
+
+        for value in ("rsi", "volume", "profile"):
+            browser.js(
+                "document.querySelectorAll('#price-extras input')"
+                f"[{('rsi', 'crsi', 'volume', 'profile').index(value)}].click();")
+            time.sleep(2.2)
+        share = browser.js("""
+            const gd = document.getElementById('price-chart')
+                .querySelector('.js-plotly-plot');
+            const d = gd.layout.yaxis.domain;
+            return Math.round((d[1] - d[0]) * 100);
+        """)
+        check("tout décoché : le cours occupe tout", share == 100, f"{share} %")
+        if capture_dir:
+            browser.screenshot(str(capture_dir / "cours-seul.png"))
+
+        print("\nSélecteurs")
+        check("l'état coché est visible", browser.js("""
+            const label = document.querySelector('#price-currency label.selected');
+            return label && getComputedStyle(label).color !== 'rgb(75, 85, 99)';
+        """))
+
         print("\nRetour à la grille")
         browser.js("document.dispatchEvent("
                    "new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));")

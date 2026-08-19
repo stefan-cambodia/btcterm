@@ -52,34 +52,71 @@ def volume_profile(df: pd.DataFrame, bins: int = VOL_BINS):
     return ind.volume_profile(df, bins)
 
 
+SUBPANELS = ("rsi", "crsi", "volume")
+
+#: Part de hauteur laissée au cours selon le nombre de sous-graphiques
+#: affichés, dans la grille puis en plein écran. Le cours domine toujours,
+#: et d'autant plus quand la place ne manque pas.
+PRICE_SHARE = {
+    0: (1.00, 1.00),
+    1: (0.80, 0.86),
+    2: (0.72, 0.80),
+    3: (0.66, 0.75),
+}
+
+
+def _row_heights(count: int, maximized: bool) -> list[float]:
+    price = PRICE_SHARE[count][1 if maximized else 0]
+    if count == 0:
+        return [1.0]
+    return [price] + [(1 - price) / count] * count
+
+
 def build_price_chart(
     df: pd.DataFrame,
     currency: str = "USD",
     eur_rate: float = 1.0,
     uirevision: str = "price",
+    subpanels: tuple[str, ...] = ("rsi", "volume"),
+    profile: bool = True,
+    maximized: bool = False,
 ) -> go.Figure:
-    """Chandeliers, moyennes, Bollinger, POC/Value Area, RSI, CRSI, volume."""
+    """Chandeliers et moyennes, avec sous-graphiques optionnels.
+
+    `subpanels` choisit lesquels de RSI, CRSI et volume accompagnent le
+    cours ; `profile` le profil de volume en colonne de droite. Moins il
+    y en a, plus le cours occupe de hauteur — et il en occupe davantage
+    en plein écran, où l'analyse fine est l'objet même de l'agrandissement.
+    """
     mult = eur_rate if currency == "EUR" else 1.0
     sym  = "€" if currency == "EUR" else "$"
 
+    subpanels = tuple(s for s in SUBPANELS if s in subpanels)
+    rows = 1 + len(subpanels)
+    #: Numéro de rangée de chaque sous-graphique, ou None s'il est masqué.
+    row_of = {name: i + 2 for i, name in enumerate(subpanels)}
+
     centers, vp_vols, poc, va_lo, va_hi = volume_profile(df)
 
-    # ── Subplot grid ──────────────────────────────
-    #   col 1 (82%) : candles / RSI / CRSI / Volume
-    #   col 2 (18%) : Volume Profile (shares row 1 y-axis, spanning all rows)
+    # ── Grille de sous-graphiques ─────────────────
+    #   col 1 : cours, puis les sous-graphiques demandés
+    #   col 2 : profil de volume, aligné sur l'axe des prix
+    kinds = {"rsi": "scatter", "crsi": "scatter", "volume": "bar"}
+    if profile:
+        specs = [[{"type": "candlestick"}, {"type": "bar", "rowspan": rows}]]
+        specs += [[{"type": kinds[name]}, None] for name in subpanels]
+        grid = dict(cols=2, column_widths=[0.84, 0.16], specs=specs)
+    else:
+        specs = [[{"type": "candlestick"}]] + [[{"type": kinds[n]}] for n in subpanels]
+        grid = dict(cols=1, specs=specs)
+
     fig = make_subplots(
-        rows=4, cols=2,
-        column_widths=[0.82, 0.18],
-        row_heights=[0.54, 0.17, 0.13, 0.16],
+        rows=rows,
+        row_heights=_row_heights(len(subpanels), maximized),
         shared_xaxes=True,
         vertical_spacing=0.018,
         horizontal_spacing=0.008,
-        specs=[
-            [{"type": "candlestick"}, {"type": "bar", "rowspan": 4}],
-            [{"type": "scatter"},     None],
-            [{"type": "scatter"},     None],
-            [{"type": "bar"},         None],
-        ],
+        **grid,
     )
 
     px  = lambda s: s * mult          # price in chosen currency
@@ -177,62 +214,69 @@ def build_price_chart(
         ), row=1, col=1)
 
     # ── 6. Volume Profile (horizontal bars) ──────
-    vp_norm = vp_vols / vp_vols.max()
-    vp_clr  = [
-        C["poc"]    if abs(c - poc) < (poc * 0.004) else
-        C["green"]  if va_lo <= c <= va_hi else
-        "rgba(100,116,139,0.5)"
-        for c in centers
-    ]
-    fig.add_trace(go.Bar(
-        x=vp_norm, y=centers * mult,
-        orientation="h", name="Liq. Clusters", showlegend=False,
-        marker=dict(color=vp_clr, opacity=0.75),
-        hovertemplate="Vol: %{x:.2f}<br>%{y:,.0f}<extra></extra>",
-    ), row=1, col=2)
+    if profile:
+        vp_norm = vp_vols / vp_vols.max()
+        vp_clr = [
+            C["poc"]   if abs(c - poc) < (poc * 0.004) else
+            C["green"] if va_lo <= c <= va_hi else
+            "rgba(100,116,139,0.5)"
+            for c in centers
+        ]
+        fig.add_trace(go.Bar(
+            x=vp_norm, y=centers * mult,
+            orientation="h", name="Liq. Clusters", showlegend=False,
+            marker=dict(color=vp_clr, opacity=0.75),
+            hovertemplate="Vol: %{x:.2f}<br>%{y:,.0f}<extra></extra>",
+        ), row=1, col=2)
 
-    # ── 7. RSI panel ─────────────────────────────
-    rsi_clr = [
-        C["red"]   if v > 70 else
-        C["green"] if v < 30 else
-        C["blue"]
-        for v in df["rsi"].fillna(50)
-    ]
-    fig.add_trace(go.Scatter(
-        x=df["time"], y=df["rsi"], name="RSI 14", showlegend=False,
-        line=dict(color=C["blue"], width=1.4), mode="lines",
-        hovertemplate="RSI: %{y:.1f}<extra></extra>",
-    ), row=2, col=1)
-    fig.add_hrect(y0=70, y1=100, fillcolor="rgba(255,61,107,0.08)", line_width=0, row=2, col=1)
-    fig.add_hrect(y0=0,  y1=30,  fillcolor="rgba(0,212,170,0.08)",  line_width=0, row=2, col=1)
-    for lvl, c in ((30, C["green"]), (50, C["muted"]), (70, C["red"])):
-        fig.add_hline(y=lvl, line=dict(color=c, width=0.6, dash="dot"), row=2, col=1)
+    # ── 7. Sous-graphique RSI ────────────────────
+    if "rsi" in row_of:
+        row = row_of["rsi"]
+        fig.add_trace(go.Scatter(
+            x=df["time"], y=df["rsi"], name="RSI 14", showlegend=False,
+            line=dict(color=C["blue"], width=1.4), mode="lines",
+            hovertemplate="RSI: %{y:.1f}<extra></extra>",
+        ), row=row, col=1)
+        fig.add_hrect(y0=70, y1=100, fillcolor="rgba(255,61,107,0.08)",
+                      line_width=0, row=row, col=1)
+        fig.add_hrect(y0=0, y1=30, fillcolor="rgba(0,212,170,0.08)",
+                      line_width=0, row=row, col=1)
+        for level, color in ((30, C["green"]), (50, C["muted"]), (70, C["red"])):
+            fig.add_hline(y=level, line=dict(color=color, width=0.6, dash="dot"),
+                          row=row, col=1)
 
-    # ── 8. CRSI panel ────────────────────────────
-    fig.add_trace(go.Scatter(
-        x=df["time"], y=df["crsi"], name="CRSI", showlegend=False,
-        line=dict(color=C["purple"], width=1.4), mode="lines",
-        hovertemplate="CRSI: %{y:.1f}<extra></extra>",
-    ), row=3, col=1)
-    for lvl in (20, 50, 80):
-        fig.add_hline(y=lvl, line=dict(color=C["muted"], width=0.5, dash="dot"), row=3, col=1)
-    fig.add_hrect(y0=80, y1=100, fillcolor="rgba(255,61,107,0.07)", line_width=0, row=3, col=1)
-    fig.add_hrect(y0=0,  y1=20,  fillcolor="rgba(0,212,170,0.07)",  line_width=0, row=3, col=1)
+    # ── 8. Sous-graphique CRSI ───────────────────
+    if "crsi" in row_of:
+        row = row_of["crsi"]
+        fig.add_trace(go.Scatter(
+            x=df["time"], y=df["crsi"], name="CRSI", showlegend=False,
+            line=dict(color=C["purple"], width=1.4), mode="lines",
+            hovertemplate="CRSI: %{y:.1f}<extra></extra>",
+        ), row=row, col=1)
+        for level in (20, 50, 80):
+            fig.add_hline(y=level, line=dict(color=C["muted"], width=0.5, dash="dot"),
+                          row=row, col=1)
+        fig.add_hrect(y0=80, y1=100, fillcolor="rgba(255,61,107,0.07)",
+                      line_width=0, row=row, col=1)
+        fig.add_hrect(y0=0, y1=20, fillcolor="rgba(0,212,170,0.07)",
+                      line_width=0, row=row, col=1)
 
-    # ── 9. Volume bars ───────────────────────────
-    v_clr = [
-        C["green"] if df["close"].iloc[i] >= df["open"].iloc[i] else C["red"]
-        for i in range(len(df))
-    ]
-    fig.add_trace(go.Bar(
-        x=df["time"], y=df["volume"], name="Volume", showlegend=False,
-        marker_color=v_clr, opacity=0.75,
-        hovertemplate="Vol: %{y:,.0f}<extra></extra>",
-    ), row=4, col=1)
-    fig.add_trace(go.Scatter(
-        x=df["time"], y=df["vol_ma20"], name="Vol MA20",
-        line=dict(color=C["orange"], width=1.2), mode="lines", showlegend=False,
-    ), row=4, col=1)
+    # ── 9. Sous-graphique volume ─────────────────
+    if "volume" in row_of:
+        row = row_of["volume"]
+        colors = [
+            C["green"] if close_v >= open_v else C["red"]
+            for close_v, open_v in zip(df["close"], df["open"])
+        ]
+        fig.add_trace(go.Bar(
+            x=df["time"], y=df["volume"], name="Volume", showlegend=False,
+            marker_color=colors, opacity=0.75,
+            hovertemplate="Vol: %{y:,.0f}<extra></extra>",
+        ), row=row, col=1)
+        fig.add_trace(go.Scatter(
+            x=df["time"], y=df["vol_ma20"], name="Vol MA20",
+            line=dict(color=C["orange"], width=1.2), mode="lines", showlegend=False,
+        ), row=row, col=1)
 
     # ── Layout ───────────────────────────────────
     axis_common = dict(
@@ -267,14 +311,17 @@ def build_price_chart(
     )
 
     # Axes configuration
-    fig.update_yaxes(title_text=f"Price ({sym})",  row=1, col=1, **axis_common)
-    fig.update_yaxes(title_text="RSI",     row=2, col=1, range=[0, 100], **axis_common)
-    fig.update_yaxes(title_text="CRSI",    row=3, col=1, range=[0, 100], **axis_common)
-    fig.update_yaxes(title_text="Volume",  row=4, col=1, **axis_common)
-    fig.update_yaxes(showticklabels=False, showgrid=False, row=1, col=2)
+    fig.update_yaxes(title_text=f"Price ({sym})", row=1, col=1, **axis_common)
+    titles = {"rsi": "RSI", "crsi": "CRSI", "volume": "Volume"}
+    for name, row in row_of.items():
+        bounded = {"range": [0, 100]} if name in ("rsi", "crsi") else {}
+        fig.update_yaxes(title_text=titles[name], row=row, col=1,
+                         **bounded, **axis_common)
+    if profile:
+        fig.update_yaxes(showticklabels=False, showgrid=False, row=1, col=2)
 
-    for r in range(1, 5):
-        fig.update_xaxes(row=r, col=1, **axis_common)
+    for row in range(1, rows + 1):
+        fig.update_xaxes(row=row, col=1, **axis_common)
 
     return fig
 
