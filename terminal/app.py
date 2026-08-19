@@ -24,8 +24,8 @@ from dash import ALL, Input, Output, State, dcc, html
 
 from btcterm.hub import MarketHub
 
-from .panels import (PANELS, arbitrage, dominance, etf, liquidations, macro,
-                     news, onchain, orderbook, perp, price)
+from .panels import (PANELS, arbitrage, calendar, dominance, etf, liquidations,
+                     macro, news, onchain, orderbook, perp, price)
 from .theme import C, MONO
 
 REFRESH_FAST_MS = 250
@@ -82,7 +82,8 @@ CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
             ("liq", "LIQUIDATIONS", liquidations.layout)),
     "etf": (("etf", "FLUX ETF", etf.layout),
             ("perp", "PERPÉTUEL", perp.layout)),
-    "news": (("news", "NEWS", news.layout),),
+    "news": (("news", "NEWS", news.layout),
+             ("cal", "CALENDRIER", calendar.layout)),
     "macro": (("macro", "MACRO", macro.layout),
               ("dominance", "DOMINANCE", dominance.layout),
               ("onchain", "ON-CHAIN", onchain.layout)),

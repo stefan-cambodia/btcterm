@@ -274,6 +274,25 @@ def run(capture_dir: Path | None) -> int:
         check("le fil dit son état", len(liq["badges"]) > 8, liq["badges"][:44])
         check("le tableau dit le sien", len(liq["table"]) > 4, liq["table"][:44])
 
+        print("\nOnglet calendrier")
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-news .cell-tab'))
+                 .find(t => t.textContent === 'CALENDRIER').click();
+        """)
+        time.sleep(2.5)
+        cal = browser.js("""
+            return {liste: document.getElementById('cal-list').textContent,
+                    badge: document.getElementById('cal-next').textContent};
+        """)
+        # Les dates sont tenues à la main : le panneau doit montrer des
+        # événements à venir, ou dire que la liste est épuisée — jamais
+        # rester muet.
+        check("des échéances listées, ou l'épuisement dit",
+              "FOMC" in cal["liste"] or "épuisée" in cal["liste"],
+              cal["liste"][:44])
+        check("compte à rebours dans le titre", len(cal["badge"]) > 4,
+              cal["badge"][:32])
+
         browser.js("""
             Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
                  .find(t => t.textContent === 'MACRO').click();

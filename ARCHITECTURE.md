@@ -24,7 +24,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant onze panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant douze panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement, un hub qui n'ouvre qu'une connexion par plateforme et un
   collecteur de news en tâche de fond.
@@ -54,6 +54,7 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 │   ├── liquidations.py            fil des positions fermées de force
 │   ├── sources.py                 collecteurs REST : marché, ETF, M2,
 │   │                              terme, chaîne, news, sentiment
+│   ├── macrocal.py                calendrier macro tenu à la main
 │   ├── newsdb.py                  base de news : schéma, scoring, collecte
 │   └── hub.py                     connexions mutualisées + caches
 │
@@ -63,12 +64,13 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 │   ├── charts.py                  figures Plotly
 │   ├── assets/                    CSS et JS servis au navigateur
 │   └── panels/                    price · orderbook · arbitrage · etf ·
-│                                   news · macro
+│                                   news · calendar · macro
 │
 ├── tests/
 │   ├── test_indicators_parity.py  non-régression des indicateurs
 │   ├── test_news_scoring.py       non-régression du scoring des news
 │   ├── test_liquidations.py       lecture du flux de liquidations
+│   ├── test_macrocal.py           calendrier macro tenu à la main
 │   ├── test_terminal_wiring.py    panneaux posés et branchés
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
 │   ├── marionette_client.py       pilotage minimal de Firefox
@@ -105,7 +107,7 @@ deux familles de plus ; leur suppression est ce qui a ramené la liste à trois.
 
 ## 2. Le socle `btcterm`
 
-Sept modules sans dépendance à une quelconque interface. Ils ne connaissent ni
+Huit modules sans dépendance à une quelconque interface. Ils ne connaissent ni
 Dash ni Rich : ce sont les panneaux qui les composent, jamais l'inverse. Aucun
 n'affiche quoi que ce soit, et seul `newsdb` écrit sur disque — c'est sa raison
 d'être.
@@ -251,7 +253,36 @@ l'occasion : un flux qui n'alimente aucun carnet publie son état de
 connexion lui-même, en redéfinissant deux marqueurs, et hérite du reste —
 backoff exponentiel plafonné, remise à zéro après une connexion qui tient.
 
-### 2.6 Non-régression
+### 2.6 `macrocal` — le calendrier macro tenu à la main
+
+Aucune source publique satisfaisante n'existe pour un calendrier
+économique : les API ouvertes sont payantes ou sans licence claire. Mais
+les émetteurs publient eux-mêmes leurs dates longtemps à l'avance — la
+Fed donne ses réunions deux ans avant, l'OMB publie chaque automne le
+calendrier de l'année suivante pour toutes les statistiques fédérales.
+`macrocal` est la transcription de ces calendriers officiels, vérifiée à
+la source : décisions du FOMC 2026–2027 (avec le marqueur SEP des
+réunions à projections), CPI, rapport emploi (NFP) et inflation PCE 2026.
+
+Le module expose `EVENTS` (la liste triée), `upcoming` (l'à-venir,
+événement du jour compris — « aujourd'hui » est précisément ce qu'on
+vient lire), `next_of` (le prochain d'une famille, pour les badges) et
+`last_date` (jusqu'où court la liste).
+
+Deux pièges justifient que ce soit du code et non un simple tableau :
+
+- **Le fuseau.** Les publications sont définies en heure de New York
+  (8 h 30 pour les statistiques, 14 h pour le FOMC), et l'heure d'été
+  américaine ne commence ni ne finit avec l'européenne : deux fois par
+  an, le décalage avec Bruxelles change pendant deux à trois semaines.
+  `when_utc` convertit via `zoneinfo`, et le panneau affiche l'heure de
+  la machine.
+- **L'épuisement.** Une liste tenue à la main finit par se périmer ;
+  plutôt que de se taire, le panneau affiche l'horizon de la liste et
+  prévient quand il approche — le pendant du fil de news qui affiche
+  l'âge de sa collecte.
+
+### 2.7 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
@@ -264,6 +295,12 @@ trouve presque toujours le panneau vide. Le test lui injecte des messages au
 format documenté par Binance et vérifie le sens des événements, les totaux, la
 fenêtre glissante, le rejet des messages aberrants et la mise en forme du
 panneau.
+
+`tests/test_macrocal.py` garde la liste de dates contre ses deux façons de se
+tromper : la faute de frappe silencieuse — un 30 février lèverait dès l'import,
+mais un mardi écrit à la place d'un mercredi passerait sans bruit, d'où le
+contrôle qu'aucune publication ne tombe un week-end — et la conversion d'heure,
+vérifiée de part et d'autre du changement d'heure américain.
 
 `tests/test_news_scoring.py` fait de même pour le scoring extrait du tracker —
 mêmes scores, mêmes mots-clés, mêmes sentiments qu'avant — et vérifie en prime
@@ -303,6 +340,7 @@ terminal/
     ├── dominance.py     parts de capitalisation
     ├── onchain.py       hashrate, difficulté, mempool
     ├── news.py          fil de news + Fear & Greed
+    ├── calendar.py      échéances macro : FOMC, CPI, NFP, PCE
     └── macro.py         cours contre masse monétaire M2
 ```
 
@@ -338,7 +376,7 @@ un carnet d'ordres.
 |---|---|---|---|
 | `tick-fast` | 250 ms | carnet, profondeur, arbitrage, liquidations | 8–33 ms, 6–25 Ko |
 | `tick-slow` | 2 s | prix, bandeau, fil de news | 0,3–1,3 s, 162 Ko |
-| `tick-rare` | 5 min | flux ETF, perpétuel, macro, dominance, on-chain | 0,3–0,5 s, 8–10 Ko |
+| `tick-rare` | 5 min | flux ETF, perpétuel, macro, dominance, on-chain, calendrier | 0,3–0,5 s, 8–10 Ko |
 
 Les panneaux rapides ne touchent jamais le réseau : ils lisent les carnets que
 le hub entretient en mémoire, ce qui explique l'écart d'un facteur cinquante
@@ -769,17 +807,18 @@ L'objectif est de passer de « N scripts, N fenêtres » à « un terminal, N
 panneaux ». Les étapes ci-dessous sont ordonnées : chacune réduit le coût de la
 suivante.
 
-**Où en est-on.** Les étapes 1 à 4 sont faites — socle extrait, couche de rendu
-tranchée, données mutualisées, doublons supprimés. L'étape 5 est presque
-achevée : onze panneaux couvrent le prix, la liquidité, l'arbitrage, les
-liquidations, les flux ETF, le marché à terme, les news, la macro, la dominance
-et la chaîne. Ne manque plus qu'un calendrier macro, faute de source publique
-propre.
+**Où en est-on.** Les cinq étapes sont faites — socle extrait, couche de rendu
+tranchée, données mutualisées, doublons supprimés, couverture complète : douze
+panneaux couvrent le prix, la liquidité, l'arbitrage, les liquidations, les
+flux ETF, le marché à terme, les news, le calendrier macro, la macro, la
+dominance et la chaîne. Reste un seul chantier ouvert, conditionnel : le push
+WebSocket serveur → navigateur, si un tunnel SSH lointain fait un jour sentir
+sa latence.
 
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.6) :
+scripts y sont ramenés, sans changement de comportement (§2.7) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -858,7 +897,7 @@ raccourcis vers `1d` et `1w`. Les copies conformes des indicateurs d'origine
 restent dans `tests/test_indicators_parity.py` : c'est ce qui permet de
 supprimer les fichiers sans perdre la garantie de non-régression.
 
-### Étape 5 — Compléter la couverture ⏳ *engagée*
+### Étape 5 — Compléter la couverture ✅ *faite*
 
 Fait :
 
@@ -890,19 +929,19 @@ Fait :
   (§2.4). Le timer systemd n'est plus un prérequis, seulement une façon de
   garder la base à jour quand le terminal ne tourne pas. `--no-news` rend la
   base au seul tracker.
-
-Reste :
-
+- **Calendrier macro** — en onglet de la cellule news, sur une liste de dates
+  tenue à la main dans le socle (§2.6) : les calendriers économiques ouverts
+  étant payants ou sans licence claire, ce sont les calendriers officiels des
+  émetteurs qui ont été transcrits — FOMC 2026–2027 chez la Fed, CPI, NFP et
+  PCE 2026 au calendrier OMB des statistiques fédérales. Le panneau affiche
+  compte à rebours et heure locale, et dit jusqu'où court la liste — une liste
+  épuisée doit se voir, pas se taire.
 - ~~**La grille est pleine**~~ — réglé : une cellule peut héberger plusieurs
   panneaux, choisis par onglets (§3.5). Ajouter un panneau consiste désormais à
   écrire son module et à l'inscrire dans la cellule qui l'accueille ; la place
   n'est plus le facteur limitant.
 
-- **Un panneau manque** : le **calendrier macro**. Aucune source publique
-  satisfaisante n'a été trouvée — les calendriers économiques ouverts sont
-  soit payants, soit sans licence claire. À défaut, une liste de dates FOMC
-  tenue à la main ferait déjà l'essentiel. C'est la question à trancher avant
-  d'écrire le panneau, qui prendrait place en onglet de la cellule news.
+Reste, hors étape :
 
 - **Push WebSocket serveur → navigateur** (reporté de l'étape 2) — l'horloge
   rapide à 250 ms suffit sur une boucle locale ; ce chantier ne se justifiera

@@ -32,6 +32,7 @@ ssh -L 8050:localhost:8050 <machine>
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
 | **Perpétuel** | financement, open interest et part des comptes longs (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed | 2 s en lecture, collecte toutes les 15 min |
+| **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
 | **Dominance** | parts de capitalisation, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
@@ -49,10 +50,11 @@ gonfle décrit un marché endetté d'un seul côté — la configuration d'où s
 les liquidations en cascade.
 
 **Onglets** — une cellule peut héberger plusieurs panneaux, choisis par les
-onglets posés à la place du titre. Trois cellules en portent : carnet et
-profondeur, flux ETF et perpétuel, macro et dominance et on-chain — plus
-l'arbitrage, qui partage sa place avec les liquidations. Un panneau caché n'est pas dans la page —
-il ne coûte rien, et il se remplit dès qu'on l'affiche.
+onglets posés à la place du titre. Cinq cellules en portent : carnet et
+profondeur, flux ETF et perpétuel, news et calendrier, macro et dominance et
+on-chain — plus l'arbitrage, qui partage sa place avec les liquidations. Un
+panneau caché n'est pas dans la page — il ne coûte rien, et il se remplit dès
+qu'on l'affiche.
 
 **Plein écran** — trois façons d'agrandir un panneau :
 
@@ -107,6 +109,15 @@ Celle des **niveaux** est toujours forte et n'apprend rien — deux séries qui
 montent depuis dix ans vont ensemble ; celle des **variations sur trois mois**
 est la seule qui informe.
 
+**Calendrier** — les prochaines échéances qui font bouger le marché : décisions
+du FOMC (avec ou sans projections), inflation CPI et PCE, rapport sur l'emploi
+(NFP), chacune avec son compte à rebours et son heure locale. Aucune API
+publique satisfaisante n'existe pour ces dates ; elles sont transcrites à la
+main dans `btcterm/macrocal.py` depuis les calendriers officiels (la Fed publie
+les siennes deux ans à l'avance, l'OMB celles des statistiques fédérales un an).
+Le pied du panneau dit jusqu'où court la liste, et prévient quand elle
+s'épuise — un calendrier qui se tait parce qu'il est périmé doit se voir.
+
 ## Architecture
 
 - **`btcterm/`** — le socle : indicateurs, carnets et connecteurs WebSocket,
@@ -118,14 +129,11 @@ Détail complet dans [`ARCHITECTURE.md`](ARCHITECTURE.md), feuille de route en
 [§7](ARCHITECTURE.md#7-feuille-de-route-vers-le-terminal).
 
 **Où en est le projet** — le terminal couvre le prix et ses indicateurs, le
-carnet, la profondeur comparée, l'arbitrage, les flux ETF, les news et le
-contexte macro. Les scripts qu'il remplace ont été supprimés ; ceux qui restent
-(arbitrage en TUI, export ETF, tracker de news) ne font double emploi avec aucun
-panneau.
-
-Reste à écrire : un calendrier macro, dont aucune source publique satisfaisante
-n'a été trouvée — c'est la question à trancher avant de l'écrire. La grille les accueillera
-en onglets — c'est ce que le mécanisme mis en place a débloqué.
+carnet, la profondeur comparée, l'arbitrage, les liquidations, les flux ETF, le
+marché à terme, les news, le calendrier macro, la dominance, la chaîne et le
+contexte macro : la couverture visée par la feuille de route est atteinte. Les
+scripts qu'il remplace ont été supprimés ; ceux qui restent (arbitrage en TUI,
+export ETF, tracker de news) ne font double emploi avec aucun panneau.
 
 ## Outils complémentaires
 
@@ -184,6 +192,7 @@ plus une fonction fish `btcnews`.
 python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
 python tests/test_news_scoring.py        # scoring et collecte des news
 python tests/test_liquidations.py        # lecture du flux de liquidations
+python tests/test_macrocal.py            # calendrier macro tenu à la main
 python tests/test_terminal_wiring.py     # panneaux posés et branchés
 python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node)
 
@@ -201,13 +210,16 @@ collecte filtre sous le seuil et n'insère pas deux fois le même article.
 Le troisième lit un flux de liquidations au format documenté par Binance sans
 toucher au réseau — ce flux étant épisodique, le contrôle Firefox trouve presque
 toujours le panneau vide, et le sens des événements (une vente forcée ferme une
-position longue) mérite mieux qu'une observation chanceuse. Le quatrième vérifie
+position longue) mérite mieux qu'une observation chanceuse. Le quatrième garde
+le calendrier macro contre ce qui guette une liste de dates tenue à la main : la
+faute de frappe silencieuse (aucune publication ne tombe un week-end) et le
+décalage d'heure d'été entre New York et l'Europe. Le cinquième vérifie
 qu'aucun panneau n'a été écrit puis oublié — ni dans la
 grille, ni dans l'enregistrement des callbacks, ni dans la liste des panneaux
 qu'une cellule peut afficher, un panneau absent de cette liste n'étant
-atteignable par aucun clic. Le cinquième exécute la fonction JavaScript du plein
+atteignable par aucun clic. Le sixième exécute la fonction JavaScript du plein
 écran sous Node, faute de quoi elle échapperait à toute couverture. Aucun des
-cinq ne touche au réseau.
+six ne touche au réseau.
 
 `ui_smoke.py` est à part : il pilote Firefox pour contrôler ce qui ne se voit
 qu'à l'écran — cellules posées, bouton visible et sans recouvrement, bascule
