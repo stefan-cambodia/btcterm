@@ -52,11 +52,19 @@ gonfle décrit un marché endetté d'un seul côté — la configuration d'où s
 les liquidations en cascade.
 
 **Onglets** — une cellule peut héberger plusieurs panneaux, choisis par les
-onglets posés à la place du titre. Cinq cellules en portent : carnet et
-profondeur, flux ETF et perpétuel, news et calendrier, macro et dominance et
-on-chain — plus l'arbitrage, qui partage sa place avec les liquidations. Un
-panneau caché n'est pas dans la page — il ne coûte rien, et il se remplit dès
-qu'on l'affiche.
+onglets posés à la place du titre. Par défaut, cinq cellules en portent :
+carnet et profondeur, flux ETF et perpétuel, news et calendrier, macro et
+dominance et on-chain — plus l'arbitrage, qui partage sa place avec les
+liquidations. Un panneau caché n'est pas dans la page — il ne coûte rien, et il
+se remplit dès qu'on l'affiche.
+
+**Disposition** — le **⚙** du bandeau ouvre un dialogue où chaque panneau se
+range dans la cellule de son choix : un sélecteur par panneau, donc aucun moyen
+d'en perdre un ni de l'afficher deux fois ; seule une cellule vidée de tout est
+refusée. Plusieurs panneaux rangés ensemble se partagent la cellule par
+onglets. « Par défaut » remplit le formulaire du rangement d'origine —
+« Appliquer » reste le seul geste qui écrit. La disposition survit au
+rechargement, comme le reste des réglages.
 
 **Plein écran** — trois façons d'agrandir un panneau :
 
@@ -89,9 +97,10 @@ profil de volume ; le CRSI est disponible mais masqué.
 Le graphique conserve zoom et pan pendant que les données coulent — c'est ce qui
 permet d'analyser une zone sans être recadré à chaque tour d'horloge. Les
 réglages, eux, survivent au rechargement de la page : intervalle, devise,
-échelle, sous-graphiques, plateforme du carnet, fenêtre et décalage macro, et
-l'onglet actif de chaque cellule sont conservés dans le navigateur
-(localStorage). Seul le plein écran ne revient pas : recharger rend la grille.
+échelle, sous-graphiques, plateforme du carnet, fenêtre et décalage macro,
+l'onglet actif de chaque cellule et la disposition de la grille sont conservés
+dans le navigateur (localStorage). Seul le plein écran ne revient pas :
+recharger rend la grille.
 
 **Hors ligne** — si Binance est injoignable au démarrage, le panneau prix sert
 une série de démonstration générée localement plutôt qu'un cadre vide, et le
@@ -207,6 +216,7 @@ python tests/test_news_scoring.py        # scoring et collecte des news
 python tests/test_liquidations.py        # lecture du flux de liquidations
 python tests/test_macrocal.py            # calendrier macro tenu à la main
 python tests/test_terminal_wiring.py     # panneaux posés et branchés
+python tests/test_grid_layout.py         # rangement configurable des panneaux
 python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node)
 
 python -m terminal.app &                 # puis, terminal lancé :
@@ -230,18 +240,24 @@ décalage d'heure d'été entre New York et l'Europe. Le cinquième vérifie
 qu'aucun panneau n'a été écrit puis oublié — ni dans la
 grille, ni dans l'enregistrement des callbacks, ni dans la liste des panneaux
 qu'une cellule peut afficher, un panneau absent de cette liste n'étant
-atteignable par aucun clic. Le sixième exécute la fonction JavaScript du plein
-écran sous Node, faute de quoi elle échapperait à toute couverture. Aucun des
-six ne touche au réseau.
+atteignable par aucun clic. Le sixième éprouve la normalisation du rangement
+des panneaux — un localStorage périmé ou altéré ne doit jamais casser le rendu
+d'une cellule, le navigateur du contrôle visuel partant, lui, toujours d'un
+état sain. Le septième exécute la fonction JavaScript du plein écran sous Node,
+faute de quoi elle échapperait à toute couverture. Aucun des sept ne touche au
+réseau.
 
 `ui_smoke.py` est à part : il pilote Firefox pour contrôler ce qui ne se voit
 qu'à l'écran — cellules posées, bouton visible et sans recouvrement, bascule
 plein écran effective, carnet montrant ses deux côtés, barre de titre du panneau
 prix tenant sur une ligne, échelle logarithmique atteignant l'axe, panneau macro
 traçant ses deux séries, changement d'onglet remplaçant un panneau par
-l'autre, rempli dès son apparition — et rechargement de page restaurant onglets
-et sélecteurs mais pas le plein écran. Il sait déposer des captures, suppose le
-terminal déjà lancé, et s'ignore si Firefox est absent.
+l'autre, rempli dès son apparition, rechargement de page restaurant onglets
+et sélecteurs mais pas le plein écran — et le dialogue de disposition : un
+panneau déménagé arrive dans sa cellule, en repart au rangement d'origine, et
+le déménagement survit au rechargement. Il sait déposer des captures, suppose
+le terminal déjà lancé (`--url` pour un port d'essai), et s'ignore si Firefox
+est absent.
 
 ## Les outils en détail
 

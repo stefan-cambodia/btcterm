@@ -67,9 +67,12 @@ _GRID = {
 }
 
 
-#: Composition des cellules. Une cellule peut héberger plusieurs
-#: panneaux, choisis par des onglets posés à la place du titre — c'est ce
-#: qui permet d'ajouter des panneaux à une grille déjà pleine.
+#: Composition des cellules **par défaut**. Une cellule peut héberger
+#: plusieurs panneaux, choisis par des onglets posés à la place du titre
+#: — c'est ce qui permet d'ajouter des panneaux à une grille déjà pleine.
+#: La répartition réelle est configurable (dialogue ⚙, Store
+#: `placement`) ; `CELLS` reste la seule liste de ce qui est affichable,
+#: et fournit le registre et le rangement de repli.
 #:
 #: Un panneau caché n'est pas dans la page : Dash ne fait donc tourner
 #: aucun de ses callbacks, et il se remplit dès qu'on l'affiche, sans
@@ -93,35 +96,103 @@ CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
 #: l'ordre des sorties du callback de plein écran.
 AREAS = tuple(CELLS)
 
-#: Panneau affiché par défaut dans chaque cellule.
-DEFAULT_TABS = {area: panels[0][0] for area, panels in CELLS.items()}
+#: Nom des cellules dans le dialogue de disposition — leur position à
+#: l'écran, seule chose qui parle à l'utilisateur.
+AREA_LABELS = {
+    "price": "gauche",
+    "book": "centre haut",
+    "etf": "centre bas",
+    "arb": "droite haut",
+    "news": "droite bas",
+    "macro": "rangée basse",
+}
+
+#: Colonnes du dialogue : la position des cellules à l'écran, de gauche à
+#: droite puis de haut en bas — pas l'ordre interne d'AREAS. Le test de
+#: rangement vérifie qu'aucune cellule n'y manque.
+DIALOG_COLUMNS = ("price", "book", "etf", "arb", "news", "macro")
+
+#: Registre à plat des panneaux : identifiant → (libellé, layout).
+PANEL_REGISTRY: dict[str, tuple[str, object]] = {
+    panel_id: (label, fn)
+    for panels in CELLS.values() for panel_id, label, fn in panels
+}
+
+#: Cellule d'origine de chaque panneau — celle où il revient quand un
+#: rangement restauré ne le mentionne plus.
+HOME_AREA = {panel_id: area
+             for area, panels in CELLS.items() for panel_id, _, _ in panels}
+
+#: Rangement par défaut : cellule → panneaux, dans l'ordre des onglets.
+DEFAULT_PLACEMENT = {area: tuple(panel_id for panel_id, _, _ in panels)
+                     for area, panels in CELLS.items()}
 
 
-def _tabs(area: str, active: str):
+def normalize_placement(data) -> dict[str, tuple[str, ...]]:
+    """Rend un rangement exploitable, quoi que contienne le localStorage.
+
+    Un rangement restauré peut dater d'avant un renommage de panneau, ou
+    avoir été altéré : les identifiants inconnus sont écartés, un panneau
+    rangé deux fois ne garde que sa première place, un panneau rangé
+    nulle part revient dans sa cellule d'origine. Une cellule vide fait
+    retomber le tout sur le rangement par défaut — le dialogue refusant
+    d'en produire, elle ne peut venir que d'un localStorage périmé.
+    """
+    if not isinstance(data, dict):
+        return dict(DEFAULT_PLACEMENT)
+    seen: set[str] = set()
+    placement: dict[str, list[str]] = {}
+    for area in AREAS:
+        listed = data.get(area, [])
+        kept = []
+        for panel_id in (listed if isinstance(listed, (list, tuple)) else []):
+            if panel_id in PANEL_REGISTRY and panel_id not in seen:
+                kept.append(panel_id)
+                seen.add(panel_id)
+        placement[area] = kept
+    for panel_id in PANEL_REGISTRY:
+        if panel_id not in seen:
+            placement[HOME_AREA[panel_id]].append(panel_id)
+    if any(not panels for panels in placement.values()):
+        return dict(DEFAULT_PLACEMENT)
+    return {area: tuple(panels) for area, panels in placement.items()}
+
+
+def placement_from_choices(panel_ids, chosen_areas) -> dict[str, list[str]]:
+    """Traduit les choix du dialogue — panneau → cellule — en rangement.
+
+    L'ordre des onglets d'une cellule est l'ordre du registre : les rangs
+    du dialogue sont parcourus tels qu'ils sont affichés.
+    """
+    placement: dict[str, list[str]] = {area: [] for area in AREAS}
+    for panel_id, area in zip(panel_ids, chosen_areas):
+        placement[area if area in placement else HOME_AREA[panel_id]].append(panel_id)
+    return placement
+
+
+def _tabs(area: str, panels: tuple[str, ...], active: str):
     """Barre d'onglets d'une cellule, posée à la place du titre du panneau.
 
     Rien n'est rendu pour une cellule qui n'héberge qu'un panneau : ce
     dernier garde alors son propre titre.
     """
-    panels = CELLS[area]
     if len(panels) < 2:
         return None
     return html.Span([
         html.Span(
-            label,
+            PANEL_REGISTRY[panel_id][0],
             id={"type": "tab", "area": area, "panel": panel_id},
             className=("cell-tab cell-tab-active" if panel_id == active
                        else "cell-tab"),
             n_clicks=0,
         )
-        for panel_id, label, _ in panels
+        for panel_id in panels
     ], className="cell-tabs")
 
 
-def _body(area: str, active: str):
+def _body(area: str, active: str, placement: dict[str, tuple[str, ...]]):
     """Contenu d'une cellule : le seul panneau actif, titré par ses onglets."""
-    layout_fn = next(fn for panel_id, _, fn in CELLS[area] if panel_id == active)
-    return layout_fn(_tabs(area, active))
+    return PANEL_REGISTRY[active][1](_tabs(area, placement[area], active))
 
 
 def _cell(area: str):
@@ -134,7 +205,8 @@ def _cell(area: str):
         [
             html.Button("⛶", id=f"zoom-{area}", className="zoom-btn",
                         title="plein écran (Échap pour revenir)"),
-            html.Div(_body(area, DEFAULT_TABS[area]), id=f"cell-{area}-body",
+            html.Div(_body(area, DEFAULT_PLACEMENT[area][0], DEFAULT_PLACEMENT),
+                     id=f"cell-{area}-body",
                      style={"height": "100%"}),
         ],
         id=f"cell-{area}",
@@ -155,8 +227,10 @@ def _header():
                                          "fontWeight": "600"}),
         html.Span(id="hdr-change", style=_STAT),
         html.Span(id="hdr-spread", style=_STAT),
+        html.Button("⚙", id="layout-btn", className="layout-btn",
+                    title="disposition de la grille"),
         html.Span("⛶ ou double-clic sur un panneau · Échap pour revenir",
-                  style={**_STAT, "marginLeft": "auto", "color": C["muted"],
+                  style={**_STAT, "marginLeft": "12px", "color": C["muted"],
                          "fontSize": "10px"}),
         html.Span(id="hdr-status", style={**_STAT, "color": C["muted"]}),
     ], style={
@@ -164,6 +238,55 @@ def _header():
         "height": "38px", "background": C["panel"],
         "borderBottom": f"1px solid {C['border']}",
     })
+
+
+def _layout_dialog():
+    """Dialogue de rangement des panneaux, ouvert par le ⚙ du bandeau.
+
+    Un sélecteur par panneau plutôt qu'une liste par cellule : la
+    structure garantit d'elle-même qu'un panneau vit dans exactement une
+    cellule — impossible d'en perdre un ou de l'afficher deux fois. La
+    seule erreur qui reste constructible, une cellule vidée de tous ses
+    panneaux, est refusée à l'application.
+
+    Les sélecteurs ne portent pas de `persistence` : c'est le Store
+    `placement` qui persiste, et le dialogue est resynchronisé sur lui à
+    chaque ouverture.
+    """
+    rows = [
+        html.Div([
+            html.Span(label, className="layout-panel-name"),
+            dcc.RadioItems(
+                id={"type": "layout-cell", "panel": panel_id},
+                options=[{"label": AREA_LABELS[area], "value": area}
+                         for area in DIALOG_COLUMNS],
+                value=HOME_AREA[panel_id], inline=True,
+                className="tf-radio layout-radio",
+            ),
+        ], className="layout-row")
+        for panel_id, (label, _) in PANEL_REGISTRY.items()
+    ]
+    return html.Div(
+        html.Div([
+            html.Div("DISPOSITION DE LA GRILLE", className="layout-title"),
+            html.Div("Chaque panneau se range dans une cellule ; plusieurs "
+                     "panneaux dans la même cellule se choisissent par "
+                     "onglets, dans l'ordre de cette liste.",
+                     className="layout-help"),
+            *rows,
+            html.Div(id="layout-msg", className="layout-msg"),
+            html.Div([
+                html.Button("Appliquer", id="layout-apply",
+                            className="layout-button layout-button-primary"),
+                html.Button("Par défaut", id="layout-reset",
+                            className="layout-button"),
+                html.Button("Fermer", id="layout-close",
+                            className="layout-button"),
+            ], className="layout-actions"),
+        ], className="layout-dialog"),
+        id="layout-overlay",
+        className="layout-overlay layout-overlay-hidden",
+    )
 
 
 def create_app(hub: MarketHub) -> dash.Dash:
@@ -190,8 +313,17 @@ def create_app(hub: MarketHub) -> dash.Dash:
         # ce qui écraserait précisément ce qu'on veut restaurer. Le repli
         # sur les défauts appartient aux callbacks, qui le font déjà.
         dcc.Store(id="tabs", storage_type="local"),
+        # Même régime que `tabs` : la répartition des panneaux dans les
+        # cellules survit au rechargement, et surtout pas de `data=` — le
+        # repli sur le rangement par défaut appartient aux callbacks.
+        dcc.Store(id="placement", storage_type="local"),
+        # Ce qu'affiche réellement chaque cellule (panneau actif + liste
+        # d'onglets), en mémoire : c'est le garde qui évite de re-rendre
+        # une cellule dont rien n'a changé (§ _register_tabs).
+        *[dcc.Store(id=f"cell-{area}-view") for area in AREAS],
         _header(),
         html.Div([_cell(area) for area in AREAS], id="grid", style=_GRID),
+        _layout_dialog(),
     ], style={"background": C["bg"], "margin": "0", "height": "100vh",
               "overflow": "hidden"})
 
@@ -200,6 +332,7 @@ def create_app(hub: MarketHub) -> dash.Dash:
 
     _register_fullscreen(app)
     _register_tabs(app)
+    _register_layout_dialog(app)
 
     @app.callback(
         Output("hdr-price", "children"),
@@ -313,26 +446,93 @@ def _register_tabs(app: dash.Dash) -> None:
         prevent_initial_call=True,
     )
 
-    for area, panels in CELLS.items():
-        if len(panels) < 2:
-            continue
-
-        # Pas de `prevent_initial_call` : le Store étant persisté, le
-        # premier tour sert à synchroniser la cellule avec l'onglet
-        # restauré du localStorage — sans lui, la page rechargée
-        # marquerait l'onglet actif sans afficher son panneau.
+    for area in AREAS:
+        # Pas de `prevent_initial_call` : les Stores étant persistés, le
+        # premier tour sert à synchroniser la cellule avec l'onglet et le
+        # rangement restaurés du localStorage — sans lui, la page
+        # rechargée marquerait l'onglet actif sans afficher son panneau.
+        #
+        # Le Store `cell-…-view` retient ce que la cellule affiche déjà.
+        # `tabs` et `placement` sont globaux : sans ce garde, un clic
+        # d'onglet re-rendrait les six cellules, et remonter un graphique
+        # lui fait perdre son zoom — `uirevision` ne survit pas à un
+        # remontage, seulement aux mises à jour.
         @app.callback(
             Output(f"cell-{area}-body", "children"),
+            Output(f"cell-{area}-view", "data"),
             Input("tabs", "data"),
+            Input("placement", "data"),
+            State(f"cell-{area}-view", "data"),
         )
-        def _switch(tabs, area=area):
-            active = (tabs or {}).get(area, DEFAULT_TABS[area])
-            # Un localStorage peut dater d'avant un renommage de panneau :
-            # un identifiant inconnu retombe sur l'onglet par défaut au
-            # lieu de casser le rendu de la cellule.
-            if active not in {panel_id for panel_id, _, _ in CELLS[area]}:
-                active = DEFAULT_TABS[area]
-            return _body(area, active)
+        def _switch(tabs, placement, rendered, area=area):
+            placement = normalize_placement(placement)
+            panels = placement[area]
+            active = (tabs or {}).get(area, panels[0])
+            # Un localStorage peut dater d'avant un renommage de panneau,
+            # ou pointer un panneau parti dans une autre cellule : un
+            # identifiant absent retombe sur le premier onglet au lieu de
+            # casser le rendu de la cellule.
+            if active not in panels:
+                active = panels[0]
+            view = [active, list(panels)]
+            if view == rendered:
+                return dash.no_update, dash.no_update
+            return _body(area, active, placement), view
+
+
+def _register_layout_dialog(app: dash.Dash) -> None:
+    """Le dialogue de disposition : ouvrir, pré-remplir, appliquer.
+
+    Un seul callback pour les quatre boutons — ils écrivent tous dans les
+    mêmes sorties, et Dash n'accepte qu'un écrivain par sortie. Le
+    serveur est le bon endroit : ouvrir le dialogue est un geste rare, et
+    pré-remplir les sélecteurs demande le rangement normalisé.
+    """
+    @app.callback(
+        Output("layout-overlay", "className"),
+        Output({"type": "layout-cell", "panel": ALL}, "value"),
+        Output("placement", "data"),
+        Output("layout-msg", "children"),
+        Input("layout-btn", "n_clicks"),
+        Input("layout-apply", "n_clicks"),
+        Input("layout-reset", "n_clicks"),
+        Input("layout-close", "n_clicks"),
+        State({"type": "layout-cell", "panel": ALL}, "value"),
+        State({"type": "layout-cell", "panel": ALL}, "id"),
+        State("placement", "data"),
+        prevent_initial_call=True,
+    )
+    def _dialog(_open, _apply, _reset, _close, values, ids, stored):
+        visible = "layout-overlay"
+        hidden = "layout-overlay layout-overlay-hidden"
+        panel_ids = [component_id["panel"] for component_id in ids]
+        keep_values = [dash.no_update] * len(panel_ids)
+        trigger = dash.ctx.triggered_id
+
+        if trigger == "layout-close":
+            return hidden, keep_values, dash.no_update, ""
+
+        if trigger == "layout-btn":
+            # Resynchroniser les sélecteurs sur le rangement en vigueur :
+            # le dialogue a pu être fermé sur des choix non appliqués.
+            placement = normalize_placement(stored)
+            area_of = {panel_id: area for area, panels in placement.items()
+                       for panel_id in panels}
+            return (visible, [area_of[panel_id] for panel_id in panel_ids],
+                    dash.no_update, "")
+
+        if trigger == "layout-reset":
+            return (visible, [HOME_AREA[panel_id] for panel_id in panel_ids],
+                    dash.no_update, "rangement d'origine — Appliquer pour le retenir")
+
+        placement = placement_from_choices(panel_ids, values)
+        empty = [AREA_LABELS[area] for area, panels in placement.items()
+                 if not panels]
+        if empty:
+            return (visible, keep_values, dash.no_update,
+                    f"cellule vide : {', '.join(empty)} — chaque cellule doit "
+                    "garder au moins un panneau")
+        return hidden, keep_values, placement, ""
 
 
 def main() -> None:

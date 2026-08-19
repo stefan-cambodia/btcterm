@@ -61,7 +61,8 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 │   └── hub.py                     connexions mutualisées + caches
 │
 ├── terminal/                  ← TERMINAL : l'application Dash
-│   ├── app.py                     grille, horloges, bandeau, plein écran
+│   ├── app.py                     grille, horloges, bandeau, plein écran,
+│   │                              disposition configurable
 │   ├── theme.py                   palette et styles
 │   ├── charts.py                  figures Plotly
 │   ├── assets/                    CSS et JS servis au navigateur
@@ -74,6 +75,7 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 │   ├── test_liquidations.py       lecture du flux de liquidations
 │   ├── test_macrocal.py           calendrier macro tenu à la main
 │   ├── test_terminal_wiring.py    panneaux posés et branchés
+│   ├── test_grid_layout.py        rangement configurable des panneaux
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
 │   ├── marionette_client.py       pilotage minimal de Firefox
 │   └── ui_smoke.py                contrôle de l'interface à l'écran
@@ -329,7 +331,7 @@ SSH, ce qui écartait à la fois une interface texte et une application Qt.
 
 ```
 terminal/
-├── app.py           assemblage de la grille, horloges, bandeau, point d'entrée
+├── app.py           grille, disposition, horloges, bandeau, point d'entrée
 ├── theme.py         palette et styles partagés
 ├── charts.py        constructeurs de figures Plotly
 └── panels/          un module par panneau
@@ -360,7 +362,9 @@ terminal/
 ```
 
 Chaque cellule, hormis le prix, héberge plusieurs panneaux choisis par
-onglets (§3.5) — les majuscules du croquis sont les barres d'onglets.
+onglets (§3.5) — les majuscules du croquis sont les barres d'onglets. Le
+croquis montre la répartition **par défaut** : quels panneaux vivent
+dans quelle cellule se règle depuis le terminal lui-même (§3.6).
 
 Le panneau macro occupe une rangée basse sur toute la largeur restante :
 deux séries mensuelles sur dix ans se lisent en longueur, et cette forme
@@ -462,7 +466,8 @@ devise, d'échelle ou de sous-graphiques : le recadrage est alors ce qu'on veut.
 L'état survit aussi **au rechargement de la page** : tous les sélecteurs —
 intervalle, devise, échelle, sous-graphiques, plateforme du carnet, fenêtre et
 décalage du panneau macro — portent `persistence="local"`, et l'onglet actif de
-chaque cellule est un `Store` en localStorage. On ne reconfigure pas sa station
+chaque cellule comme la disposition de la grille (§3.6) sont des `Store` en
+localStorage. On ne reconfigure pas sa station
 de travail à chaque session ; accessoirement, la persistance des sélecteurs
 règle aussi le cas du changement d'onglet, qui reconstruit le layout du panneau
 quitté à ses défauts. Le plein écran, lui, reste volontairement en mémoire :
@@ -546,7 +551,48 @@ remplacerait ses propres entrées s'il écoutait les onglets directement, et
 chaque rendu le redéclencherait. Un callback clientside traduit donc le clic en
 une entrée du `Store` `tabs`, seul déclencheur du rendu.
 
-### 3.6 Anatomie d'un panneau
+### 3.6 La disposition se configure
+
+La répartition des panneaux dans les cellules n'est plus figée : le ⚙ du
+bandeau ouvre un dialogue où chaque panneau se range dans la cellule de
+son choix, et le rangement vit dans un `Store` en localStorage
+(`placement`), au même régime que les onglets — pas de `data=` initial,
+repli dans les callbacks (§3.3). `CELLS` reste la seule liste de ce qui
+est affichable ; elle fournit désormais le registre des panneaux, leur
+cellule d'origine et le rangement par défaut.
+
+Trois décisions structurent le mécanisme.
+
+**Un sélecteur par panneau, pas une liste par cellule.** Le dialogue
+pose une rangée par panneau et six positions au choix : la structure
+garantit d'elle-même qu'un panneau vit dans exactement une cellule —
+impossible d'en perdre un ou de l'afficher deux fois, les deux erreurs
+qu'une liste par cellule aurait laissées constructibles. La seule qui
+reste — vider une cellule de tous ses panneaux — est refusée à
+l'application. Les sélecteurs réutilisent le style `tf-radio` des barres
+de titre, et « Par défaut » ne fait que remplir le formulaire :
+« Appliquer » est le seul geste qui écrit.
+
+**Le rangement restauré est normalisé, jamais cru.** Un localStorage
+peut dater d'avant un renommage de panneau ou avoir été altéré :
+`normalize_placement` écarte les identifiants inconnus, réduit un
+panneau rangé deux fois à sa première place, rend un panneau oublié à sa
+cellule d'origine, et fait retomber sur le défaut un rangement qui
+viderait une cellule. `tests/test_grid_layout.py` éprouve chacun de ces
+cas — le contrôle Firefox ne le peut pas, son navigateur partant
+toujours d'un localStorage sain.
+
+**Une cellule ne se re-rend que si son contenu change.** `tabs` et
+`placement` sont des Stores globaux : sans garde, un clic d'onglet
+re-rendrait les six cellules — et remonter un graphique lui fait perdre
+son zoom, `uirevision` ne survivant qu'aux mises à jour, pas à un
+remontage. Chaque cellule retient donc dans un `Store` mémoire ce
+qu'elle affiche (panneau actif, liste d'onglets) et répond `no_update`
+quand rien n'en change. Le garde corrige au passage un défaut antérieur :
+avant lui, changer d'onglet dans une cellule remontait déjà les corps
+des autres.
+
+### 3.7 Anatomie d'un panneau
 
 Chaque module de `panels/` expose exactement deux fonctions :
 
@@ -558,7 +604,7 @@ Un panneau ne fait aucun appel réseau : il demande au hub, qui mutualise. Il
 n'écrit rien non plus — le panneau news lit la base en lecture seule, c'est le
 collecteur du hub qui l'alimente (§2.4).
 
-### 3.7 Contrôle visuel
+### 3.8 Contrôle visuel
 
 Une partie des défauts d'interface ne se voit qu'à l'écran, et aucune quantité
 de tests Python ne les révèle. `tests/ui_smoke.py` pilote donc Firefox par
@@ -578,7 +624,13 @@ ligne, que la bascule LOG atteint l'axe, que le panneau macro trace ses deux
 séries, que changer d'onglet remplace bien un panneau par l'autre, rempli dès
 son apparition — et qu'un rechargement restaure onglets et sélecteurs mais pas
 le plein écran (§3.3), en rechargeant réellement la page, seule façon d'éprouver
-ce que le localStorage garde et ce qu'il écrase. C'est ce contrôle qui a mis au
+ce que le localStorage garde et ce qu'il écrase. Le dialogue de
+disposition (§3.6) passe par le même contrôle : un panneau déménagé
+arrive dans sa cellule rempli dès l'ouverture de son onglet, le
+déménagement survit au rechargement, et « Par défaut » suivi
+d'« Appliquer » rend le rangement d'origine. L'option `--url` pointe le
+contrôle sur un port d'essai, pour vérifier une modification sans
+toucher au terminal qui tourne. C'est ce contrôle qui a mis au
 jour le Store persisté qu'un `data=` initial réécrivait à chaque chargement.
 Les captures qu'il dépose ont mis au jour deux
 défauts qu'aucun test logique n'aurait signalés : la légende du graphique
@@ -588,7 +640,7 @@ prenait pas : les sélecteurs étaient stylés via `input:checked + span`, alors
 que Dash enveloppe la case dans un `<span>` et marque le `<label>` d'une classe
 `selected` — rien n'indiquait donc l'option active.
 
-### 3.8 Câblage vérifié
+### 3.9 Câblage vérifié
 
 `terminal/panels/__init__.py` déclare `PANELS`, et `app.py` enregistre les
 callbacks en parcourant cette liste : ajouter un module suffit à le brancher.
@@ -854,7 +906,10 @@ suivante.
 tranchée, données mutualisées, doublons supprimés, couverture complète : douze
 panneaux couvrent le prix, la liquidité, l'arbitrage, les liquidations, les
 flux ETF, le marché à terme, les news, le calendrier macro, la macro, la
-dominance et la chaîne. Reste un seul chantier ouvert, conditionnel : le push
+dominance et la chaîne. La piste de confort laissée ouverte à la pause
+précédente — une disposition de grille configurable — est faite (§3.6) :
+chaque panneau se range dans la cellule de son choix, et le rangement
+survit au rechargement. Reste un seul chantier ouvert, conditionnel : le push
 WebSocket serveur → navigateur, si un tunnel SSH lointain fait un jour sentir
 sa latence.
 

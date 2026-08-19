@@ -136,6 +136,138 @@ body {
     color: #22d3ee;
 }
 
+/* ── Disposition de la grille ──────────────────────────────
+   Le bouton ⚙ du bandeau ouvre un dialogue où chaque panneau se range
+   dans une cellule. Les sélecteurs réutilisent le style `tf-radio` des
+   barres de titre ; la largeur fixe des libellés aligne les colonnes
+   d'une rangée à l'autre. */
+
+.layout-btn {
+    margin-left: auto;
+    background: #111827;
+    color: #94a3b8;
+    border: 1px solid #1e2639;
+    border-radius: 3px;
+    width: 24px;
+    height: 21px;
+    line-height: 1;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.layout-btn:hover {
+    color: #080b12;
+    background: #fbbf24;
+    border-color: #fbbf24;
+}
+
+.layout-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 80; /* au-dessus d'un panneau en plein écran (60) */
+    background: rgba(8, 11, 18, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.layout-overlay-hidden {
+    display: none;
+}
+
+.layout-dialog {
+    background: #0e1117;
+    border: 1px solid #1e2639;
+    border-radius: 6px;
+    padding: 16px 20px;
+    max-height: 85vh;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.layout-title {
+    color: #fbbf24;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    margin-bottom: 6px;
+}
+
+.layout-help {
+    color: #4b5563;
+    font-size: 10px;
+    margin-bottom: 12px;
+    max-width: 560px;
+}
+
+.layout-row {
+    display: flex;
+    align-items: center;
+    padding: 3px 0;
+    border-bottom: 1px solid #111827;
+}
+
+.layout-panel-name {
+    width: 120px;
+    flex-shrink: 0;
+    color: #e2e8f0;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+}
+
+.layout-radio {
+    font-size: 10px;
+}
+
+.layout-radio label {
+    display: inline-block;
+    width: 88px;
+    margin-left: 0;
+}
+
+.layout-msg {
+    color: #f59e0b;
+    font-size: 10px;
+    min-height: 14px;
+    margin-top: 10px;
+}
+
+.layout-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.layout-button {
+    background: #111827;
+    color: #94a3b8;
+    border: 1px solid #1e2639;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 10px;
+    padding: 4px 14px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.layout-button:hover {
+    color: #e2e8f0;
+    border-color: #4b5563;
+}
+
+.layout-button-primary {
+    color: #080b12;
+    background: #fbbf24;
+    border-color: #fbbf24;
+}
+
+.layout-button-primary:hover {
+    color: #080b12;
+    background: #fcd34d;
+    border-color: #fcd34d;
+}
+
 /* ── Barres de défilement ──────────────────────────────────*/
 
 ::-webkit-scrollbar {

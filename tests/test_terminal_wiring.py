@@ -23,7 +23,7 @@ import importlib  # noqa: E402
 import pkgutil  # noqa: E402
 
 from btcterm.hub import MarketHub  # noqa: E402
-from terminal.app import CELLS, create_app  # noqa: E402
+from terminal.app import CELLS, DEFAULT_PLACEMENT, create_app  # noqa: E402
 from terminal.app import _body  # noqa: E402
 from terminal.panels import PANELS  # noqa: E402
 
@@ -80,7 +80,7 @@ APP = create_app(HUB)
 APP_IDS = collect_ids(APP.layout)
 for _area, _panels in CELLS.items():
     for _panel_id, _label, _layout in _panels:
-        APP_IDS |= collect_ids(_body(_area, _panel_id))
+        APP_IDS |= collect_ids(_body(_area, _panel_id, DEFAULT_PLACEMENT))
 
 CALLBACK_KEYS = " ".join(APP.callback_map)
 

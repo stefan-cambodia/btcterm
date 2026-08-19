@@ -27,7 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 URL = "http://127.0.0.1:8050/"
 
 
-def run(capture_dir: Path | None) -> int:
+def run(capture_dir: Path | None, url: str = URL) -> int:
     from marionette_client import Firefox
 
     browser = Firefox()
@@ -50,7 +50,7 @@ def run(capture_dir: Path | None) -> int:
             failures += 1
 
     try:
-        browser.get(URL)
+        browser.get(url)
         if not browser.wait_for("document.querySelectorAll('.js-plotly-plot').length >= 3"):
             print("  ✗ les graphiques ne se sont pas rendus — le terminal tourne-t-il ?")
             return 1
@@ -334,7 +334,7 @@ def run(capture_dir: Path | None) -> int:
                  .find(l => l.textContent.trim() === 'KRK').click();
         """)
         time.sleep(1.5)
-        browser.get(URL)
+        browser.get(url)
         browser.wait_for("document.querySelectorAll('.js-plotly-plot').length >= 1")
         time.sleep(3)
         check("le plein écran ne survit pas, la grille oui",
@@ -352,6 +352,79 @@ def run(capture_dir: Path | None) -> int:
         check("le carnet retrouve Kraken", browser.js(
             "return (document.querySelector('#book-exchange label.selected')"
             " || {}).textContent;") == "KRK")
+
+        print("\nDisposition configurable")
+        # Déménager le calendrier de la cellule news vers la rangée basse,
+        # appliquer, vérifier — puis rendre le rangement d'origine. Le
+        # dialogue vit dans la page dès le chargement, seulement masqué.
+        check("le dialogue est masqué au départ", browser.js(
+            "return document.getElementById('layout-overlay')"
+            ".className.includes('layout-overlay-hidden');"))
+        browser.js("document.getElementById('layout-btn').click();")
+        time.sleep(1.5)
+        check("⚙ ouvre le dialogue", browser.js(
+            "return !document.getElementById('layout-overlay')"
+            ".className.includes('layout-overlay-hidden');"))
+        check("un rang par panneau", browser.js(
+            "return document.querySelectorAll('.layout-row').length;") == 12)
+        browser.js("""
+            const rang = Array.from(document.querySelectorAll('.layout-row'))
+                .find(r => r.querySelector('.layout-panel-name')
+                            .textContent === 'CALENDRIER');
+            Array.from(rang.querySelectorAll('label'))
+                .find(l => l.textContent.trim() === 'rangée basse').click();
+        """)
+        time.sleep(0.5)
+        browser.js("document.getElementById('layout-apply').click();")
+        time.sleep(2.5)
+        check("Appliquer ferme le dialogue", browser.js(
+            "return document.getElementById('layout-overlay')"
+            ".className.includes('layout-overlay-hidden');"))
+        check("le calendrier a rejoint la rangée basse", browser.js("""
+            return Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
+                .some(t => t.textContent === 'CALENDRIER');
+        """))
+        check("et a quitté la cellule news", browser.js("""
+            return !Array.from(document.querySelectorAll('#cell-news .cell-tab'))
+                .some(t => t.textContent === 'CALENDRIER');
+        """))
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
+                 .find(t => t.textContent === 'CALENDRIER').click();
+        """)
+        time.sleep(2.5)
+        check("et s'y remplit dès son ouverture", browser.js(
+            "return !!document.getElementById('cal-list')"
+            " && document.getElementById('cal-list').textContent.length > 8;"))
+        # Le déménagement doit survivre au rechargement, comme les onglets.
+        browser.get(url)
+        browser.wait_for("document.querySelectorAll('.js-plotly-plot').length >= 1")
+        time.sleep(3)
+        check("le déménagement survit au rechargement", browser.js("""
+            return Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
+                .some(t => t.textContent === 'CALENDRIER');
+        """))
+        # Rangement d'origine : Par défaut ne fait que remplir le
+        # formulaire, c'est Appliquer qui écrit.
+        browser.js("document.getElementById('layout-btn').click();")
+        time.sleep(1.5)
+        browser.js("document.getElementById('layout-reset').click();")
+        time.sleep(1)
+        browser.js("document.getElementById('layout-apply').click();")
+        time.sleep(2.5)
+        check("Par défaut + Appliquer rendent le calendrier aux news",
+              browser.js("""
+                  return Array.from(document.querySelectorAll('#cell-news .cell-tab'))
+                      .some(t => t.textContent === 'CALENDRIER');
+              """))
+        browser.js("document.getElementById('layout-btn').click();")
+        time.sleep(1.5)
+        browser.js("document.dispatchEvent(new KeyboardEvent('keydown',"
+                   " {key: 'Escape', bubbles: true}));")
+        time.sleep(1)
+        check("Échap ferme le dialogue rouvert", browser.js(
+            "return document.getElementById('layout-overlay')"
+            ".className.includes('layout-overlay-hidden');"))
     finally:
         browser.close()
 
@@ -362,6 +435,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--capture", type=Path, default=None,
                         help="dossier où déposer les captures d'écran")
+    parser.add_argument("--url", default=URL,
+                        help="adresse du terminal à contrôler (défaut : "
+                             f"{URL} — utile pour un port d'essai)")
     args = parser.parse_args()
 
     if not shutil.which("firefox"):
@@ -370,8 +446,8 @@ if __name__ == "__main__":
     if args.capture:
         args.capture.mkdir(parents=True, exist_ok=True)
 
-    print("\nContrôle de l'interface — " + URL + "\n" + "─" * 60)
-    failures = run(args.capture)
+    print("\nContrôle de l'interface — " + args.url + "\n" + "─" * 60)
+    failures = run(args.capture, args.url)
     print("\n" + "─" * 60)
     print("Interface conforme.\n" if not failures else f"{failures} contrôle(s) en échec.\n")
     sys.exit(1 if failures else 0)
