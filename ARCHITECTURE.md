@@ -81,6 +81,7 @@ et la liste de ce qui manque encore sont en
 │   ├── test_terminal_wiring.py    panneaux posés et branchés
 │   ├── test_grid_layout.py        rangement configurable des panneaux
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
+│   ├── test_push.py               pousseur WebSocket, sans navigateur
 │   ├── marionette_client.py       pilotage minimal de Firefox
 │   └── ui_smoke.py                contrôle de l'interface à l'écran
 │
@@ -634,7 +635,9 @@ ligne, que la bascule LOG atteint l'axe, que le panneau macro trace ses deux
 séries, que changer d'onglet remplace bien un panneau par l'autre, rempli dès
 son apparition — et qu'un rechargement restaure onglets et sélecteurs mais pas
 le plein écran (§3.3), en rechargeant réellement la page, seule façon d'éprouver
-ce que le localStorage garde et ce qu'il écrase. Le dialogue de
+ce que le localStorage garde et ce qu'il écrase. Le canal push (§3.10) y a sa
+section : badge à « push », carnet vivant l'horloge coupée, agrandissement
+acheminé par le WebSocket. Le dialogue de
 disposition (§3.6) passe par le même contrôle : un panneau déménagé
 arrive dans sa cellule rempli dès l'ouverture de son onglet, le
 déménagement survit au rechargement, et « Par défaut » suivi
@@ -707,9 +710,16 @@ est réellement regardé — distinction devenue nécessaire depuis que la
 disposition configurable (§3.6) permet au carnet ou aux liquidations de vivre
 ailleurs que dans leur cellule d'origine.
 
-`ui_smoke.py` contrôle le canal dans un vrai Firefox : le badge passe à
-« push », le carnet continue de vivre l'horloge coupée, et l'agrandissement —
-qui ne peut arriver que par le canal, le callback du carnet ne lisant
+Le canal est couvert des deux côtés. Hors ligne, `test_push.py` traite
+l'état annoncé comme une entrée hostile (un message malformé ne ferme jamais
+le canal), vérifie que le rendu poussé suit la plateforme et l'agrandissement,
+et que la sérialisation est stable à données constantes — l'hypothèse dont
+vivent les trames différentielles ; `test_terminal_wiring.py` vérifie que la
+route `/push` et ses relais d'état sont bien posés, le mutisme d'une route
+absente étant de la même famille que celui du panneau oublié (§3.9). À
+l'écran, `ui_smoke.py` contrôle le canal dans un vrai Firefox : le badge passe
+à « push », le carnet continue de vivre l'horloge coupée, et l'agrandissement
+— qui ne peut arriver que par le canal, le callback du carnet ne lisant
 `expanded` qu'en State — fait bien passer le carnet de 8 à 20 niveaux.
 
 ## 4. Patrons transverses
@@ -1134,11 +1144,11 @@ sentir, aucun ne conditionnant les autres.
 
 **Hygiène technique :**
 
-- **Tests hors ligne du pousseur** — le canal push n'est couvert que par le
-  contrôle navigateur (`ui_smoke`) : `_merge` et `_frame` se testeraient sans
-  réseau avec un hub factice, et `test_terminal_wiring` ignore la route
-  `/push` et ses relais d'état. C'est la seule pièce du terminal sans test
-  exécutable hors ligne.
+- ~~**Tests hors ligne du pousseur**~~ — fait : `test_push.py` couvre
+  `_merge` et `_frame` avec un hub jamais démarré, carnets remplis à la main
+  et liquidations injectées, et `test_terminal_wiring` vérifie la route
+  `/push` et ses relais d'état (§3.10). Plus aucune pièce du terminal n'est
+  sans test exécutable hors ligne.
 - **Serveur de développement** — le terminal tourne sur le serveur Werkzeug
   de Flask, suffisant pour un poste personnel mais pas pensé pour des
   semaines de fonctionnement continu. Si un usage long le justifie, un

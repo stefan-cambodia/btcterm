@@ -136,6 +136,23 @@ def test_horloges_declarees():
     print("  ✓ tick-fast / tick-slow / tick-rare")
 
 
+def test_pousseur_branche():
+    """La route /push et ses relais d'état doivent être en place.
+
+    Sans la route, push.js échoue en silence et le terminal reste en
+    interrogation — rien ne le signalerait au démarrage, c'est le même
+    genre de mutisme que le panneau oublié. Le rendu poussé, lui, est
+    couvert hors ligne par test_push.py.
+    """
+    rules = {rule.rule for rule in APP.server.url_map.iter_rules()}
+    assert "/push" in rules, "route /push absente du serveur Flask"
+    assert "expanded." in CALLBACK_KEYS, "Store expanded sans callback"
+    for sink in ("push-sink-expanded", "push-sink-exchange"):
+        assert sink in APP_IDS, f"{sink} absent de la page"
+        assert f"{sink}." in CALLBACK_KEYS, f"{sink} sans relais clientside"
+    print("  ✓ route /push posée, relais d'état branchés")
+
+
 def test_entete_branche():
     for component_id in ("hdr-price", "hdr-change", "hdr-spread", "hdr-status"):
         assert component_id in APP_IDS, f"{component_id} absent de l'en-tête"

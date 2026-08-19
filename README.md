@@ -225,6 +225,7 @@ python tests/test_macrocal.py            # calendrier macro tenu à la main
 python tests/test_terminal_wiring.py     # panneaux posés et branchés
 python tests/test_grid_layout.py         # rangement configurable des panneaux
 python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node)
+python tests/test_push.py                # pousseur WebSocket, sans navigateur
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
@@ -251,8 +252,11 @@ atteignable par aucun clic. Le sixième éprouve la normalisation du rangement
 des panneaux — un localStorage périmé ou altéré ne doit jamais casser le rendu
 d'une cellule, le navigateur du contrôle visuel partant, lui, toujours d'un
 état sain. Le septième exécute la fonction JavaScript du plein écran sous Node,
-faute de quoi elle échapperait à toute couverture. Aucun des sept ne touche au
-réseau.
+faute de quoi elle échapperait à toute couverture. Le huitième contrôle le
+pousseur WebSocket sans navigateur : l'état annoncé est traité comme une
+entrée hostile, le rendu poussé suit la plateforme et l'agrandissement, et la
+sérialisation est stable à données constantes — l'hypothèse dont vivent les
+trames différentielles. Aucun des huit ne touche au réseau.
 
 `ui_smoke.py` est à part : il pilote Firefox pour contrôler ce qui ne se voit
 qu'à l'écran — cellules posées, bouton visible et sans recouvrement, bascule
