@@ -7,7 +7,16 @@ from dash import Input, Output, dcc, html
 from ..charts import build_price_chart, prepare_price_frame
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
-INTERVALS = {"1H": "1h", "4H": "4h", "1D": "1d", "1W": "1w"}
+#: Intervalles proposés, chacun avec le nombre de bougies chargées.
+#: La palette large — de la bougie de quinze minutes à la mensuelle —
+#: vient de `btc_dashboard2.py`, dont c'était le seul apport sur le
+#: panneau prix. Les profondeurs d'historique suivent l'échelle : de quoi
+#: nourrir la MA 200 en intraday, sans tirer trente ans de mensuelles.
+INTERVALS = {
+    "15m": 300, "30m": 300, "1h": 350, "4h": 350, "6h": 300,
+    "12h": 300, "1d": 365, "1w": 260, "1M": 120,
+}
+DEFAULT_INTERVAL = "1d"
 
 #: Sous-graphiques et profil de volume, décochables. Le cours récupère la
 #: hauteur libérée : c'est lui qu'on vient lire en séance d'analyse.
@@ -30,30 +39,45 @@ _BTN = {
 def layout():
     return html.Div([
         html.Div([
-            html.Span("BTC/USDT · prix & indicateurs"),
+            # Titre court : la barre porte neuf intervalles, la devise,
+            # l'échelle et quatre sous-graphiques ; un intitulé plus long
+            # les faisait passer à la ligne dans la largeur de la grille.
+            html.Span("BTC/USDT", style={"fontSize": "9px",
+                                        "letterSpacing": "0.02em",
+                                        "whiteSpace": "nowrap"}),
             html.Div([
                 dcc.RadioItems(
                     id="price-interval",
-                    options=[{"label": k, "value": v} for k, v in INTERVALS.items()],
-                    value="1d", inline=True, className="tf-radio",
-                    style={"display": "inline-block", "fontSize": "10px"},
+                    options=[{"label": k, "value": k} for k in INTERVALS],
+                    value=DEFAULT_INTERVAL, inline=True, className="tf-radio",
+                    style={"display": "inline-block", "fontSize": "9px"},
                 ),
                 dcc.RadioItems(
                     id="price-currency",
-                    options=[{"label": "USD", "value": "USD"},
-                             {"label": "EUR", "value": "EUR"}],
+                    # Symboles plutôt que codes : trois lettres par devise
+                    # faisaient passer la barre de titre à la ligne.
+                    options=[{"label": "$", "value": "USD"},
+                             {"label": "€", "value": "EUR"}],
                     value="USD", inline=True, className="tf-radio",
-                    style={"display": "inline-block", "fontSize": "10px",
-                           "marginLeft": "14px"},
+                    style={"display": "inline-block", "fontSize": "9px",
+                           "marginLeft": "10px"},
+                ),
+                dcc.Checklist(
+                    id="price-scale",
+                    options=[{"label": "LOG", "value": "log"}],
+                    value=[], inline=True, className="tf-check",
+                    style={"display": "inline-block", "fontSize": "9px",
+                           "marginLeft": "10px"},
                 ),
                 dcc.Checklist(
                     id="price-extras",
                     options=EXTRAS, value=DEFAULT_EXTRAS,
                     inline=True, className="tf-check",
-                    style={"display": "inline-block", "fontSize": "10px",
-                           "marginLeft": "16px"},
+                    style={"display": "inline-block", "fontSize": "9px",
+                           "marginLeft": "10px"},
                 ),
-            ], style={"display": "flex", "alignItems": "center"}),
+            ], style={"display": "flex", "alignItems": "center",
+                      "whiteSpace": "nowrap"}),
         ], style=TITLE_STYLE),
         dcc.Graph(
             id="price-chart",
@@ -73,19 +97,23 @@ def register(app, hub):
         Input("tick-slow", "n_intervals"),
         Input("price-interval", "value"),
         Input("price-currency", "value"),
+        Input("price-scale", "value"),
         Input("price-extras", "value"),
         Input("maximized", "data"),
     )
-    def _refresh(_tick, interval, currency, extras, maximized):
+    def _refresh(_tick, interval, currency, scale, extras, maximized):
         extras = extras or []
-        df = prepare_price_frame(hub.klines(interval, limit=350))
+        log_scale = "log" in (scale or [])
+        interval = interval if interval in INTERVALS else DEFAULT_INTERVAL
+        df = prepare_price_frame(hub.klines(interval, limit=INTERVALS[interval]))
         rate = hub.eur_rate() if currency == "EUR" else 1.0
 
         # La clé de révision décrit la série et la structure du graphique :
         # elle ne change pas au rafraîchissement, ni au passage en plein
         # écran — le zoom en cours survit donc à l'agrandissement — mais
         # change quand le contenu affiché change, ce qui recadre à propos.
-        revision = f"{interval}:{currency}:{','.join(sorted(extras))}"
+        revision = (f"{interval}:{currency}:{'log' if log_scale else 'lin'}"
+                    f":{','.join(sorted(extras))}")
 
         return build_price_chart(
             df, currency, rate,
@@ -93,4 +121,5 @@ def register(app, hub):
             subpanels=tuple(e for e in extras if e != "profile"),
             profile="profile" in extras,
             maximized=(maximized == "price"),
+            log_scale=log_scale,
         )

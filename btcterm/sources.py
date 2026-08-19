@@ -7,10 +7,9 @@ indice Fear & Greed.
 
 Chaque fonction se limite à **récupérer et normaliser** ; aucune n'écrit
 en base ni n'affiche quoi que ce soit, afin qu'un même appel puisse
-servir plusieurs panneaux. Les dépendances optionnelles (`ccxt`,
-`feedparser`) sont importées à l'intérieur des fonctions qui les
-utilisent, pour qu'un panneau n'ait pas à les installer s'il ne s'en sert
-pas.
+servir plusieurs panneaux. Les dépendances optionnelles (`feedparser`)
+sont importées à l'intérieur des fonctions qui les utilisent, pour qu'un
+panneau n'ait pas à les installer s'il ne s'en sert pas.
 """
 
 from __future__ import annotations
@@ -27,7 +26,7 @@ import requests
 __all__ = [
     "BINANCE_REST", "OHLCV_COLUMNS", "RSS_FEEDS",
     "fetch_klines", "fetch_ticker_24h", "fetch_depth",
-    "fetch_ohlcv_ccxt", "generate_demo_ohlcv",
+    "KLINE_FREQ", "KLINE_HOURS", "generate_demo_ohlcv",
     "fetch_eur_rate",
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
@@ -122,43 +121,74 @@ def fetch_depth(
     )
 
 
-def fetch_ohlcv_ccxt(exchange, symbol: str, timeframe: str, limit: int) -> pd.DataFrame:
-    """Chandeliers via un exchange `ccxt` déjà instancié.
+#: Correspondance intervalle Binance → alias de fréquence pandas, pour les
+#: séries de démonstration : Binance parle en `15m` et `1M`, pandas en
+#: `15min` et `ME`.
+KLINE_FREQ = {
+    "15m": "15min", "30m": "30min", "1h": "h", "4h": "4h", "6h": "6h",
+    "12h": "12h", "1d": "D", "1w": "W", "1M": "ME",
+}
 
-    Passer par ccxt plutôt que par l'API Binance permet de changer de
-    plateforme sans toucher au reste du code.
-    """
-    raw = exchange.fetch_ohlcv(symbol, timeframe=timeframe, limit=limit)
-    df = pd.DataFrame(raw, columns=["ts", *OHLCV_COLUMNS])
-    df["ts"] = pd.to_datetime(df["ts"], unit="ms")
-    return df.set_index("ts")
+#: Paramètres de la série de démonstration : volatilité et dérive
+#: annualisées, et prix d'arrivée de la série.
+DEMO_VOL = 0.55
+DEMO_DRIFT = 0.40
+DEMO_ANCHOR = 80_000.0
+HOURS_PER_YEAR = 24 * 365
+
+#: Durée d'une bougie en heures, pour mettre la marche aléatoire de démo
+#: à l'échelle de l'intervalle demandé.
+KLINE_HOURS = {
+    "15m": 0.25, "30m": 0.5, "1h": 1, "4h": 4, "6h": 6,
+    "12h": 12, "1d": 24, "1w": 168, "1M": 730,
+}
 
 
-def generate_demo_ohlcv(limit: int = 300, seed: int = 42) -> pd.DataFrame:
+def generate_demo_ohlcv(
+    limit: int = 300, seed: int = 42, interval: str = "1h", index: bool = True
+) -> pd.DataFrame:
     """Série OHLCV synthétique, pour travailler hors ligne.
 
-    Marche aléatoire log-normale de paramètres plausibles pour du BTC
-    horaire. Le générateur est ensemencé afin que deux appels produisent
-    la même série.
+    Marche aléatoire log-normale paramétrée en annualisé — 55 % de
+    volatilité, 40 % de dérive, ordres de grandeur plausibles pour du
+    BTC — puis ramenée à la durée d'une bougie en racine du temps : une
+    bougie mensuelle bouge plus qu'une bougie de quinze minutes, quel
+    que soit l'intervalle demandé. La série est enfin recalée pour finir
+    sur `DEMO_ANCHOR`, faute de quoi une longue série mensuelle
+    s'éloignerait de tout prix crédible. Le générateur est ensemencé afin
+    que deux appels produisent la même série.
+
+    Le résultat porte `attrs["demo"] = True`, ce qui permet aux panneaux
+    de signaler que les chiffres affichés ne sont pas réels.
+
+    `index=False` retourne une colonne `time` et un index entier ;
+    `index=True` indexe par l'horodatage — mêmes conventions que
+    `fetch_klines`.
     """
     rng = np.random.default_rng(seed)
-    dates = pd.date_range(end=datetime.now(), periods=limit, freq="1h")
+    hours = KLINE_HOURS.get(interval, 1.0)
+    dates = pd.date_range(
+        end=datetime.now(), periods=limit, freq=KLINE_FREQ.get(interval, "h")
+    )
 
-    price = 80_000.0
-    prices = []
-    for _ in range(limit):
-        price *= np.exp(rng.normal(0.0002, 0.018))
-        prices.append(price)
-
-    close = pd.Series(prices)
+    years = hours / HOURS_PER_YEAR
+    steps = rng.normal(DEMO_DRIFT * years, DEMO_VOL * float(np.sqrt(years)), limit)
+    walk = np.exp(np.cumsum(steps))
+    close = pd.Series(walk * (DEMO_ANCHOR / walk[-1]))
     df = pd.DataFrame({
         "open": close.shift(1).fillna(close),
         "high": close * (1 + abs(rng.normal(0, 0.005, limit))),
         "low": close * (1 - abs(rng.normal(0, 0.005, limit))),
         "close": close,
         "volume": rng.lognormal(20, 1, limit),
-    }, index=dates)
-    df.index.name = "ts"
+    })
+    df.attrs["demo"] = True
+
+    if index:
+        df.index = dates
+        df.index.name = "ts"
+        return df
+    df["time"] = dates
     return df
 
 

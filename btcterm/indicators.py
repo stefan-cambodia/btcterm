@@ -1,8 +1,9 @@
 """
 Indicateurs techniques — socle commun du terminal.
 
-Ce module centralise les calculs qui étaient jusqu'ici dupliqués dans
-`btc-dash.py` et `btc_dashboard2.py`. Les fonctions sont volontairement
+Ce module centralise les calculs qui étaient dupliqués dans les deux
+dashboards d'origine, `btc-dash.py` et `btc_dashboard2.py`, supprimés
+depuis au profit du terminal. Les fonctions sont volontairement
 granulaires et sans effet de bord : elles prennent des `Series`/`DataFrame`
 et retournent des `Series`/`DataFrame`, sans jamais écrire dans le
 DataFrame d'entrée. La composition (quelles colonnes, quels paramètres)
@@ -44,10 +45,11 @@ def ema(series: pd.Series, period: int) -> pd.Series:
 def moving_average(series: pd.Series, period: int, method: str = "sma") -> pd.Series:
     """Moyenne mobile, `method` valant "sma" ou "ema".
 
-    Les deux dashboards historiques divergent sur ce point (SMA pour
-    `btc-dash.py`, EMA pour `btc_dashboard2.py` sur les MA 9 et 26) ; le
-    paramètre rend ce choix explicite au lieu de le laisser implicite dans
-    chaque fichier. La divergence sera tranchée à la fusion des panneaux.
+    Les deux dashboards d'origine divergeaient sur ce point : SMA pour
+    `btc-dash.py`, EMA pour `btc_dashboard2.py` sur les MA 9 et 26. La
+    fusion a tranché pour la SMA, que le panneau prix appelle
+    directement ; le paramètre garde l'autre variante à portée et permet
+    aux tests de parité de la rejouer.
     """
     if method == "sma":
         return sma(series, period)

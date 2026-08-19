@@ -479,7 +479,7 @@ def run_connectors_in_thread(
     """Lance les connecteurs dans un thread démon avec sa propre boucle.
 
     Destiné aux interfaces qui doivent garder le thread principal, comme
-    matplotlib.
+    le serveur Dash du terminal.
     """
     connectors = list(connectors)
 

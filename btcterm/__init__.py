@@ -7,8 +7,8 @@ Trois couches, indépendantes de toute interface :
 - `exchanges`  : carnet d'ordres normalisé et connecteurs WebSocket
 - `sources`    : collecteurs REST, ETF, news et sentiment
 
-Les panneaux (dashboards web, fenêtres matplotlib, TUI, CLI) composent
-ces briques ; aucune ne dépend d'eux en retour.
+Les panneaux du terminal, comme les outils en ligne de commande qui
+subsistent, composent ces briques ; aucune ne dépend d'eux en retour.
 """
 
 __all__ = ["indicators", "exchanges", "sources"]

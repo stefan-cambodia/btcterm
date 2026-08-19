@@ -80,6 +80,7 @@ def build_price_chart(
     subpanels: tuple[str, ...] = ("rsi", "volume"),
     profile: bool = True,
     maximized: bool = False,
+    log_scale: bool = False,
 ) -> go.Figure:
     """Chandeliers et moyennes, avec sous-graphiques optionnels.
 
@@ -87,6 +88,10 @@ def build_price_chart(
     cours ; `profile` le profil de volume en colonne de droite. Moins il
     y en a, plus le cours occupe de hauteur — et il en occupe davantage
     en plein écran, où l'analyse fine est l'objet même de l'agrandissement.
+
+    `log_scale` passe l'axe des prix en logarithmique : sur les échelles
+    longues — la mensuelle couvre dix ans — une progression de 4 000 à
+    80 000 dollars écrase tout le début du graphique en linéaire.
     """
     mult = eur_rate if currency == "EUR" else 1.0
     sym  = "€" if currency == "EUR" else "$"
@@ -311,7 +316,8 @@ def build_price_chart(
     )
 
     # Axes configuration
-    fig.update_yaxes(title_text=f"Price ({sym})", row=1, col=1, **axis_common)
+    fig.update_yaxes(title_text=f"Price ({sym})", row=1, col=1,
+                     type="log" if log_scale else "linear", **axis_common)
     titles = {"rsi": "RSI", "crsi": "CRSI", "volume": "Volume"}
     for name, row in row_of.items():
         bounded = {"range": [0, 100]} if name in ("rsi", "crsi") else {}
@@ -322,6 +328,21 @@ def build_price_chart(
 
     for row in range(1, rows + 1):
         fig.update_xaxes(row=row, col=1, **axis_common)
+
+    # Repli hors ligne : le hub sert une série synthétique quand la source
+    # est injoignable. Un graphique de démonstration qui ne se distingue
+    # pas d'un vrai serait pire que pas de graphique du tout — d'où ce
+    # bandeau, posé en coordonnées de domaine — donc dans le coin du
+    # graphique du cours, quel que soit le zoom, et hors de la bande
+    # supérieure qu'occupe déjà la légende.
+    if df.attrs.get("demo"):
+        fig.add_annotation(
+            text="⚠ DONNÉES DE DÉMONSTRATION · source injoignable",
+            xref="x domain", yref="y domain", x=0.99, y=0.98,
+            xanchor="right", yanchor="top", showarrow=False,
+            font=dict(family=MONO, size=10, color=C["bg"]),
+            bgcolor=C["orange"], borderpad=3,
+        )
 
     return fig
 

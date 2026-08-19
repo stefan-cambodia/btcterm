@@ -1,8 +1,8 @@
 # Dépendances du dépôt, par usage.
 #
-# Le socle `btcterm/` n'a besoin que du premier bloc ; chaque panneau
-# ajoute les siennes. Installer tout le fichier fait tourner l'ensemble
-# des outils :
+# Le socle `btcterm/` n'a besoin que du premier bloc ; le terminal et les
+# outils en ligne de commande ajoutent les leurs. Installer tout le
+# fichier fait tourner l'ensemble :
 #     pip install -r requirements.txt
 
 # ── Socle (btcterm) ─────────────────────────────────────────
@@ -10,20 +10,15 @@ pandas>=2.0
 numpy>=1.24
 requests>=2.31.0
 
-# ── Dashboards web (btc-dash.py, btc_dashboard2.py) ─────────
+# ── Terminal web (terminal/) ────────────────────────────────
 dash>=2.14
-dash-bootstrap-components>=1.5
 plotly>=5.18
-ccxt>=4.2
-
-# ── Fenêtres matplotlib (btc-liquidity.py, btc_orderbook_live.py) ──
-matplotlib>=3.8
 
 # ── Flux temps réel (carnets, arbitrage) ────────────────────
 websockets>=12.0
 rich>=13.0
 
-# ── Flux ETF (etf_bitcoin_flows.py, etf.py) ─────────────────
+# ── Flux ETF (etf_bitcoin_flows.py) ─────────────────────────
 lxml>=5.0
 beautifulsoup4>=4.12
 tabulate>=0.9

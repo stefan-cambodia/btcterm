@@ -24,7 +24,7 @@ ssh -L 8050:localhost:8050 <machine>
 
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
-| **Prix** | chandeliers, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule USD/EUR, sous-graphiques optionnels | 2 s |
+| **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels | 2 s |
 | **Carnet** | 12 niveaux de chaque côté, spread, âge du flux, choix de la plateforme | 250 ms |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
@@ -47,6 +47,13 @@ Les panneaux s'adaptent à la place disponible :
 - le **carnet** affiche 6 niveaux de chaque côté dans la grille, 20 en plein
   écran.
 
+**Intervalles** — `15m` `30m` `1h` `4h` `6h` `12h` `1d` `1w` `1M`, à la casse
+Binance : `m` pour les minutes, `M` pour le mois. Chacun a sa profondeur
+d'historique — de quoi nourrir la MA 200 en intraday, sans tirer trente ans de
+bougies mensuelles. La case `LOG` passe l'axe des prix en
+logarithmique — indispensable dès qu'on remonte plusieurs années, où une
+progression de 4 000 à 80 000 dollars écrase tout le début du graphique.
+
 **Sous-graphiques optionnels** — les cases `RSI` · `CRSI` · `VOL` · `PROFIL` de
 la barre de titre du panneau prix décident de ce qui accompagne les chandeliers.
 Tout ce qu'on décoche rend sa hauteur au cours. Par défaut : RSI, volume et
@@ -54,6 +61,10 @@ profil de volume ; le CRSI est disponible mais masqué.
 
 Le graphique conserve zoom et pan pendant que les données coulent — c'est ce qui
 permet d'analyser une zone sans être recadré à chaque tour d'horloge.
+
+**Hors ligne** — si Binance est injoignable au démarrage, le panneau prix sert
+une série de démonstration générée localement plutôt qu'un cadre vide, et le
+signale par un bandeau orange : les chiffres affichés ne sont alors pas réels.
 
 Le panneau news **lit** la base alimentée par `news/btc_news.py` ; il ne la
 remplit pas. Pour l'alimenter : `python news/btc_news.py fetch`, ou le timer
@@ -69,11 +80,13 @@ systemd fourni.
 Détail complet dans [`ARCHITECTURE.md`](ARCHITECTURE.md), feuille de route en
 [§7](ARCHITECTURE.md#7-feuille-de-route-vers-le-terminal).
 
-## Outils hérités
+## Outils complémentaires
 
-Les scripts d'origine restent lançables le temps de la transition ; ils
-partagent le socle mais gardent chacun leur fenêtre. Le terminal couvre déjà
-`btc-dash.py`, `btc-liquidity.py` et `btc_orderbook_live.py`.
+Ce que le terminal ne couvre pas encore garde sa ligne de commande : le
+moniteur d'arbitrage en TUI, l'export des flux ETF et le tracker de news, tous
+bâtis sur le même socle. Les quatre scripts que le terminal a remplacés —
+`btc-dash.py`, `btc_dashboard2.py`, `btc-liquidity.py`, `btc_orderbook_live.py` —
+ont été supprimés, de même qu'`etf.py`, doublon antérieur d'`etf_bitcoin_flows.py`.
 
 > Données de marché : APIs publiques (Binance, Kraken, Coinbase, Bybit, OKX) —
 > **aucune clé API n'est requise**, aucun ordre n'est jamais passé.
@@ -84,13 +97,9 @@ partagent le socle mais gardent chacun leur fenêtre. Le terminal couvre déjà
 
 | Outil | Type | Sources | Lancement |
 |---|---|---|---|
-| `btc-dash.py` | Dashboard web (Dash) | Binance REST + FX | `python btc-dash.py` → http://127.0.0.1:8050 |
-| `btc_dashboard2.py` | Dashboard web (Dash + ccxt) | Binance via ccxt | `python btc_dashboard2.py` → http://127.0.0.1:8050 |
-| `btc-liquidity.py` | Fenêtre matplotlib | Binance REST (depth + ticker) | `python btc-liquidity.py` |
-| `btc_orderbook_live.py` | Fenêtre matplotlib | WebSockets Binance / Coinbase / Kraken | `python btc_orderbook_live.py` |
+| `terminal/` | Terminal web (Dash) | REST + WebSockets, 5 plateformes | `python -m terminal.app` → http://127.0.0.1:8050 |
 | `arbitrage/main.py` | TUI terminal (Rich) | WebSockets 5 exchanges | `python arbitrage/main.py` |
 | `etf_bitcoin_flows.py` | CLI | farside.co.uk (scraping) | `python etf_bitcoin_flows.py --days 90` |
-| `etf.py` | CLI (version antérieure) | farside.co.uk (scraping) | `python etf.py --days 15` |
 | `news/btc_news.py` | CLI + SQLite | RSS, CryptoPanic, Fear & Greed | `python news/btc_news.py fetch` |
 | `m2supply.html` | Page statique Plotly | — | ⚠️ fichier incomplet, voir plus bas |
 
@@ -134,7 +143,9 @@ python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
 ```
 
 Le premier vérifie que les indicateurs du socle produisent exactement les mêmes
-valeurs que les implémentations d'avant l'extraction. Le deuxième qu'aucun
+valeurs que les implémentations des dashboards d'origine, dont il conserve des
+copies conformes — c'est ce qui a permis de supprimer ces scripts sans perdre
+la garantie. Le deuxième qu'aucun
 panneau n'a été écrit puis oublié — ni dans la grille, ni dans l'enregistrement
 des callbacks. Le troisième exécute la fonction JavaScript du plein écran sous
 Node, faute de quoi elle échapperait à toute couverture. Aucun des trois ne
@@ -147,60 +158,7 @@ suppose le terminal déjà lancé, et s'ignore si Firefox est absent.
 
 ## Les outils en détail
 
-### 1. `btc-dash.py` — BTC Ultra Dashboard
-
-Dashboard Dash « TradingView-like » sur fond sombre, rafraîchi toutes les
-**10 secondes** depuis l'API REST publique de Binance.
-
-- Intervalles : `1H`, `4H`, `1D`, `1W`
-- Indicateurs : MA 9 / 26 / 200, Bollinger (20, 2σ), RSI 14, Connors RSI,
-  ATR 14, volatilité annualisée 252 j, MA de volume 20
-- **Volume Profile** : POC (Point of Control) + Value Area 70 %
-- Signaux gradués de `-2` (Strong Sell) à `+2` (Strong Buy), croisant
-  MA 9/26, position vs MA 200 et sorties de zones RSI 30/70
-- Bascule d'affichage **USD / EUR** (taux via `exchangerate-api.com`,
-  repli sur `0.924` si l'appel échoue)
-
-Le Connors RSI affiché a changé de valeur en phase 1 : ce panneau utilisait une
-troisième composante non conforme à la définition de Connors, qui dépendait du
-nombre de bougies chargées. Voir `ARCHITECTURE.md` §2.1.
-
-⚠️ Écoute sur `0.0.0.0:8050` : le dashboard est exposé sur tout le réseau
-local. Passer à `127.0.0.1` si ce n'est pas voulu.
-
-### 2. `btc_dashboard2.py` — BTC Dashboard (Ultimate Monitor)
-
-Variante bâtie sur **ccxt** plutôt que sur des appels REST bruts, avec une
-palette de timeframes beaucoup plus large (`1s`, `15m`, `30m`, `1h`, `6h`,
-`12h`, `1d`, `1w`, `1M`, `1y`, `All`).
-
-- Chart en 4 rangées : chandeliers / RSI + CRSI / volatilité / volume
-- Overlays activables : échelle log, signaux, Bollinger, MA 50 + MA 200
-- MA 9 et 26 en **EMA** (contrairement à `btc-dash.py` qui utilise des SMA)
-- Bouton « Save PNG » (callback clientside), dossier `~/btc_charts`
-- **Repli automatique sur des données de démo** générées localement si
-  l'appel à l'exchange échoue — utile hors ligne, mais les chiffres
-  affichés ne sont alors plus réels
-
-### 3. `btc-liquidity.py` — Moniteur de pools de liquidité
-
-Fenêtre matplotlib en 4 panneaux, rafraîchie toutes les **3 secondes** :
-courbe de prix (60 derniers points), barres des 10 meilleurs bids, barres des
-10 meilleurs asks, et un panneau de métriques (spread absolu et %, ratio
-bid/ask avec qualification « pression acheteuse / vendeuse / équilibré »,
-volume 24 h, tendance sur les 10 derniers points).
-
-### 4. `btc_orderbook_live.py` — Carnet d'ordres multi-exchange
-
-Depth charts cumulés (bids en vert, asks en rouge) pour **Binance, Coinbase et
-Kraken** côte à côte, alimentés par WebSockets. Gère les deux modèles de flux :
-snapshot complet répété (Binance) et snapshot initial + deltas
-(Coinbase `l2update`, Kraken `a`/`b`). Reconnexion automatique après 3 s.
-
-Le carnet est tronqué à **100 niveaux** de chaque côté, sinon le snapshot
-complet de Coinbase (plusieurs milliers de lignes) sature mémoire et CPU.
-
-### 5. `arbitrage/main.py` — Moniteur d'arbitrage temps réel
+### 1. `arbitrage/main.py` — Moniteur d'arbitrage temps réel
 
 TUI Rich plein écran surveillant **5 exchanges** (Binance, Kraken, Bybit, OKX,
 Coinbase) et scannant toutes les paires ordonnées 5 fois par seconde :
@@ -216,10 +174,10 @@ premier snapshot tout en paraissant frais ; corrigé en phase 1. Voir `arbitrage
 grille de frais et les avertissements — c'est un outil d'observation, pas un
 bot d'exécution.
 
-### 6. `etf_bitcoin_flows.py` et `etf.py` — Flux des ETF Bitcoin spot
+### 2. `etf_bitcoin_flows.py` — Flux des ETF Bitcoin spot
 
-Récupèrent le tableau public de `farside.co.uk/btc/` (flux quotidiens IBIT,
-FBTC, GBTC, ARKB, BITB, HODL…) et affichent les N derniers jours en millions
+Récupère le tableau public de `farside.co.uk/btc/` (flux quotidiens IBIT,
+FBTC, GBTC, ARKB, BITB, HODL…) et affiche les N derniers jours en millions
 de dollars, plus le flux net cumulé et le décompte des jours entrants/sortants.
 
 ```bash
@@ -228,13 +186,12 @@ python etf_bitcoin_flows.py --days 0        # tout l'historique
 python etf_bitcoin_flows.py --csv flows.csv # export CSV complet
 ```
 
-**`etf_bitcoin_flows.py` est la version à utiliser.** `etf.py` est la mouture
-antérieure du même script : elle ne gère pas les en-têtes multi-niveaux du
-site, n'élague pas les colonnes vides, passe encore le HTML directement à
-`pd.read_html()` (déprécié) et affiche via `DataFrame.to_string` au lieu de
-`tabulate`.
+Ce script avait un doublon, `etf.py`, mouture antérieure qui ne gérait pas les
+en-têtes multi-niveaux du site, n'élaguait pas les colonnes vides, passait le
+HTML directement à `pd.read_html()` (déprécié) et affichait via
+`DataFrame.to_string` au lieu de `tabulate`. Il a été supprimé.
 
-### 7. `news/btc_news.py` — BTC News Tracker
+### 3. `news/btc_news.py` — BTC News Tracker
 
 CLI d'agrégation de news à impact sur le cours, stockées dans SQLite
 (`~/.btc_news/news.db`). Sources : 6 flux RSS (CoinDesk, CoinTelegraph,
@@ -259,7 +216,7 @@ btcnews watch --interval 30      # boucle de surveillance
 `news/systemd_timer.conf` contient (en commentaires, à décommenter et adapter)
 les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 
-### 8. `m2supply.html` — ⚠️ fichier incomplet
+### 4. `m2supply.html` — ⚠️ fichier incomplet
 
 Page Plotly censée superposer le cours du BTC et la masse monétaire M2
 normalisés. **En l'état le fichier est tronqué** : il ne contient que la fin du
@@ -275,6 +232,6 @@ BTC et M2. Ouvert tel quel dans un navigateur, il ne produit rien.
 - `order/` est un répertoire vide.
 - Aucun de ces scripts n'écrit d'ordre sur un exchange ; ils sont en lecture
   seule sur des endpoints publics.
-- Les deux dashboards Dash utilisent le même port `8050` : ne pas les lancer
-  simultanément sans changer le port de l'un des deux.
+- Le terminal se lie à `127.0.0.1:8050` ; `--host` et `--port` permettent d'en
+  changer.
 - Le dépôt est versionné avec git (branche `main`, pas de remote).

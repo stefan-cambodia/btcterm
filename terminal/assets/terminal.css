@@ -76,10 +76,14 @@ body {
 
 .tf-radio label,
 .tf-check label {
-    margin-left: 9px;
+    margin-left: 6px;
     color: #4b5563;
     cursor: pointer;
     white-space: nowrap;
+    /* La barre de titre est en majuscules, mais pas ses sélecteurs :
+       les intervalles suivent la convention Binance, où la casse
+       distingue les minutes (`30m`) du mois (`1M`). */
+    text-transform: none;
 }
 
 .tf-radio .dash-options-list-option-wrapper,

@@ -3,9 +3,10 @@
 Contrôle de l'interface dans un vrai navigateur.
 
 Le reste des tests couvre la logique ; celui-ci vérifie ce qu'on ne peut
-constater qu'à l'écran : les panneaux sont bien posés, le bouton plein
-écran est visible et ne recouvre rien, la bascule agrandit réellement le
-panneau, et le carnet montre ses deux côtés au lieu d'être coupé.
+constater qu'à l'écran : les panneaux sont bien posés, les sélecteurs de la barre
+de titre tiennent dans la largeur, le bouton plein écran est visible et
+ne recouvre rien, la bascule agrandit réellement le panneau, et le carnet
+montre ses deux côtés au lieu d'être coupé.
 
 Il pilote Firefox par Marionette et **suppose le terminal déjà lancé** :
 
@@ -53,6 +54,23 @@ def run(capture_dir: Path | None) -> int:
         check("feuille de style chargée", browser.js(
             "return !!Array.from(document.styleSheets)"
             ".find(s => (s.href || '').includes('terminal.css'));"))
+
+        print("\nBarre de titre du panneau prix")
+        check("9 intervalles proposés", browser.js(
+            "return document.querySelectorAll('#price-interval input').length;") == 9)
+        # La palette élargie a rempli la barre : si les sélecteurs débordent
+        # de la largeur du panneau, les derniers deviennent inatteignables
+        # dans la grille — c'est le défaut que ce contrôle guette.
+        overflow = browser.js("""
+            const controles = document.getElementById('price-interval').parentElement;
+            const barre = controles.parentElement;
+            return {deborde: barre.scrollWidth - barre.clientWidth,
+                    hauteur: Math.round(controles.getBoundingClientRect().height)};
+        """)
+        check("les sélecteurs tiennent dans la largeur",
+              overflow["deborde"] <= 1, f"{overflow['deborde']} px de trop")
+        check("la barre tient sur une ligne",
+              overflow["hauteur"] <= 24, f"{overflow['hauteur']} px de haut")
 
         print("\nBouton plein écran")
         check("visible sans survol",
@@ -125,6 +143,17 @@ def run(capture_dir: Path | None) -> int:
             const label = document.querySelector('#price-currency label.selected');
             return label && getComputedStyle(label).color !== 'rgb(75, 85, 99)';
         """))
+
+        print("\nÉchelle logarithmique")
+        browser.js("document.querySelector('#price-scale input').click();")
+        time.sleep(2.2)
+        check("LOG passe l'axe des prix en logarithmique", browser.js("""
+            const gd = document.getElementById('price-chart')
+                .querySelector('.js-plotly-plot');
+            return gd.layout.yaxis.type;
+        """) == "log")
+        browser.js("document.querySelector('#price-scale input').click();")
+        time.sleep(2.2)
 
         print("\nRetour à la grille")
         browser.js("document.dispatchEvent("

@@ -32,6 +32,7 @@ class Firefox:
         self.sock = None
         self._msgid = 0
         self._connect()
+        self.set_size(*size)
 
     def _connect(self, timeout=60):
         deadline = time.time() + timeout
@@ -68,6 +69,16 @@ class Firefox:
         if msg[2]:
             raise RuntimeError(f"{name} -> {msg[2]}")
         return msg[3]
+
+    def set_size(self, width, height):
+        """Impose la taille de fenêtre.
+
+        `--window-size` est ignoré en mode headless : sans cet appel, la
+        fenêtre garde la taille par défaut de Firefox et les contrôles de
+        géométrie de `ui_smoke.py` mesurent autre chose que ce qu'on voit.
+        """
+        return self.send("WebDriver:SetWindowRect",
+                         {"width": width, "height": height, "x": 0, "y": 0})
 
     def get(self, url):
         return self.send("WebDriver:Navigate", {"url": url})

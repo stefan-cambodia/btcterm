@@ -124,12 +124,24 @@ class MarketHub:
     # ── Marché ──────────────────────────────────────────────
 
     def klines(self, interval: str = "1d", limit: int = 350) -> pd.DataFrame:
-        """Chandeliers, mutualisés entre panneaux via le cache."""
-        return self._cache.get(
-            f"klines:{interval}:{limit}",
-            self.TTL_KLINES,
-            lambda: sources.fetch_klines(self.symbol, interval, limit),
-        )
+        """Chandeliers, mutualisés entre panneaux via le cache.
+
+        Repli sur une série de démonstration quand la source est
+        injoignable et qu'aucune valeur n'a encore été mise en cache —
+        typiquement un démarrage hors ligne. Le terminal s'ouvre alors
+        quand même, et le graphique le dit : le DataFrame de démo porte
+        `attrs["demo"]`, sur lequel `build_price_chart` pose un bandeau
+        d'avertissement. Sans ce repli, un panneau prix vide et une trace
+        dans la console seraient tout ce que l'utilisateur obtiendrait.
+        """
+        try:
+            return self._cache.get(
+                f"klines:{interval}:{limit}",
+                self.TTL_KLINES,
+                lambda: sources.fetch_klines(self.symbol, interval, limit),
+            )
+        except Exception:
+            return sources.generate_demo_ohlcv(limit, interval=interval, index=False)
 
     def ticker(self) -> dict:
         return self._cache.get(
