@@ -31,6 +31,11 @@ ssh -L 8050:localhost:8050 <machine>
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
 | **News** | fil scoré + indice Fear & Greed | 5 min |
 
+**Plein écran** : survolez un panneau et cliquez le ⛶ en haut à droite — il
+occupe alors toute la fenêtre. Recliquez, ou appuyez sur `Échap`, pour revenir à
+la grille. Cliquer le ⛶ d'un autre panneau bascule directement de l'un à
+l'autre.
+
 Le graphique conserve zoom et pan pendant que les données coulent — c'est ce qui
 permet d'analyser une zone sans être recadré à chaque tour d'horloge.
 
@@ -106,12 +111,15 @@ plus une fonction fish `btcnews`.
 ```bash
 python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
 python tests/test_terminal_wiring.py     # panneaux posés et branchés
+python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node)
 ```
 
 Le premier vérifie que les indicateurs du socle produisent exactement les mêmes
-valeurs que les implémentations d'avant l'extraction. Le second qu'aucun panneau
-n'a été écrit puis oublié — ni dans la grille, ni dans l'enregistrement des
-callbacks. Aucun des deux ne touche au réseau.
+valeurs que les implémentations d'avant l'extraction. Le deuxième qu'aucun
+panneau n'a été écrit puis oublié — ni dans la grille, ni dans l'enregistrement
+des callbacks. Le troisième exécute la fonction JavaScript du plein écran sous
+Node, faute de quoi elle échapperait à toute couverture. Aucun ne touche au
+réseau.
 
 ## Les outils en détail
 

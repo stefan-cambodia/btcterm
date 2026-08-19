@@ -49,14 +49,16 @@ Ce qui manque encore pour atteindre la cible est détaillé en
 │   └── hub.py                     connexions mutualisées + caches
 │
 ├── terminal/                  ← TERMINAL : l'application Dash
-│   ├── app.py                     grille, horloges, bandeau, point d'entrée
+│   ├── app.py                     grille, horloges, bandeau, plein écran
 │   ├── theme.py                   palette et styles
 │   ├── charts.py                  figures Plotly
+│   ├── assets/                    CSS et JS servis au navigateur
 │   └── panels/                    price · orderbook · arbitrage · etf · news
 │
 ├── tests/
 │   ├── test_indicators_parity.py  non-régression de l'extraction
-│   └── test_terminal_wiring.py    panneaux posés et branchés
+│   ├── test_terminal_wiring.py    panneaux posés et branchés
+│   └── test_fullscreen_toggle.py  bascule plein écran (sous Node)
 │
 ├── btc-dash.py                ← hérité, couvert par le panneau prix
 ├── btc_dashboard2.py          ← hérité (Dash, ccxt)
@@ -262,7 +264,25 @@ La valeur encode la série affichée (`"1d:USD"`, `"4h:EUR"`) : elle reste stabl
 d'un rafraîchissement à l'autre, mais change quand on change d'intervalle ou de
 devise — cas où le recadrage est justement ce qu'on veut.
 
-### 3.3 Anatomie d'un panneau
+### 3.3 Plein écran
+
+Une grille de six panneaux ne laisse pas assez de place pour lire finement un
+graphique. Chaque panneau porte donc un bouton ⛶ qui le fait couvrir la fenêtre
+entière, les autres étant masqués ; un second clic, ou `Échap`, rend la grille.
+
+La bascule est un callback **clientside** : elle se contente d'échanger des
+classes CSS, sans aller-retour serveur ni recalcul de figure. Le panneau agrandi
+passe en `position: fixed` sous le bandeau, les autres en `display: none`.
+
+Un détail qui n'est pas optionnel : la fonction émet un événement `resize` sur
+la fenêtre après la bascule. Plotly ne redimensionne ses figures qu'à cet
+événement — sans lui, le graphique agrandi garderait la taille de sa vignette.
+
+Cette logique vivant en JavaScript, elle échapperait aux tests Python.
+`tests/test_fullscreen_toggle.py` extrait la fonction de `app.py` et l'exécute
+sous Node avec un faux `dash_clientside` (test ignoré si Node est absent).
+
+### 3.4 Anatomie d'un panneau
 
 Chaque module de `panels/` expose exactement deux fonctions :
 
@@ -273,7 +293,7 @@ Un panneau ne fait aucun appel réseau : il demande au hub, qui mutualise. Il
 n'écrit rien non plus — le panneau news lit la base du tracker en lecture seule,
 la collecte et le scoring restant la responsabilité de `news/btc_news.py`.
 
-### 3.4 Câblage vérifié
+### 3.5 Câblage vérifié
 
 `terminal/panels/__init__.py` déclare `PANELS`, et `app.py` enregistre les
 callbacks en parcourant cette liste : ajouter un module suffit à le brancher.

@@ -19,7 +19,7 @@ from __future__ import annotations
 import argparse
 
 import dash
-from dash import Input, Output, dcc, html
+from dash import Input, Output, State, dcc, html
 
 from btcterm.hub import MarketHub
 
@@ -57,10 +57,27 @@ _GRID = {
 }
 
 
+#: Zones de la grille, dans l'ordre où elles sont posées. C'est aussi
+#: l'ordre des sorties du callback de plein écran.
+AREAS = ("price", "book", "arb", "depth", "etf", "news")
+
+
 def _cell(area: str, content):
-    """Place un panneau dans sa zone de la grille."""
-    return html.Div(content, style={"gridArea": area, "minHeight": "0",
-                                    "minWidth": "0"})
+    """Place un panneau dans sa zone, avec son bouton d'agrandissement.
+
+    Le bouton est ajouté ici plutôt que dans chaque panneau : c'est la
+    grille qui sait ce qu'agrandir veut dire, pas le panneau.
+    """
+    return html.Div(
+        [
+            html.Button("⛶", id=f"zoom-{area}", className="zoom-btn",
+                        title="plein écran (Échap pour revenir)"),
+            content,
+        ],
+        id=f"cell-{area}",
+        className="cell",
+        style={"gridArea": area},
+    )
 
 _STAT = {"fontFamily": MONO, "fontSize": "11px", "color": C["text"],
          "marginRight": "18px"}
@@ -96,6 +113,7 @@ def create_app(hub: MarketHub) -> dash.Dash:
         dcc.Interval(id="tick-fast", interval=REFRESH_FAST_MS),
         dcc.Interval(id="tick-slow", interval=REFRESH_SLOW_MS),
         dcc.Interval(id="tick-rare", interval=REFRESH_RARE_MS),
+        dcc.Store(id="maximized"),
         _header(),
         html.Div([
             _cell("price", price.layout()),
@@ -104,12 +122,14 @@ def create_app(hub: MarketHub) -> dash.Dash:
             _cell("depth", orderbook.depth_layout()),
             _cell("etf", etf.layout()),
             _cell("news", news.layout()),
-        ], style=_GRID),
+        ], id="grid", style=_GRID),
     ], style={"background": C["bg"], "margin": "0", "height": "100vh",
               "overflow": "hidden"})
 
     for panel in PANELS:
         panel.register(app, hub)
+
+    _register_fullscreen(app)
 
     @app.callback(
         Output("hdr-price", "children"),
@@ -138,6 +158,49 @@ def create_app(hub: MarketHub) -> dash.Dash:
         return price_txt, change_txt, change_style, spread_txt, status
 
     return app
+
+
+def _register_fullscreen(app: dash.Dash) -> None:
+    """Bascule un panneau en plein écran, côté navigateur.
+
+    Le calcul est fait en clientside : basculer n'a aucune raison de
+    faire un aller-retour serveur, et surtout cela évite de recalculer
+    la figure — Plotly se contente d'être redimensionné.
+    """
+    app.clientside_callback(
+        """
+        function (...args) {
+            const areas = %(areas)s;
+            const current = args[areas.length];
+            const context = dash_clientside.callback_context;
+            if (!context.triggered.length) {
+                return dash_clientside.no_update;
+            }
+
+            const clicked = context.triggered[0].prop_id
+                .split('.')[0].replace('zoom-', '');
+            const next = (current === clicked) ? null : clicked;
+
+            // Plotly ne se redimensionne qu'au resize de la fenêtre ; sans
+            // cet événement, le graphique agrandi garderait sa taille de
+            // vignette. Le délai laisse le navigateur appliquer les classes.
+            setTimeout(function () {
+                window.dispatchEvent(new Event('resize'));
+            }, 60);
+
+            const classes = areas.map(function (area) {
+                if (next === null) { return 'cell'; }
+                return area === next ? 'cell cell-max' : 'cell cell-hidden';
+            });
+            return [next].concat(classes);
+        }
+        """ % {"areas": list(AREAS)},
+        [Output("maximized", "data")]
+        + [Output(f"cell-{area}", "className") for area in AREAS],
+        [Input(f"zoom-{area}", "n_clicks") for area in AREAS],
+        State("maximized", "data"),
+        prevent_initial_call=True,
+    )
 
 
 def main() -> None:
