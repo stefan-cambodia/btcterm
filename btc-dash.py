@@ -22,7 +22,6 @@ Auto-refresh : every 10 seconds
 import warnings
 warnings.filterwarnings("ignore")
 
-import requests
 import numpy as np
 import pandas as pd
 from datetime import datetime
@@ -34,13 +33,14 @@ import dash
 from dash import dcc, html, Input, Output
 import dash_bootstrap_components as dbc
 
+from btcterm import indicators as ind
+from btcterm import sources
+
 
 # ─────────────────────────────────────────────────────────────
 # CONFIG
 # ─────────────────────────────────────────────────────────────
 SYMBOL       = "BTCUSDT"
-BINANCE_URL  = "https://api.binance.com/api/v3"
-FX_URL       = "https://api.exchangerate-api.com/v4/latest/USD"
 REFRESH_MS   = 10_000            # chart refresh interval (ms)
 VOL_BINS     = 60                # volume profile buckets
 
@@ -78,103 +78,35 @@ C = {
 }
 
 # ─────────────────────────────────────────────────────────────
-# DATA FETCHING
-# ─────────────────────────────────────────────────────────────
-def fetch_klines(interval: str = "1d", limit: int = 350) -> pd.DataFrame:
-    """Fetch OHLCV candles from Binance."""
-    params = {"symbol": SYMBOL, "interval": interval, "limit": limit}
-    r = requests.get(f"{BINANCE_URL}/klines", params=params, timeout=12)
-    r.raise_for_status()
-    df = pd.DataFrame(r.json(), columns=[
-        "open_time", "open", "high", "low", "close", "volume",
-        "close_time", "quote_vol", "trades",
-        "taker_buy_base", "taker_buy_quote", "ignore",
-    ])
-    for col in ("open", "high", "low", "close", "volume"):
-        df[col] = df[col].astype(float)
-    df["time"] = pd.to_datetime(df["open_time"], unit="ms")
-    return df.reset_index(drop=True)
-
-
-def fetch_ticker() -> dict:
-    try:
-        r = requests.get(f"{BINANCE_URL}/ticker/24hr?symbol={SYMBOL}", timeout=6)
-        return r.json()
-    except Exception:
-        return {}
-
-
-def fetch_eur_rate() -> float:
-    try:
-        r = requests.get(FX_URL, timeout=5)
-        return float(r.json()["rates"]["EUR"])
-    except Exception:
-        return 0.924
-
-
-# ─────────────────────────────────────────────────────────────
 # TECHNICAL INDICATORS
+#
+# Les calculs eux-mêmes vivent dans `btcterm.indicators` ; ne reste ici
+# que la composition propre à ce panneau (quelles périodes, quelles
+# colonnes).
 # ─────────────────────────────────────────────────────────────
-def rsi(series: pd.Series, period: int = 14) -> pd.Series:
-    delta = series.diff()
-    gain  = delta.clip(lower=0).ewm(alpha=1 / period, adjust=False).mean()
-    loss  = (-delta.clip(upper=0)).ewm(alpha=1 / period, adjust=False).mean()
-    rs    = gain / loss.replace(0, np.nan)
-    return 100 - 100 / (1 + rs)
-
-
-def streak(series: pd.Series) -> pd.Series:
-    """Up/Down streak for Connors RSI."""
-    s = np.zeros(len(series))
-    for i in range(1, len(series)):
-        if series.iloc[i] > series.iloc[i - 1]:
-            s[i] = max(1, s[i - 1] + 1)
-        elif series.iloc[i] < series.iloc[i - 1]:
-            s[i] = min(-1, s[i - 1] - 1)
-    return pd.Series(s, index=series.index)
-
-
-def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
-    hl = df["high"] - df["low"]
-    hc = (df["high"] - df["close"].shift()).abs()
-    lc = (df["low"]  - df["close"].shift()).abs()
-    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
-    return tr.ewm(alpha=1 / period, adjust=False).mean()
-
-
 def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
 
     # ── Moving averages ────────────────────────────
-    df["ma9"]    = df["close"].rolling(9).mean()
-    df["ma26"]   = df["close"].rolling(26).mean()
-    df["ma200"]  = df["close"].rolling(200).mean()
+    df["ma9"]   = ind.sma(df["close"], 9)
+    df["ma26"]  = ind.sma(df["close"], 26)
+    df["ma200"] = ind.sma(df["close"], 200)
 
     # ── Bollinger Bands (20, 2σ) ───────────────────
-    df["bb_mid"]   = df["close"].rolling(20).mean()
-    std            = df["close"].rolling(20).std()
-    df["bb_upper"] = df["bb_mid"] + 2 * std
-    df["bb_lower"] = df["bb_mid"] - 2 * std
+    df["bb_mid"], df["bb_upper"], df["bb_lower"] = ind.bollinger(df["close"], 20, 2)
 
-    # ── RSI (14) ───────────────────────────────────
-    df["rsi"] = rsi(df["close"], 14)
+    # ── RSI (14) et Connors RSI ────────────────────
+    df["rsi"]  = ind.rsi(df["close"], 14)
+    df["crsi"] = ind.connors_rsi(df["close"])
 
-    # ── Connors RSI ────────────────────────────────
-    df["rsi3"]    = rsi(df["close"], 3)
-    strk          = streak(df["close"])
-    df["rsi_ud"]  = rsi(strk, 2)
-    df["roc_pct"] = df["close"].pct_change(100).rank(pct=True) * 100
-    df["crsi"]    = (df["rsi3"] + df["rsi_ud"] + df["roc_pct"]) / 3
-
-    # ── Volatility (annualised close-to-close) ──────
-    log_ret         = np.log(df["close"] / df["close"].shift(1))
-    df["vol_252"]   = log_ret.rolling(252).std() * np.sqrt(252) * 100
+    # ── Volatilité annualisée (close-to-close) ─────
+    df["vol_252"] = ind.volatility(df["close"], 252)
 
     # ── ATR ────────────────────────────────────────
-    df["atr"] = atr(df, 14)
+    df["atr"] = ind.atr(df, 14)
 
     # ── Volume MA ─────────────────────────────────
-    df["vol_ma20"] = df["volume"].rolling(20).mean()
+    df["vol_ma20"] = ind.sma(df["volume"], 20)
 
     # ── Signals ────────────────────────────────────
     df["signal"] = _signals(df)
@@ -183,65 +115,16 @@ def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _signals(df: pd.DataFrame) -> pd.Series:
-    """
-    Signal scale:
-     2 = Strong BUY  (MA cross ↑ + RSI oversold exit + above MA200)
-     1 = BUY         (MA cross ↑)
-     0 = Neutral
-    -1 = SELL        (MA cross ↓)
-    -2 = Strong SELL (MA cross ↓ + RSI overbought exit + below MA200)
-    """
-    sig = pd.Series(0, index=df.index)
-
-    cross_up   = (df["ma9"] > df["ma26"]) & (df["ma9"].shift(1) <= df["ma26"].shift(1))
-    cross_down = (df["ma9"] < df["ma26"]) & (df["ma9"].shift(1) >= df["ma26"].shift(1))
-    above_200  = df["close"] > df["ma200"]
-    rsi_os_exit = (df["rsi"] > 30) & (df["rsi"].shift(1) <= 30)   # oversold exit
-    rsi_ob_exit = (df["rsi"] < 70) & (df["rsi"].shift(1) >= 70)   # overbought exit
-
-    sig[cross_up]   = 1
-    sig[cross_up   & above_200 & (df["rsi"] < 65)] = 2
-    sig[cross_down] = -1
-    sig[cross_down & ~above_200 & (df["rsi"] > 35)] = -2
-
-    # RSI-only extremes
-    sig[rsi_os_exit] = 2
-    sig[rsi_ob_exit] = -2
-
-    return sig
+    """Signal gradué de -2 (vente forte) à +2 (achat fort)."""
+    return ind.graded_signals(df, fast="ma9", slow="ma26", trend="ma200")
 
 
 # ─────────────────────────────────────────────────────────────
 # VOLUME PROFILE  (Liquidity Clusters)
 # ─────────────────────────────────────────────────────────────
 def volume_profile(df: pd.DataFrame, bins: int = VOL_BINS):
-    lo, hi = df["low"].min(), df["high"].max()
-    edges  = np.linspace(lo, hi, bins + 1)
-    vols   = np.zeros(bins)
-
-    for _, row in df.iterrows():
-        idx_lo = max(0, min(np.searchsorted(edges, row["low"],  "left"),  bins - 1))
-        idx_hi = max(0, min(np.searchsorted(edges, row["high"], "right"), bins))
-        span   = max(1, idx_hi - idx_lo)
-        vols[idx_lo:idx_hi] += row["volume"] / span
-
-    centers = (edges[:-1] + edges[1:]) / 2
-    poc     = centers[vols.argmax()]
-
-    # Value Area  (70 % of total volume)
-    total  = vols.sum()
-    ranked = np.argsort(vols)[::-1]
-    cumsum = 0.0
-    va_idx = []
-    for i in ranked:
-        cumsum += vols[i]
-        va_idx.append(i)
-        if cumsum >= 0.7 * total:
-            break
-    va_lo = centers[min(va_idx)]
-    va_hi = centers[max(va_idx)]
-
-    return centers, vols, poc, va_lo, va_hi
+    """Profil de volume : centres, volumes, POC et bornes de la Value Area."""
+    return ind.volume_profile(df, bins)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -630,7 +513,7 @@ app.layout = html.Div(
 # ─────────────────────────────────────────────────────────────
 @app.callback(Output("eur", "data"), Input("tick", "n_intervals"))
 def refresh_eur(n):
-    return fetch_eur_rate()
+    return sources.fetch_eur_rate()
 
 
 @app.callback(
@@ -663,9 +546,9 @@ def refresh_all(n, currency, interval, eur_rate):
         return html.Span(str(text), style={"color": color})
 
     try:
-        df     = fetch_klines(interval=interval, limit=350)
+        df     = sources.fetch_klines(SYMBOL, interval, limit=350)
         df     = compute_indicators(df)
-        ticker = fetch_ticker()
+        ticker = sources.fetch_ticker_24h(SYMBOL)
         fig    = build_chart(df, currency=currency, eur_rate=eur_rate)
 
         last   = df.iloc[-1]

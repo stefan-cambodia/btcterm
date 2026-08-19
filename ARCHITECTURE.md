@@ -15,41 +15,48 @@ même interface : prix et indicateurs, carnet d'ordres, profondeur comparée ent
 exchanges, écarts d'arbitrage, flux des ETF spot, fil de news et sentiment,
 contexte macro.
 
-### État actuel : les briques, pas encore le terminal
+### État actuel : le socle est posé, l'interface reste à unifier
 
-Le dépôt n'est aujourd'hui **pas** une application unique mais une collection de
-scripts indépendants partageant un thème (le Bitcoin) et un principe : consommer
-des APIs publiques en lecture seule et restituer l'information visuellement.
-Chaque script correspond à un futur panneau, mais porte encore sa propre boucle
-d'événements, son propre thème graphique et sa propre copie des utilitaires
-communs.
+Le dépôt n'est pas encore une application unique, mais ce n'est plus une
+collection de scripts sans rien en commun. La **phase 1 est faite** : tout ce
+qui n'est pas rendu — calculs d'indicateurs, connexions aux plateformes,
+collecte des données — vit désormais dans le paquet `btcterm/` ([§2](#2-le-socle-btcterm)),
+et chaque script s'y ramène.
 
-L'écart entre l'état actuel et la cible tient en trois points, détaillés en
-[§5](#5-feuille-de-route-vers-le-terminal) : **une seule couche de rendu** au
-lieu de quatre, **une seule couche de données** partagée entre panneaux, et
-**un socle commun** (indicateurs, connecteurs) au lieu d'implémentations
-dupliquées.
+Ce qui reste à faire pour atteindre la cible, détaillé en
+[§6](#6-feuille-de-route-vers-le-terminal) : **une seule couche de rendu** au
+lieu de quatre, et **une seule couche de données** partagée entre panneaux au
+lieu d'une connexion par script.
 
 ```
 /home/stefan/python/btc
 ├── README.md                  ← guide d'utilisation
 ├── ARCHITECTURE.md            ← ce fichier
+├── requirements.txt           ← dépendances de tout le dépôt
 │
-├── btc-dash.py                ← dashboard web  (Dash, REST Binance)
-├── btc_dashboard2.py          ← dashboard web  (Dash, ccxt)
-├── btc-liquidity.py           ← fenêtre GUI    (matplotlib, REST polling)
-├── btc_orderbook_live.py      ← fenêtre GUI    (matplotlib, WebSockets ×3)
-├── etf.py                     ← CLI            (scraping farside — v1)
+├── btcterm/                   ← SOCLE COMMUN (phase 1)
+│   ├── indicators.py              calculs techniques purs
+│   ├── exchanges.py               carnet normalisé + connecteurs WebSocket
+│   └── sources.py                 collecteurs REST, ETF, news, sentiment
+│
+├── tests/
+│   └── test_indicators_parity.py  non-régression de l'extraction
+│
+├── btc-dash.py                ← panneau web    (Dash, REST Binance)
+├── btc_dashboard2.py          ← panneau web    (Dash, ccxt)
+├── btc-liquidity.py           ← panneau GUI    (matplotlib, REST polling)
+├── btc_orderbook_live.py      ← panneau GUI    (matplotlib, WebSockets ×3)
+├── etf.py                     ← CLI            (scraping farside — v1, non migrée)
 ├── etf_bitcoin_flows.py       ← CLI            (scraping farside — v2)
 ├── m2supply.html              ← page statique  (incomplète)
 │
-├── arbitrage/                 ← sous-projet autonome
-│   ├── main.py                    TUI Rich, WebSockets ×5
+├── arbitrage/                 ← panneau TUI Rich, WebSockets ×5
+│   ├── main.py
 │   ├── requirements.txt
 │   └── README.md
 │
-├── news/                      ← sous-projet autonome
-│   ├── btc_news.py                CLI + SQLite
+├── news/                      ← panneau CLI + SQLite
+│   ├── btc_news.py
 │   ├── requirements.txt
 │   ├── setup.fish                 installe venv + fonction fish `btcnews`
 │   └── systemd_timer.conf         gabarit de timer systemd --user
@@ -69,9 +76,115 @@ dupliquées.
 
 ---
 
-## 2. Patrons transverses
+## 2. Le socle `btcterm`
 
-### 2.1 Deux modèles d'acquisition de données
+Trois modules sans dépendance à une quelconque interface. Ils ne connaissent
+ni Dash, ni matplotlib, ni Rich : ce sont les panneaux qui les composent, jamais
+l'inverse. Aucun n'écrit sur disque ni n'affiche quoi que ce soit.
+
+### 2.1 `indicators` — calculs techniques
+
+Fonctions pures sur des `Series`/`DataFrame` pandas, sans effet de bord ni
+écriture dans le DataFrame d'entrée.
+
+| Famille | Fonctions |
+|---|---|
+| Moyennes | `sma`, `ema`, `moving_average(method=…)` |
+| Oscillateurs | `rsi`, `streak`, `percent_rank`, `connors_rsi` |
+| Volatilité | `bollinger`, `atr`, `volatility` |
+| Liquidité | `volume_profile` (POC + Value Area) |
+| Croisements | `cross_up`, `cross_down`, `crosses_above`, `crosses_below` |
+| Signaux | `graded_signals` (-2..+2), `marker_signals` (points d'achat/vente) |
+
+Deux divergences historiques entre les dashboards ont dû être arbitrées :
+
+- **SMA contre EMA** pour les MA 9 et 26. Les deux comportements sont
+  conservés, mais le choix devient explicite au point d'appel via
+  `moving_average(..., method=…)` au lieu d'être enfoui dans chaque fichier.
+  La divergence sera tranchée à la fusion des deux panneaux (§6, étape 4).
+- **Connors RSI**. `btc-dash.py` calculait sa troisième composante comme le rang
+  d'un ROC 100 périodes sur **tout l'historique chargé**, au lieu du rang
+  centile roulant de la variation d'une période. La valeur dépendait donc du
+  nombre de bougies affichées : changer de fenêtre temporelle changeait le CRSI
+  d'une bougie déjà passée. C'est la définition standard qui est retenue ;
+  l'écart atteint 32 points sur le jeu de test.
+
+### 2.2 `exchanges` — carnet normalisé et connecteurs
+
+`OrderBook` stocke les niveaux en `{prix: quantité}` — la seule forme qui
+accepte indifféremment un snapshot complet et une mise à jour incrémentale — et
+produit les vues triées à la lecture (`top`, `cumulative_depth`, `best_bid`,
+`spread`, `age_ms`). Toutes les opérations passent par un verrou, de sorte
+qu'un thread de rendu puisse lire pendant qu'un thread réseau écrit.
+
+`ExchangeConnector` fournit la boucle de reconnexion (backoff exponentiel
+plafonné, compteur remis à zéro après une connexion qui tient) et publie
+`connected` / `error` sur le carnet, ce qui permet à l'interface d'afficher
+l'état réel de chaque flux. Les sous-classes n'implémentent que `_stream()`.
+
+| Connecteur | Canal | Modèle de flux |
+|---|---|---|
+| `BinanceConnector` | `<sym>@depth<N>@<vitesse>` | snapshot répété |
+| `KrakenConnector` | `book` | snapshot `as`/`bs` puis deltas `a`/`b` |
+| `CoinbaseConnector` | `level2_batch` (flux public) | snapshot puis `l2update` |
+| `CoinbaseAdvancedConnector` | `level2` (Advanced Trade) | deltas seuls |
+| `BybitConnector` | `orderbook.<N>` | snapshot puis deltas |
+| `OKXConnector` | `books5` | snapshot 5 niveaux |
+
+Deux plateformes cotent des paires différentes selon le flux — le flux public
+Coinbase ne connaît pas l'USDT — d'où les deux connecteurs Coinbase et le
+produit passé en paramètre partout.
+
+Deux garde-fous, hérités de `btc_orderbook_live.py`, s'appliquent désormais à
+tous les connecteurs : `max_levels` (le snapshot Coinbase compte des milliers
+de niveaux, dont seuls les plus proches du marché sont exploitables) et
+`MAX_WS_SIZE` à 20 Mo (ce même snapshot dépasse la limite de message par défaut
+de `websockets`, qui referme alors la connexion).
+
+**Correction au passage** : le connecteur Bybit n'appliquait que les messages
+de type `snapshot` en ignorant les deltas, tout en rafraîchissant l'horodatage
+à chaque message. Le carnet paraissait donc frais alors qu'il était figé sur
+son premier état — et le moteur d'arbitrage, qui écarte les carnets de plus de
+5 secondes, n'avait aucun moyen de s'en apercevoir.
+
+### 2.3 `sources` — collecteurs
+
+| Domaine | Fonctions |
+|---|---|
+| Marché REST | `fetch_klines`, `fetch_ticker_24h`, `fetch_depth` |
+| Marché ccxt | `fetch_ohlcv_ccxt` |
+| Hors ligne | `generate_demo_ohlcv` |
+| Change | `fetch_eur_rate` |
+| Institutionnel | `fetch_etf_flows` |
+| News | `fetch_rss_entries`, `fetch_cryptopanic_posts`, `fetch_fear_greed` |
+
+Ces fonctions récupèrent et normalisent, rien de plus : ni écriture en base, ni
+affichage, ni filtrage métier. Le scoring des news et leur stockage SQLite
+restent dans `news/btc_news.py`, dont ce sont les décisions propres.
+
+Les dépendances optionnelles (`ccxt`, `feedparser`) sont importées à
+l'intérieur des fonctions qui les utilisent, pour qu'un panneau n'ait pas à les
+installer s'il ne s'en sert pas.
+
+### 2.4 Non-régression
+
+`tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
+étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
+valeurs — RSI, streak, rang centile, Connors RSI, Bollinger, ATR, volatilité,
+profil de volume, signaux gradués et marqueurs.
+
+```bash
+python tests/test_indicators_parity.py
+```
+
+Le comparateur refuse les séries comportant moins de 100 valeurs exploitables :
+sans ce garde-fou, deux séries entièrement `NaN` — cas typique d'une fixture mal
+indexée — se compareraient comme égales et le test passerait sans rien
+vérifier.
+
+## 3. Patrons transverses
+
+### 3.1 Deux modèles d'acquisition de données
 
 **Polling REST** (`btc-dash.py`, `btc-liquidity.py`, `etf*.py`) — appel HTTP
 synchrone, `try/except` large, valeur de repli en cas d'échec. Simple, latence
@@ -81,7 +194,7 @@ de l'ordre de la seconde.
 coroutine par exchange, boucle infinie de reconnexion, état mutable partagé.
 Latence de l'ordre de 100 ms.
 
-### 2.2 Séparation producteur / consommateur
+### 3.2 Séparation producteur / consommateur
 
 Les scripts temps réel séparent systématiquement l'acquisition (réseau) du
 rendu (GUI), car les toolkits graphiques ne sont pas thread-safe :
@@ -97,7 +210,7 @@ btc-dash.py / dash2     (pas de thread : fetch synchrone dans le callback)
 Les deux scripts matplotlib prennent le verrou uniquement pour **copier** un
 instantané de l'état, puis dessinent hors verrou.
 
-### 2.3 Dégradation contrôlée
+### 3.3 Dégradation contrôlée
 
 Chaque source distante a une stratégie de repli explicite :
 
@@ -110,7 +223,7 @@ Chaque source distante a une stratégie de repli explicite :
 | flux RSS (`news`) | le feed en échec est sauté, les autres continuent |
 | CryptoPanic sans clé | source simplement désactivée |
 
-### 2.4 Palettes de couleurs
+### 3.4 Palettes de couleurs
 
 Tous les scripts sont en thème sombre, avec une constante de palette en tête de
 fichier (`C` dans `btc-dash.py`, constantes `DARK_BG`/`GREEN`/… dans
@@ -119,9 +232,9 @@ Convention constante : **vert = achat/hausse, rouge = vente/baisse**.
 
 ---
 
-## 3. Détail des modules
+## 4. Détail des panneaux
 
-### 3.1 `btc-dash.py` — BTC Ultra Dashboard
+### 4.1 `btc-dash.py` — BTC Ultra Dashboard
 
 Pipeline linéaire, refait à chaque tick de 10 s :
 
@@ -137,21 +250,22 @@ build_chart(df, currency, eur_rate)                    → go.Figure
 refresh_all(...)            callback Dash             → figure + 8 cartes de stats
 ```
 
-Découpage des fonctions :
+Depuis la phase 1, le fichier ne contient plus que ce qui lui est propre :
 
-- **Réseau** : `fetch_klines`, `fetch_ticker`, `fetch_eur_rate`
-- **Indicateurs** : `rsi`, `streak`, `atr`, `compute_indicators`, `_signals`
-- **Analyse** : `volume_profile` — répartit le volume de chaque bougie sur les
-  bins couverts par son range `low`→`high`, puis retient le bin dominant (POC)
-  et l'ensemble minimal de bins cumulant 70 % du volume (Value Area)
+- **Composition** : `compute_indicators` choisit les périodes et les colonnes,
+  `_signals` et `volume_profile` ne font que déléguer au socle
 - **Rendu** : `build_chart`, `stat_card`, layout Dash
 - **Callbacks** : `refresh_eur` (taux mis en `dcc.Store`), `refresh_all`
   (figure + cartes), déclenchés par `Input("tick", "n_intervals")`
 
+Le réseau passe par `sources.fetch_klines` / `fetch_ticker_24h` /
+`fetch_eur_rate`, et les calculs par `indicators`. Ce panneau utilise des
+**SMA** pour les MA 9 et 26.
+
 Le taux EUR transite par un `dcc.Store` pour éviter un appel FX à chaque
 recalcul de graphique.
 
-### 3.2 `btc_dashboard2.py` — BTC Dashboard (ccxt)
+### 4.2 `btc_dashboard2.py` — BTC Dashboard (ccxt)
 
 Même découpage général, trois différences structurantes :
 
@@ -160,9 +274,13 @@ Même découpage général, trois différences structurantes :
 2. **`TIMEFRAME_MAP`** associe à chaque libellé d'UI un couple
    `(timeframe ccxt, limit)` — c'est la table à éditer pour ajouter un
    intervalle. Les libellés `1y` et `All` sont des alias re-mappés sur `1d`/`1w`.
-3. **`generate_demo_data(limit)`** produit une marche aléatoire OHLCV complète
-   avec les mêmes colonnes d'indicateurs, de sorte que tout l'aval du pipeline
-   fonctionne à l'identique hors ligne.
+3. **Repli hors ligne** : `sources.generate_demo_ohlcv` produit une marche
+   aléatoire OHLCV que `add_indicators` enrichit exactement comme les données
+   réelles, de sorte que tout l'aval du pipeline fonctionne à l'identique.
+
+La phase 1 a supprimé la duplication qui existait entre `fetch_ohlcv` et
+`generate_demo_data` : les deux chemins passent maintenant par le même
+`add_indicators`. Ce panneau utilise des **EMA** pour les MA 9 et 26.
 
 Chaîne de callbacks (deux étages, pour découpler les 11 boutons de timeframe
 du rendu) :
@@ -183,7 +301,7 @@ le seul moyen de multiplexer N boutons vers une sortie unique en Dash.
 en paramètres booléens plutôt qu'en lisant l'état global — la fonction reste
 testable isolément.
 
-### 3.3 `btc-liquidity.py` — pools de liquidité
+### 4.3 `btc-liquidity.py` — pools de liquidité
 
 ```
 thread daemon : background_loop()
@@ -199,6 +317,7 @@ thread principal : FuncAnimation(interval=3000)
          └─ ax_info : 7 métriques texte
 ```
 
+- Acquisition déléguée à `sources.fetch_depth` et `sources.fetch_ticker_24h`.
 - État partagé : `deque(maxlen=60)` pour l'historique (fenêtre glissante sans
   gestion de taille explicite) + listes mutables pour le carnet.
 - `compute_trend(prices)` compare le dernier point au 10ᵉ point antérieur et
@@ -209,44 +328,25 @@ thread principal : FuncAnimation(interval=3000)
 - Un `fetch_data()` synchrone est appelé avant le démarrage du thread pour que
   la première frame ne soit pas vide.
 
-### 3.4 `btc_orderbook_live.py` — carnet d'ordres multi-exchange
+### 4.4 `btc_orderbook_live.py` — carnet d'ordres multi-exchange
 
-Le module le plus intéressant côté protocoles : il normalise trois formats de
-flux différents vers une seule structure.
+Depuis la phase 1, ce fichier ne fait plus que du rendu : les 300 lignes de
+plomberie WebSocket sont parties dans `btcterm.exchanges`, il en reste 120.
 
 ```
-BOOKS = {exchange: {"bids": {prix: qté}, "asks": {prix: qté}}}   + LOCK
+build_books_and_connectors()   3 OrderBook + 3 connecteurs (BTC/USD)
+        ↓
+run_connectors_in_thread(...)  event loop asyncio dans un thread démon
+        ↓
+FuncAnimation(update, 1000ms)  matplotlib garde le thread principal
+        └─ book.cumulative_depth("bids"/"asks") → courbe en escalier remplie
 ```
 
-Deux primitives de mutation :
+Chaque panneau affiche la profondeur cumulée des deux côtés, le prix médian et
+le spread. La normalisation des trois formats de flux (snapshot répété chez
+Binance, snapshot + deltas chez Coinbase et Kraken) est décrite en §2.2.
 
-- `set_book(exchange, bids, asks)` — remplacement complet (snapshot)
-- `apply_updates(exchange, bid_updates, ask_updates)` — application de deltas,
-  une quantité `0` supprimant le niveau
-
-Adaptation par exchange :
-
-| Exchange | Canal | Modèle | Traduction |
-|---|---|---|---|
-| Binance | `btcusdt@depth20@100ms` | snapshot répété | `set_book` à chaque message |
-| Coinbase | `level2_batch` | `snapshot` puis `l2update` | `set_book` puis `apply_updates` sur `changes` |
-| Kraken | `book` depth 100 | `as`/`bs` puis `a`/`b` | `set_book` puis `apply_updates` |
-
-Deux garde-fous nés de la réalité de ces flux, documentés dans le code :
-
-- `MAX_LEVELS = 100` et `_trim()` — le snapshot Coinbase est un carnet
-  **complet** (des milliers de niveaux) ; sans troncature autour du marché, la
-  mémoire et le temps de rendu explosent.
-- `MAX_WS_SIZE = 20 Mo` — ce même snapshot dépasse la limite de message par
-  défaut de `websockets` (1 Mo), ce qui ferme la connexion.
-
-Le rendu : `cumulative_depth(levels, descending)` transforme le dict en courbe
-de profondeur cumulée, tracée en escalier (`drawstyle="steps-post"`) avec
-remplissage, un panneau par exchange. L'event loop asyncio tourne dans un
-thread daemon (`start_websocket_thread`) pendant que matplotlib garde le thread
-principal.
-
-### 3.5 `arbitrage/main.py` — moteur d'arbitrage
+### 4.5 `arbitrage/main.py` — moteur d'arbitrage
 
 Architecture en couches, entièrement asyncio :
 
@@ -262,17 +362,15 @@ Architecture en couches, entièrement asyncio :
 
 **Modèles (`@dataclass`)**
 
-- `OrderBook` — bids/asks, `timestamp`, `connected`, `error`, plus des
-  propriétés dérivées : `best_bid`, `best_ask`, `spread`, `spread_pct`,
-  `age_ms`. Toute la logique de fraîcheur découle de `age_ms`.
+- `OrderBook` vient du socle (§2.2) ; toute la logique de fraîcheur découle de
+  sa propriété `age_ms`.
 - `ArbitrageOpportunity` — les deux exchanges, les prix, profit brut et net,
   frais, horodatage, et `is_profitable` (`net > MIN_PROFIT_PCT`).
 
-**Connecteurs** — `ExchangeConnector` fournit `connect_with_retry(name,
-coro_factory, max_retries=10)` : backoff exponentiel `min(2**n, 30)` s, remise
-à zéro du compteur après une connexion réussie, et marquage de
-`connected`/`error` sur le carnet concerné (l'UI affiche donc l'état réel de
-chaque flux). Les cinq sous-classes n'implémentent que `_stream()`.
+**Connecteurs** — fournis par le socle (§2.2) depuis la phase 1.
+`build_connectors()` se contente d'associer chaque plateforme à son produit en
+USDT ; Coinbase passe par le flux Advanced Trade, son flux public historique ne
+cotant pas cette paire.
 
 **Moteur** — `scan()` parcourt les paires **ordonnées** (acheter sur A, vendre
 sur B ≠ acheter sur B, vendre sur A) et écarte : exchanges déconnectés,
@@ -288,7 +386,7 @@ logique métier dans cette couche.
 `scan_loop` + `display_loop`) via `asyncio.gather`, avec arrêt propre sur
 `KeyboardInterrupt` (`stop()` sur chaque connecteur puis `cancel()`).
 
-### 3.6 `etf.py` / `etf_bitcoin_flows.py` — flux ETF
+### 4.6 `etf.py` / `etf_bitcoin_flows.py` — flux ETF
 
 Pipeline en trois fonctions, identique dans les deux fichiers :
 
@@ -321,9 +419,11 @@ remplacement `(` → `-` et suppression de `)`.
 | `--days` par défaut | 15 | 90 (`0` = tout) |
 
 `etf.py` est conservé comme version antérieure ; toute évolution doit se faire
-sur la v2.
+sur la v2. Seule la v2 a été migrée sur le socle (`sources.fetch_etf_flows`) :
+migrer la v1 n'aurait fait qu'entretenir un doublon voué à disparaître à
+l'étape 4.
 
-### 3.7 `news/btc_news.py` — BTC News Tracker
+### 4.7 `news/btc_news.py` — BTC News Tracker
 
 Application CLI à sous-commandes, la plus « structurée » du dépôt.
 
@@ -339,12 +439,13 @@ L'`id` est un `sha1(url + title)` : la déduplication repose donc sur la
 contrainte de clé primaire, et `save_article()` retourne `False` en
 interceptant `sqlite3.IntegrityError` — pas de `SELECT` préalable.
 
-**Pipeline d'ingestion**
+**Pipeline d'ingestion** — la récupération vient du socle, le scoring et le
+stockage restent ici :
 
 ```
-fetch_rss(conn)          6 flux via feedparser
-fetch_cryptopanic(conn)  API (sautée si pas de clé) — bonus de score selon les votes
-fetch_fear_greed(conn)   alternative.me → table fear_greed
+fetch_rss(conn)          sources.fetch_rss_entries   (6 flux, feedparser)
+fetch_cryptopanic(conn)  sources.fetch_cryptopanic_posts (sautée sans clé)
+fetch_fear_greed(conn)   sources.fetch_fear_greed → table fear_greed
         │
         ├─ score_article(title, summary)  → (score plafonné à 100, mots-clés trouvés)
         ├─ detect_sentiment(title, summary) → bullish / bearish / neutral
@@ -378,7 +479,7 @@ dépendance à une bibliothèque de rendu.
 `systemd_timer.conf` fournit, en commentaires, les unités `.service` et
 `.timer` utilisateur (`OnUnitActiveSec=30min`, `Persistent=true`).
 
-### 3.8 `m2supply.html`
+### 4.8 `m2supply.html`
 
 Page Plotly autonome censée superposer BTC et masse monétaire M2 normalisés
 (deux axes Y, `rangeslider`, `hovermode: 'x unified'`, rafraîchissement par
@@ -393,7 +494,7 @@ fragment, pas une page fonctionnelle.
 
 ---
 
-## 4. Environnements Python
+## 5. Environnements Python
 
 | Emplacement | Contenu | Utilisé par |
 |---|---|---|
@@ -401,38 +502,45 @@ fragment, pas une page fonctionnelle.
 | `news/.venv` (créé par `setup.fish`) | feedparser, requests | `news/btc_news.py` |
 | — | dash, dash-bootstrap-components, plotly, ccxt, rich | **non installés** : à ajouter pour les dashboards et l'arbitrage |
 
-Il n'y a ni `requirements.txt` ni fichier de projet à la racine : les
-dépendances des scripts racine ne sont déclarées que dans leurs docstrings.
+Un `requirements.txt` à la racine déclare désormais l'ensemble des dépendances,
+regroupées par usage (socle, dashboards, fenêtres matplotlib, temps réel, ETF,
+news) :
+
+```bash
+pip install -r requirements.txt
+```
+
+Aucune installation du paquet `btcterm` n'est nécessaire : les scripts de la
+racine le trouvent parce que Python ajoute le répertoire du script au chemin
+d'import, et les deux sous-projets remontent explicitement d'un niveau. Un
+`pyproject.toml` deviendra utile quand le terminal aura un point d'entrée
+unique.
 
 ---
 
-## 5. Feuille de route vers le terminal
+## 6. Feuille de route vers le terminal
 
 L'objectif est de passer de « N scripts, N fenêtres » à « un terminal, N
 panneaux ». Les étapes ci-dessous sont ordonnées : chacune réduit le coût de la
 suivante.
 
-### Étape 1 — Extraire le socle commun
+### Étape 1 — Extraire le socle commun ✅ *faite*
 
-Aujourd'hui la logique métier est mélangée au rendu dans chaque script. Trois
-modules à extraire, sans changer le comportement :
+Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
+scripts y sont ramenés, sans changement de comportement (§2.4) :
 
-- **`indicators.py`** — `rsi`, Connors RSI, Bollinger, MA/EMA, ATR, volatilité,
-  volume profile, détection de croisements. Ces calculs sont réimplémentés dans
-  `btc-dash.py` et `btc_dashboard2.py` avec des **variantes silencieuses** :
-  MA 9/26 en SMA d'un côté, en EMA de l'autre, et deux calculs différents du
-  percent rank du Connors RSI. Deux panneaux d'un même terminal ne peuvent pas
-  afficher deux valeurs différentes du même indicateur.
-- **`exchanges.py`** — les connecteurs WebSocket. `btc_orderbook_live.py` et
-  `arbitrage/main.py` normalisent les mêmes flux Binance / Coinbase / Kraken
-  vers la même structure `{prix: quantité}`, avec deux implémentations
-  distinctes, deux politiques de reconnexion et deux stratégies de troncature.
-  La version d'`arbitrage/main.py` (classe de base + backoff exponentiel + état
-  `connected`/`error` exposé) est la meilleure base ; celle de
-  `btc_orderbook_live.py` apporte les garde-fous `MAX_LEVELS` et `MAX_WS_SIZE`
-  qu'il faut conserver.
+- **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
+  sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
+  définition de Connors a été corrigée.
+- **`exchanges.py`** — une seule implémentation des connecteurs, réunissant la
+  classe de base à backoff exponentiel d'`arbitrage/main.py` et les garde-fous
+  `max_levels` / `MAX_WS_SIZE` de `btc_orderbook_live.py`. Un bug de gestion
+  des deltas Bybit a été corrigé au passage.
 - **`sources.py`** — les collecteurs non temps réel : klines REST, flux ETF
   farside, RSS + CryptoPanic, Fear & Greed.
+
+Reste ouvert de cette étape : `etf.py` (v1) n'a pas été migrée, puisqu'elle doit
+disparaître à l'étape 4.
 
 ### Étape 2 — Choisir une couche de rendu unique
 
@@ -468,11 +576,11 @@ transformées en panneaux :
   bascule USD/EUR) et l'abstraction `ccxt` + la palette de timeframes de
   `btc_dashboard2.py`, ainsi que son repli sur données de démo.
 - **Les deux scripts ETF.** Supprimer `etf.py` au profit d'`etf_bitcoin_flows.py`
-  (voir §3.6).
+  (voir §4.6).
 
 ### Étape 5 — Compléter la couverture
 
-- **Contexte macro** : `m2supply.html` est tronqué (§3.8). La corrélation
+- **Contexte macro** : `m2supply.html` est tronqué (§4.8). La corrélation
   BTC / masse monétaire M2 est un panneau pertinent pour la cible ; il faut soit
   reconstruire la page, soit réimplémenter la vue dans la couche de rendu
   retenue.
@@ -484,11 +592,10 @@ transformées en panneaux :
 
 ### Chantiers d'hygiène (indépendants)
 
-- **Déclarer les dépendances** dans un `requirements.txt` à la racine (ou un
-  `pyproject.toml`) plutôt qu'en docstring ; le venv racine n'a ni `dash`, ni
-  `plotly`, ni `ccxt`, ni `rich`, ni `feedparser` (§4).
+- ~~**Déclarer les dépendances**~~ — fait en phase 1 (§5). Le venv racine reste
+  toutefois incomplet : ni `dash`, ni `plotly`, ni `ccxt`, ni `rich`, ni
+  `feedparser` n'y sont installés.
 - **Ports** : les deux dashboards codent `8050` en dur, ce qui les empêche de
   tourner ensemble. `btc-dash.py` écoute de plus sur `0.0.0.0`, exposé au
   réseau local.
-- **Versionner le dépôt** : il n'est pas sous git, ce qui rend risquée toute
-  refonte de cette ampleur.
+- ~~**Versionner le dépôt**~~ — fait : dépôt git local sur `main`.

@@ -6,11 +6,12 @@ synchronisés, tout ce qu'il faut pour lire le marché : prix et indicateurs
 techniques, carnets d'ordres et profondeur multi-exchange, opportunités
 d'arbitrage, flux des ETF spot, news à impact et sentiment de marché.
 
-**État actuel : briques séparées.** Le dépôt contient aujourd'hui les modules
-qui alimenteront ces panneaux, mais chacun est encore un script **autonome** :
-ni package installable, ni point d'entrée unique. On lance directement le
-fichier voulu. La feuille de route vers l'interface unifiée est décrite dans
-[`ARCHITECTURE.md`](ARCHITECTURE.md#5-feuille-de-route-vers-le-terminal).
+**État actuel : le socle est posé.** Tout ce qui n'est pas rendu — calculs
+d'indicateurs, connexions aux plateformes, collecte des données — vit dans le
+paquet `btcterm/`, partagé par tous les outils. Chaque script reste pour
+l'instant lançable seul : il n'y a pas encore de point d'entrée unique. La
+feuille de route vers l'interface unifiée est décrite dans
+[`ARCHITECTURE.md`](ARCHITECTURE.md#6-feuille-de-route-vers-le-terminal).
 
 | Panneau visé | Brique existante |
 |---|---|
@@ -21,6 +22,10 @@ fichier voulu. La feuille de route vers l'interface unifiée est décrite dans
 | Flux institutionnels (ETF spot) | `etf_bitcoin_flows.py` |
 | Fil de news et Fear & Greed | `news/btc_news.py` |
 | Contexte macro (masse monétaire M2) | `m2supply.html` ⚠️ incomplet |
+
+Socle commun : `btcterm/indicators.py` (calculs techniques),
+`btcterm/exchanges.py` (carnet normalisé et connecteurs WebSocket),
+`btcterm/sources.py` (collecteurs REST, ETF, news).
 
 > Données de marché : APIs publiques (Binance, Kraken, Coinbase, Bybit, OKX) —
 > **aucune clé API n'est requise**, aucun ordre n'est jamais passé.
@@ -47,34 +52,39 @@ Voir [`ARCHITECTURE.md`](ARCHITECTURE.md) pour le détail interne de chaque modu
 
 ## Installation
 
-Le venv présent à la racine (`venv/`, Python 3.14) contient les dépendances
-« lourdes » communes (`pandas`, `numpy`, `matplotlib`, `requests`, `lxml`,
-`beautifulsoup4`, `tabulate`, `websockets`) mais **pas** `dash`, `plotly`,
-`ccxt`, `rich` ni `feedparser`.
-
 ```fish
 # Activer le venv existant (fish)
 source venv/bin/activate.fish
 
-# Dépendances par outil (à compléter selon ce que vous lancez)
-pip install dash dash-bootstrap-components plotly          # btc-dash.py
-pip install dash dash-bootstrap-components plotly ccxt     # btc_dashboard2.py
-pip install matplotlib requests                            # btc-liquidity.py
-pip install websockets matplotlib                          # btc_orderbook_live.py
-pip install requests pandas lxml beautifulsoup4 tabulate   # etf*.py
+# Toutes les dépendances du dépôt
+pip install -r requirements.txt
 ```
 
-Les sous-projets `arbitrage/` et `news/` ont leur propre `requirements.txt` :
+Le venv présent à la racine (`venv/`, Python 3.14) contient déjà les
+dépendances « lourdes » communes (`pandas`, `numpy`, `matplotlib`, `requests`,
+`lxml`, `beautifulsoup4`, `tabulate`, `websockets`) mais **pas** `dash`,
+`plotly`, `ccxt`, `rich` ni `feedparser` — d'où le `pip install` ci-dessus si
+vous voulez lancer les dashboards, l'arbitrage ou les news.
+
+`requirements.txt` est groupé par usage : pour n'installer qu'une partie, il
+suffit de reprendre le bloc concerné. Le socle `btcterm/` ne demande que
+`pandas`, `numpy` et `requests`.
+
+Aucune installation de paquet n'est nécessaire : les scripts trouvent
+`btcterm/` par eux-mêmes, où que soit le répertoire courant.
+
+`arbitrage/requirements.txt` et `news/requirements.txt` restent disponibles
+pour installer un seul sous-projet, et `news/setup.fish` crée un venv dédié
+plus une fonction fish `btcnews`.
+
+### Tests
 
 ```bash
-pip install -r arbitrage/requirements.txt   # websockets, rich
-pip install -r news/requirements.txt        # feedparser, requests
+python tests/test_indicators_parity.py
 ```
 
-`news/setup.fish` crée un venv dédié (`news/.venv`), installe les dépendances et
-pose une fonction fish `btcnews` dans `~/.config/fish/functions/`.
-
----
+Vérifie que les indicateurs du socle produisent exactement les mêmes valeurs
+que les implémentations d'origine, avant leur extraction.
 
 ## Les outils en détail
 
@@ -91,6 +101,10 @@ Dashboard Dash « TradingView-like » sur fond sombre, rafraîchi toutes les
   MA 9/26, position vs MA 200 et sorties de zones RSI 30/70
 - Bascule d'affichage **USD / EUR** (taux via `exchangerate-api.com`,
   repli sur `0.924` si l'appel échoue)
+
+Le Connors RSI affiché a changé de valeur en phase 1 : ce panneau utilisait une
+troisième composante non conforme à la définition de Connors, qui dépendait du
+nombre de bougies chargées. Voir `ARCHITECTURE.md` §2.1.
 
 ⚠️ Écoute sur `0.0.0.0:8050` : le dashboard est exposé sur tout le réseau
 local. Passer à `127.0.0.1` si ce n'est pas voulu.
@@ -138,7 +152,8 @@ profit_net  = profit_brut - frais_achat - frais_vente
 ```
 
 Une opportunité est retenue au-delà de `MIN_PROFIT_PCT = 0.1 %`, et les
-carnets de plus de **5 s** sont ignorés. Voir `arbitrage/README.md` pour la
+carnets de plus de **5 s** sont ignorés. Le carnet Bybit était figé sur son
+premier snapshot tout en paraissant frais ; corrigé en phase 1. Voir `arbitrage/README.md` pour la
 grille de frais et les avertissements — c'est un outil d'observation, pas un
 bot d'exécution.
 
@@ -203,4 +218,4 @@ BTC et M2. Ouvert tel quel dans un navigateur, il ne produit rien.
   seule sur des endpoints publics.
 - Les deux dashboards Dash utilisent le même port `8050` : ne pas les lancer
   simultanément sans changer le port de l'un des deux.
-- Le répertoire n'est pas un dépôt git.
+- Le dépôt est versionné avec git (branche `main`, pas de remote).

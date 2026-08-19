@@ -9,11 +9,12 @@ import threading
 from collections import deque
 from datetime import datetime
 
-import requests
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.animation as animation
 from matplotlib.patches import FancyBboxPatch
+
+from btcterm import sources
 
 # ── Configuration ────────────────────────────────────────────────────────────
 SYMBOL        = "BTCUSDT"
@@ -21,7 +22,6 @@ REFRESH_MS    = 3000        # intervalle de rafraîchissement en ms
 HISTORY_SIZE  = 60          # nombre de prix conservés
 ORDER_LEVELS  = 10          # niveaux du carnet d'ordres affichés
 
-BASE_URL      = "https://api.binance.com/api/v3"
 
 # ── Stockage partagé (thread-safe via deque) ─────────────────────────────────
 price_history  = deque(maxlen=HISTORY_SIZE)
@@ -35,15 +35,8 @@ lock           = threading.Lock()
 # ── Récupération des données ─────────────────────────────────────────────────
 def fetch_data():
     try:
-        ob = requests.get(f"{BASE_URL}/depth",
-                          params={"symbol": SYMBOL, "limit": ORDER_LEVELS},
-                          timeout=5).json()
-        tk = requests.get(f"{BASE_URL}/ticker/24hr",
-                          params={"symbol": SYMBOL},
-                          timeout=5).json()
-
-        bids = [(float(p), float(q)) for p, q in ob["bids"]]
-        asks = [(float(p), float(q)) for p, q in ob["asks"]]
+        bids, asks = sources.fetch_depth(SYMBOL, limit=ORDER_LEVELS)
+        tk = sources.fetch_ticker_24h(SYMBOL)
         price = float(tk["lastPrice"])
 
         with lock:

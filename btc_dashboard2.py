@@ -19,11 +19,12 @@ import dash_bootstrap_components as dbc
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import pandas as pd
-import numpy as np
 import ccxt
-import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
+
+from btcterm import indicators as ind
+from btcterm import sources
 
 # ──────────────────────────────────────────────────────────
 # CONFIG
@@ -49,129 +50,49 @@ SAVE_DIR = os.path.expanduser("~/btc_charts")
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 # ──────────────────────────────────────────────────────────
-# INDICATORS
+# INDICATEURS ET DONNÉES
+#
+# Les calculs vivent dans `btcterm.indicators`, la récupération dans
+# `btcterm.sources` ; ne reste ici que la composition propre à ce
+# panneau. Ce dashboard utilise des EMA pour les MA 9 et 26, là où
+# `btc-dash.py` utilise des SMA — divergence connue, à trancher lors de
+# la fusion des deux panneaux.
 # ──────────────────────────────────────────────────────────
 
-def compute_rsi(close: pd.Series, period: int = 14) -> pd.Series:
-    delta = close.diff()
-    gain  = delta.clip(lower=0).ewm(alpha=1/period, adjust=False).mean()
-    loss  = (-delta.clip(upper=0)).ewm(alpha=1/period, adjust=False).mean()
-    rs    = gain / loss.replace(0, np.nan)
-    return 100 - 100 / (1 + rs)
+def add_indicators(df: pd.DataFrame) -> pd.DataFrame:
+    """Ajoute au DataFrame OHLCV toutes les colonnes dérivées du panneau."""
+    df = df.copy()
 
-def compute_crsi(close: pd.Series, rsi_p=3, streak_p=2, pct_p=100) -> pd.Series:
-    """Connors RSI = avg(RSI3, StreakRSI2, PercentRank100)"""
-    rsi3 = compute_rsi(close, rsi_p)
-    # Up/Down streak
-    streak = pd.Series(0.0, index=close.index)
-    for i in range(1, len(close)):
-        if close.iloc[i] > close.iloc[i-1]:
-            streak.iloc[i] = max(streak.iloc[i-1], 0) + 1
-        elif close.iloc[i] < close.iloc[i-1]:
-            streak.iloc[i] = min(streak.iloc[i-1], 0) - 1
-    streak_rsi = compute_rsi(streak, streak_p)
-    # Percent rank
-    daily_chg  = close.pct_change()
-    pct_rank   = daily_chg.rolling(pct_p).apply(
-        lambda x: pd.Series(x).rank(pct=True).iloc[-1] * 100, raw=False
-    )
-    return ((rsi3 + streak_rsi + pct_rank) / 3).clip(0, 100)
+    df["ma9"]   = ind.ema(df["close"], 9)
+    df["ma26"]  = ind.ema(df["close"], 26)
+    df["ma50"]  = ind.sma(df["close"], 50)
+    df["ma200"] = ind.sma(df["close"], 200)
+
+    df["bb_mid"], df["bb_upper"], df["bb_lower"] = ind.bollinger(df["close"], 20, 2)
+
+    df["rsi"]  = ind.rsi(df["close"], 14)
+    df["crsi"] = ind.connors_rsi(df["close"])
+
+    df["volatility"] = ind.volatility(df["close"], 10, log_returns=False)
+
+    return df.dropna(subset=["open", "high", "low", "close"])
+
 
 def compute_signals(df: pd.DataFrame):
-    """Golden/Death cross signals and RSI extremes."""
-    buy_dates, buy_prices   = [], []
-    sell_dates, sell_prices = [], []
+    """Points d'achat/vente à porter sur le graphique."""
+    return ind.marker_signals(df)
 
-    # MA cross signals
-    if "ma9" in df.columns and "ma26" in df.columns:
-        prev_above = df["ma9"].shift(1) > df["ma26"].shift(1)
-        cross_up   = (df["ma9"] > df["ma26"]) & (~prev_above)
-        cross_down = (df["ma9"] < df["ma26"]) & (prev_above)
-        buy_dates  += list(df.index[cross_up])
-        buy_prices += list(df["close"][cross_up])
-        sell_dates += list(df.index[cross_down])
-        sell_prices += list(df["close"][cross_down])
-
-    # RSI signals
-    if "rsi" in df.columns:
-        rsi_buy  = (df["rsi"] < 30) & (df["rsi"].shift(1) >= 30)
-        rsi_sell = (df["rsi"] > 70) & (df["rsi"].shift(1) <= 70)
-        buy_dates  += list(df.index[rsi_buy])
-        buy_prices += list(df["close"][rsi_buy])
-        sell_dates += list(df.index[rsi_sell])
-        sell_prices += list(df["close"][rsi_sell])
-
-    return buy_dates, buy_prices, sell_dates, sell_prices
-
-# ──────────────────────────────────────────────────────────
-# DATA FETCHING
-# ──────────────────────────────────────────────────────────
 
 def fetch_ohlcv(timeframe_label: str) -> pd.DataFrame:
+    """Chandeliers de l'exchange, avec repli hors ligne sur des données de démo."""
     tf, limit = TIMEFRAME_MAP[timeframe_label]
     try:
-        raw = EXCHANGE.fetch_ohlcv(SYMBOL, timeframe=tf, limit=limit)
+        df = sources.fetch_ohlcv_ccxt(EXCHANGE, SYMBOL, tf, limit)
     except Exception as e:
         print(f"[WARN] fetch failed: {e} — using demo data")
-        return generate_demo_data(limit)
+        df = sources.generate_demo_ohlcv(limit)
+    return add_indicators(df)
 
-    df = pd.DataFrame(raw, columns=["ts", "open", "high", "low", "close", "volume"])
-    df["ts"] = pd.to_datetime(df["ts"], unit="ms")
-    df.set_index("ts", inplace=True)
-
-    # Moving averages
-    df["ma9"]  = df["close"].ewm(span=9,   adjust=False).mean()
-    df["ma26"] = df["close"].ewm(span=26,  adjust=False).mean()
-    df["ma50"] = df["close"].rolling(50).mean()
-    df["ma200"]= df["close"].rolling(200).mean()
-
-    # Bollinger Bands (20,2)
-    bb_mid = df["close"].rolling(20).mean()
-    bb_std = df["close"].rolling(20).std()
-    df["bb_upper"] = bb_mid + 2 * bb_std
-    df["bb_lower"] = bb_mid - 2 * bb_std
-    df["bb_mid"]   = bb_mid
-
-    # RSI & CRSI
-    df["rsi"]  = compute_rsi(df["close"], 14)
-    df["crsi"] = compute_crsi(df["close"])
-
-    # Volatility close-to-close (annualised %)
-    df["volatility"] = df["close"].pct_change().rolling(10).std() * np.sqrt(252) * 100
-
-    return df.dropna(subset=["open","high","low","close"])
-
-
-def generate_demo_data(limit: int = 300) -> pd.DataFrame:
-    """Generates realistic-looking BTC OHLCV for offline use."""
-    np.random.seed(42)
-    dates  = pd.date_range(end=datetime.utcnow(), periods=limit, freq="1h")
-    price  = 80000.0
-    prices = []
-    for _ in range(limit):
-        price *= np.exp(np.random.normal(0.0002, 0.018))
-        prices.append(price)
-    close  = pd.Series(prices)
-    high   = close * (1 + abs(np.random.normal(0, 0.005, limit)))
-    low    = close * (1 - abs(np.random.normal(0, 0.005, limit)))
-    open_  = close.shift(1).fillna(close)
-    volume = np.random.lognormal(20, 1, limit)
-    df = pd.DataFrame({"open": open_, "high": high, "low": low,
-                        "close": close, "volume": volume}, index=dates)
-    df.index.name = "ts"
-    df["ma9"]   = df["close"].ewm(span=9,  adjust=False).mean()
-    df["ma26"]  = df["close"].ewm(span=26, adjust=False).mean()
-    df["ma50"]  = df["close"].rolling(50).mean()
-    df["ma200"] = df["close"].rolling(200).mean()
-    bb_mid = df["close"].rolling(20).mean()
-    bb_std = df["close"].rolling(20).std()
-    df["bb_upper"] = bb_mid + 2 * bb_std
-    df["bb_lower"] = bb_mid - 2 * bb_std
-    df["bb_mid"]   = bb_mid
-    df["rsi"]       = compute_rsi(df["close"])
-    df["crsi"]      = compute_crsi(df["close"])
-    df["volatility"]= df["close"].pct_change().rolling(10).std() * np.sqrt(252) * 100
-    return df.dropna(subset=["open","high","low","close"])
 
 # ──────────────────────────────────────────────────────────
 # CHART BUILDER
@@ -534,7 +455,7 @@ def update_chart(tf, overlays, _refresh, _interval):
         if v > 1e6: return f"{v/1e6:.2f}M"
         return f"{v:,.0f}"
 
-    now = datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
     status = f"Last update: {now}  ·  Timeframe: {tf}  ·  Candles: {len(df)}"
 
     return (

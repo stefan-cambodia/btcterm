@@ -5,18 +5,33 @@ Surveille les order books de plusieurs exchanges en temps réel
 et détecte les opportunités d'arbitrage BTC/USDT.
 
 Exchanges supportés : Binance, Kraken, Coinbase, Bybit, OKX
+
+Les connexions WebSocket et la normalisation des carnets viennent de
+`btcterm.exchanges` ; ce fichier ne contient que le moteur d'arbitrage
+et son affichage.
 """
 
 import asyncio
-import json
-import time
 import sys
+import time
 from collections import defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Optional
 
-import websockets
+# Le socle vit à la racine du dépôt, un niveau au-dessus de ce fichier.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from btcterm.exchanges import (  # noqa: E402
+    BinanceConnector,
+    BybitConnector,
+    CoinbaseAdvancedConnector,
+    KrakenConnector,
+    OKXConnector,
+    OrderBook,
+)
+
 from rich.console import Console
 from rich.layout import Layout
 from rich.live import Live
@@ -43,42 +58,8 @@ MIN_PROFIT_PCT = 0.1   # % minimum pour afficher une opportunité
 ORDER_BOOK_DEPTH = 8   # niveaux affichés dans l'order book
 
 # ─────────────────────────────────────────────
-#  MODÈLES DE DONNÉES
+#  MODÈLE D'OPPORTUNITÉ
 # ─────────────────────────────────────────────
-
-@dataclass
-class OrderBook:
-    exchange: str
-    bids: list[tuple[float, float]] = field(default_factory=list)
-    asks: list[tuple[float, float]] = field(default_factory=list)
-    timestamp: float = field(default_factory=time.time)
-    connected: bool = False
-    error: Optional[str] = None
-
-    @property
-    def best_bid(self) -> Optional[float]:
-        return self.bids[0][0] if self.bids else None
-
-    @property
-    def best_ask(self) -> Optional[float]:
-        return self.asks[0][0] if self.asks else None
-
-    @property
-    def spread(self) -> Optional[float]:
-        if self.best_bid and self.best_ask:
-            return self.best_ask - self.best_bid
-        return None
-
-    @property
-    def spread_pct(self) -> Optional[float]:
-        if self.best_bid and self.best_ask and self.best_bid > 0:
-            return (self.best_ask - self.best_bid) / self.best_bid * 100
-        return None
-
-    @property
-    def age_ms(self) -> float:
-        return (time.time() - self.timestamp) * 1000
-
 
 @dataclass
 class ArbitrageOpportunity:
@@ -98,196 +79,22 @@ class ArbitrageOpportunity:
 
 
 # ─────────────────────────────────────────────
-#  CONNECTEURS WEBSOCKET
+#  CONNECTEURS
 # ─────────────────────────────────────────────
 
-class ExchangeConnector:
-    """Classe de base pour les connecteurs WebSocket."""
+def build_connectors(order_books: dict[str, OrderBook]) -> dict:
+    """Un connecteur par plateforme, tous sur la paire BTC/USDT.
 
-    def __init__(self, order_books: dict[str, OrderBook]):
-        self.order_books = order_books
-        self._running = True
-
-    def stop(self):
-        self._running = False
-
-    async def connect_with_retry(self, name: str, coro_factory, max_retries=10):
-        retries = 0
-        while self._running and retries < max_retries:
-            try:
-                await coro_factory()
-                retries = 0
-            except Exception as e:
-                self.order_books[name].connected = False
-                self.order_books[name].error = str(e)[:50]
-                retries += 1
-                await asyncio.sleep(min(2 ** retries, 30))
-
-
-class BinanceConnector(ExchangeConnector):
-    URL = "wss://stream.binance.com:9443/ws/btcusdt@depth20@100ms"
-
-    async def run(self):
-        await self.connect_with_retry("Binance", self._stream)
-
-    async def _stream(self):
-        async with websockets.connect(self.URL, ping_interval=20) as ws:
-            self.order_books["Binance"].connected = True
-            self.order_books["Binance"].error = None
-            async for msg in ws:
-                if not self._running:
-                    break
-                data = json.loads(msg)
-                ob = self.order_books["Binance"]
-                ob.bids = [(float(p), float(q)) for p, q in data["bids"][:ORDER_BOOK_DEPTH]]
-                ob.asks = [(float(p), float(q)) for p, q in data["asks"][:ORDER_BOOK_DEPTH]]
-                ob.timestamp = time.time()
-
-
-class KrakenConnector(ExchangeConnector):
-    URL = "wss://ws.kraken.com"
-
-    async def run(self):
-        await self.connect_with_retry("Kraken", self._stream)
-
-    async def _stream(self):
-        async with websockets.connect(self.URL, ping_interval=20) as ws:
-            sub = {"event": "subscribe", "pair": ["XBT/USDT"], "subscription": {"name": "book", "depth": 25}}
-            await ws.send(json.dumps(sub))
-            self.order_books["Kraken"].connected = True
-            self.order_books["Kraken"].error = None
-
-            bids_map: dict[str, str] = {}
-            asks_map: dict[str, str] = {}
-
-            async for msg in ws:
-                if not self._running:
-                    break
-                data = json.loads(msg)
-                if not isinstance(data, list):
-                    continue
-
-                payload = data[1] if len(data) > 1 else {}
-
-                # Snapshot initial
-                if "bs" in payload:
-                    bids_map = {p: q for p, q, *_ in payload["bs"]}
-                if "as" in payload:
-                    asks_map = {p: q for p, q, *_ in payload["as"]}
-
-                # Mises à jour delta
-                if "b" in payload:
-                    for entry in payload["b"]:
-                        p, q = entry[0], entry[1]
-                        if float(q) == 0:
-                            bids_map.pop(p, None)
-                        else:
-                            bids_map[p] = q
-                if "a" in payload:
-                    for entry in payload["a"]:
-                        p, q = entry[0], entry[1]
-                        if float(q) == 0:
-                            asks_map.pop(p, None)
-                        else:
-                            asks_map[p] = q
-
-                ob = self.order_books["Kraken"]
-                ob.bids = sorted([(float(p), float(q)) for p, q in bids_map.items()], reverse=True)[:ORDER_BOOK_DEPTH]
-                ob.asks = sorted([(float(p), float(q)) for p, q in asks_map.items()])[:ORDER_BOOK_DEPTH]
-                ob.timestamp = time.time()
-
-
-class BybitConnector(ExchangeConnector):
-    URL = "wss://stream.bybit.com/v5/public/spot"
-
-    async def run(self):
-        await self.connect_with_retry("Bybit", self._stream)
-
-    async def _stream(self):
-        async with websockets.connect(self.URL, ping_interval=20) as ws:
-            sub = {"op": "subscribe", "args": [f"orderbook.{ORDER_BOOK_DEPTH*2}.BTCUSDT"]}
-            await ws.send(json.dumps(sub))
-            self.order_books["Bybit"].connected = True
-            self.order_books["Bybit"].error = None
-
-            async for msg in ws:
-                if not self._running:
-                    break
-                data = json.loads(msg)
-                if data.get("topic", "").startswith("orderbook"):
-                    d = data.get("data", {})
-                    ob = self.order_books["Bybit"]
-                    if data.get("type") == "snapshot":
-                        ob.bids = [(float(p), float(q)) for p, q in d.get("b", [])[:ORDER_BOOK_DEPTH]]
-                        ob.asks = [(float(p), float(q)) for p, q in d.get("a", [])[:ORDER_BOOK_DEPTH]]
-                    ob.timestamp = time.time()
-
-
-class OKXConnector(ExchangeConnector):
-    URL = "wss://ws.okx.com:8443/ws/v5/public"
-
-    async def run(self):
-        await self.connect_with_retry("OKX", self._stream)
-
-    async def _stream(self):
-        async with websockets.connect(self.URL, ping_interval=20) as ws:
-            sub = {"op": "subscribe", "args": [{"channel": "books5", "instId": "BTC-USDT"}]}
-            await ws.send(json.dumps(sub))
-            self.order_books["OKX"].connected = True
-            self.order_books["OKX"].error = None
-
-            async for msg in ws:
-                if not self._running:
-                    break
-                data = json.loads(msg)
-                for item in data.get("data", []):
-                    ob = self.order_books["OKX"]
-                    ob.bids = [(float(p), float(q)) for p, q, *_ in item.get("bids", [])[:ORDER_BOOK_DEPTH]]
-                    ob.asks = [(float(p), float(q)) for p, q, *_ in item.get("asks", [])[:ORDER_BOOK_DEPTH]]
-                    ob.timestamp = time.time()
-
-
-class CoinbaseConnector(ExchangeConnector):
-    URL = "wss://advanced-trade-ws.coinbase.com"
-
-    async def run(self):
-        await self.connect_with_retry("Coinbase", self._stream)
-
-    async def _stream(self):
-        async with websockets.connect(self.URL, ping_interval=20) as ws:
-            sub = {"type": "subscribe", "product_ids": ["BTC-USDT"], "channel": "level2"}
-            await ws.send(json.dumps(sub))
-            self.order_books["Coinbase"].connected = True
-            self.order_books["Coinbase"].error = None
-
-            bids_map: dict[float, float] = {}
-            asks_map: dict[float, float] = {}
-
-            async for msg in ws:
-                if not self._running:
-                    break
-                data = json.loads(msg)
-                events = data.get("events", [])
-                for event in events:
-                    for update in event.get("updates", []):
-                        price = float(update["price_level"])
-                        qty = float(update["new_quantity"])
-                        side = update["side"]
-                        if side == "bid":
-                            if qty == 0:
-                                bids_map.pop(price, None)
-                            else:
-                                bids_map[price] = qty
-                        else:
-                            if qty == 0:
-                                asks_map.pop(price, None)
-                            else:
-                                asks_map[price] = qty
-
-                ob = self.order_books["Coinbase"]
-                ob.bids = sorted(bids_map.items(), reverse=True)[:ORDER_BOOK_DEPTH]
-                ob.asks = sorted(asks_map.items())[:ORDER_BOOK_DEPTH]
-                ob.timestamp = time.time()
+    Coinbase passe par le flux Advanced Trade : son flux public
+    historique ne cote pas l'USDT.
+    """
+    return {
+        "Binance":  BinanceConnector(order_books["Binance"], symbol="btcusdt", depth=20),
+        "Kraken":   KrakenConnector(order_books["Kraken"], pair="XBT/USDT", depth=25),
+        "Bybit":    BybitConnector(order_books["Bybit"], symbol="BTCUSDT", depth=50),
+        "OKX":      OKXConnector(order_books["OKX"], inst_id="BTC-USDT"),
+        "Coinbase": CoinbaseAdvancedConnector(order_books["Coinbase"], product="BTC-USDT"),
+    }
 
 
 # ─────────────────────────────────────────────
@@ -390,8 +197,8 @@ class Dashboard:
         t.add_column("Prix ASK", style="red", justify="right")
         t.add_column("Qté", justify="right", style="dim")
 
-        bids = ob.bids[:ORDER_BOOK_DEPTH]
-        asks = ob.asks[:ORDER_BOOK_DEPTH]
+        bids = ob.top("bids", ORDER_BOOK_DEPTH)
+        asks = ob.top("asks", ORDER_BOOK_DEPTH)
         max_rows = max(len(bids), len(asks))
 
         for i in range(max_rows):
@@ -498,13 +305,7 @@ async def main():
     dashboard = Dashboard(order_books, engine)
 
     # Connecteurs
-    connectors = {
-        "Binance":  BinanceConnector(order_books),
-        "Kraken":   KrakenConnector(order_books),
-        "Bybit":    BybitConnector(order_books),
-        "OKX":      OKXConnector(order_books),
-        "Coinbase": CoinbaseConnector(order_books),
-    }
+    connectors = build_connectors(order_books)
 
     async def scan_loop():
         while True:

@@ -16,67 +16,11 @@ Dépendances :
 """
 
 import argparse
-import io
 import sys
-import requests
 import pandas as pd
 from tabulate import tabulate
 
-URL = "https://farside.co.uk/btc/"
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-        "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
-    )
-}
-
-
-def fetch_flows() -> pd.DataFrame:
-    """Récupère et nettoie le tableau des flux ETF Bitcoin depuis farside.co.uk"""
-    resp = requests.get(URL, headers=HEADERS, timeout=15)
-    resp.raise_for_status()
-
-    tables = pd.read_html(io.StringIO(resp.text))
-    if not tables:
-        raise RuntimeError("Aucun tableau trouvé sur la page.")
-
-    # Le tableau principal des flux est généralement le plus grand
-    df = max(tables, key=lambda t: t.shape[0]).copy()
-
-    # Le site renvoie parfois des colonnes multi-niveaux (ticker + frais, etc.)
-    # On ne garde que le ticker / nom le plus pertinent dans chaque en-tête.
-    if isinstance(df.columns, pd.MultiIndex):
-        new_cols = []
-        for col_tuple in df.columns:
-            parts = [str(p) for p in col_tuple if not str(p).startswith("Unnamed")]
-            new_cols.append(parts[0] if parts else str(col_tuple[0]))
-        df.columns = new_cols
-    else:
-        df.columns = [str(c).strip() for c in df.columns]
-
-    first_col = df.columns[0]
-    df = df.rename(columns={first_col: "Date"})
-
-    # Suppression des lignes d'en-tête répétées / lignes vides
-    df = df[df["Date"].astype(str).str.match(r"^\d{1,2} \w{3} \d{4}$", na=False)]
-
-    df["Date"] = pd.to_datetime(df["Date"], format="%d %b %Y", errors="coerce")
-    df = df.dropna(subset=["Date"]).sort_values("Date").reset_index(drop=True)
-
-    # Conversion des colonnes numériques (flux en millions de $)
-    for col in df.columns[1:]:
-        df[col] = (
-            df[col]
-            .astype(str)
-            .str.replace(",", "", regex=False)
-            .str.replace("(", "-", regex=False)
-            .str.replace(")", "", regex=False)
-            .str.replace("US$m", "", regex=False)
-            .str.strip()
-        )
-        df[col] = pd.to_numeric(df[col], errors="coerce")
-
-    return df.fillna(0.0)
+from btcterm.sources import fetch_etf_flows
 
 
 def summarize(df: pd.DataFrame, days: int | None) -> pd.DataFrame:
@@ -93,7 +37,7 @@ def main():
 
     print("Récupération des données depuis farside.co.uk ...")
     try:
-        df = fetch_flows()
+        df = fetch_etf_flows()
     except Exception as e:
         print(f"Erreur lors de la récupération des données : {e}", file=sys.stderr)
         sys.exit(1)

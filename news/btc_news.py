@@ -11,8 +11,6 @@ Stockage : SQLite local (~/.btc_news/news.db)
 import argparse
 import hashlib
 import json
-import os
-import re
 import sqlite3
 import sys
 import time
@@ -20,8 +18,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-import feedparser
-import requests
+# Le socle vit à la racine du dépôt, un niveau au-dessus de ce fichier.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from btcterm import sources  # noqa: E402
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
@@ -76,16 +76,6 @@ KEYWORDS: dict[str, int] = {
     "bitcoin":          5, "btc":              5, "satoshi":          5,
     "taproot":         10, "ordinals":        10, "runes":           10,
 }
-
-# Sources RSS
-RSS_FEEDS: list[dict] = [
-    {"name": "CoinDesk",        "url": "https://www.coindesk.com/arc/outboundfeeds/rss/"},
-    {"name": "CoinTelegraph",   "url": "https://cointelegraph.com/rss"},
-    {"name": "Decrypt",         "url": "https://decrypt.co/feed"},
-    {"name": "Bitcoin Magazine", "url": "https://bitcoinmagazine.com/.rss/full/"},
-    {"name": "The Block",       "url": "https://www.theblock.co/rss.xml"},
-    {"name": "CryptoSlate",     "url": "https://cryptoslate.com/feed/"},
-]
 
 # ── Base de données ───────────────────────────────────────────────────────────
 
@@ -177,112 +167,86 @@ def detect_sentiment(title: str, summary: str = "") -> str:
 
 # ── Sources ───────────────────────────────────────────────────────────────────
 
+def _report(article: dict, label: str) -> None:
+    icon = {"bullish": "📈", "bearish": "📉"}.get(article["sentiment"], "➡️")
+    print(f"  {icon} [{article['score']:3d}] {label}: {article['title'][:80]}")
+
+
 def fetch_rss(conn: sqlite3.Connection, verbose: bool = False) -> int:
+    """Score puis stocke les articles des flux RSS. Retourne le nombre de nouveaux."""
+    def on_error(name: str, exc: Exception) -> None:
+        print(f"  ⚠️  Erreur RSS {name}: {exc}", file=sys.stderr)
+
     new_count = 0
-    for feed_info in RSS_FEEDS:
-        try:
-            feed = feedparser.parse(feed_info["url"])
-            for entry in feed.entries:
-                title   = entry.get("title", "").strip()
-                summary = re.sub(r"<[^>]+>", "", entry.get("summary", ""))
-                url     = entry.get("link", "")
-                pub     = entry.get("published", "")
+    for entry in sources.fetch_rss_entries(on_error=on_error):
+        score, kws = score_article(entry["title"], entry["summary"])
+        if score < MIN_SCORE:
+            continue
 
-                score, kws = score_article(title, summary)
-                if score < MIN_SCORE:
-                    continue
-
-                article = {
-                    "title":    title,
-                    "summary":  summary[:500],
-                    "url":      url,
-                    "source":   feed_info["name"],
-                    "published": pub,
-                    "score":    score,
-                    "keywords": kws,
-                    "sentiment": detect_sentiment(title, summary),
-                }
-                if save_article(conn, article):
-                    new_count += 1
-                    if verbose:
-                        icon = {"bullish": "📈", "bearish": "📉"}.get(article["sentiment"], "➡️")
-                        print(f"  {icon} [{score:3d}] {feed_info['name']}: {title[:80]}")
-        except Exception as e:
-            print(f"  ⚠️  Erreur RSS {feed_info['name']}: {e}", file=sys.stderr)
+        article = {
+            **entry,
+            "summary": entry["summary"][:500],
+            "score": score,
+            "keywords": kws,
+            "sentiment": detect_sentiment(entry["title"], entry["summary"]),
+        }
+        if save_article(conn, article):
+            new_count += 1
+            if verbose:
+                _report(article, entry["source"])
     return new_count
 
 
 def fetch_cryptopanic(conn: sqlite3.Connection, api_key: str, verbose: bool = False) -> int:
-    """Récupère les news filtrées BTC depuis CryptoPanic (clé gratuite)."""
-    if not api_key:
-        return 0
+    """Idem pour CryptoPanic, dont les votes affinent score et sentiment."""
     new_count = 0
-    url = (
-        f"https://cryptopanic.com/api/v1/posts/"
-        f"?auth_token={api_key}&currencies=BTC&filter=important&public=true"
-    )
     try:
-        resp = requests.get(url, timeout=10)
-        resp.raise_for_status()
-        data = resp.json()
-        for item in data.get("results", []):
-            title   = item.get("title", "").strip()
-            summary = ""
-            url_    = item.get("url", "")
-            pub     = item.get("published_at", "")
-            votes   = item.get("votes", {})
-            # Bonus de score selon les votes CryptoPanic
-            bonus   = min((votes.get("important", 0) * 5 +
-                           votes.get("liked", 0) * 2), 30)
-            score, kws = score_article(title, summary)
-            score = min(score + bonus, 100)
-            if score < MIN_SCORE:
-                continue
-
-            # Sentiment depuis les votes
-            if votes.get("bullish", 0) > votes.get("bearish", 0):
-                sentiment = "bullish"
-            elif votes.get("bearish", 0) > votes.get("bullish", 0):
-                sentiment = "bearish"
-            else:
-                sentiment = detect_sentiment(title)
-
-            article = {
-                "title":    title,
-                "summary":  summary,
-                "url":      url_,
-                "source":   f"CryptoPanic/{item.get('source', {}).get('title', '')}",
-                "published": pub,
-                "score":    score,
-                "keywords": kws,
-                "sentiment": sentiment,
-            }
-            if save_article(conn, article):
-                new_count += 1
-                if verbose:
-                    icon = {"bullish": "📈", "bearish": "📉"}.get(sentiment, "➡️")
-                    print(f"  {icon} [{score:3d}] CryptoPanic: {title[:80]}")
+        posts = sources.fetch_cryptopanic_posts(api_key)
     except Exception as e:
         print(f"  ⚠️  Erreur CryptoPanic: {e}", file=sys.stderr)
+        return 0
+
+    for post in posts:
+        votes = post["votes"]
+        # Bonus de score selon les votes CryptoPanic
+        bonus = min(votes.get("important", 0) * 5 + votes.get("liked", 0) * 2, 30)
+        score, kws = score_article(post["title"])
+        score = min(score + bonus, 100)
+        if score < MIN_SCORE:
+            continue
+
+        # Le sentiment de la communauté prime sur la détection lexicale
+        if votes.get("bullish", 0) > votes.get("bearish", 0):
+            sentiment = "bullish"
+        elif votes.get("bearish", 0) > votes.get("bullish", 0):
+            sentiment = "bearish"
+        else:
+            sentiment = detect_sentiment(post["title"])
+
+        article = {k: v for k, v in post.items() if k != "votes"}
+        article.update(score=score, keywords=kws, sentiment=sentiment)
+
+        if save_article(conn, article):
+            new_count += 1
+            if verbose:
+                _report(article, "CryptoPanic")
     return new_count
 
 
 def fetch_fear_greed(conn: sqlite3.Connection) -> Optional[dict]:
-    """Récupère le Fear & Greed Index."""
-    try:
-        resp = requests.get("https://api.alternative.me/fng/?limit=1", timeout=8)
-        resp.raise_for_status()
-        data = resp.json()["data"][0]
-        conn.execute(
-            "INSERT INTO fear_greed (value, label, fetched_at) VALUES (?, ?, ?)",
-            (int(data["value"]), data["value_classification"],
-             datetime.now(timezone.utc).isoformat())
-        )
-        conn.commit()
-        return data
-    except Exception as e:
-        print(f"  ⚠️  Erreur Fear&Greed: {e}", file=sys.stderr)
+    """Récupère l'indice Fear & Greed et l'historise."""
+    data = sources.fetch_fear_greed()
+    if data is None:
+        print("  ⚠️  Erreur Fear&Greed: source injoignable", file=sys.stderr)
         return None
+
+    conn.execute(
+        "INSERT INTO fear_greed (value, label, fetched_at) VALUES (?, ?, ?)",
+        (data["value"], data["label"], datetime.now(timezone.utc).isoformat()),
+    )
+    conn.commit()
+    return data
+
 
 # ── Affichage ─────────────────────────────────────────────────────────────────
 
