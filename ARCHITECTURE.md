@@ -27,8 +27,9 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
   regroupant douze panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
-  rafraîchissement, un hub qui n'ouvre qu'une connexion par plateforme et un
-  collecteur de news en tâche de fond.
+  rafraîchissement doublés d'un canal push pour les panneaux rapides, un hub
+  qui n'ouvre qu'une connexion par plateforme et un collecteur de news en
+  tâche de fond.
 
 ```bash
 python -m terminal.app        # http://127.0.0.1:8050
@@ -39,8 +40,9 @@ deux fenêtres matplotlib — ont été supprimés à l'étape 4, après récup�
 ce qu'ils avaient de propre, et `m2supply.html` a suivi à l'étape 5, remplacé
 par le panneau macro. Ce qui subsiste ([§5](#5-détail-des-outils-restants)) ne fait pas
 double emploi avec un panneau : le moniteur d'arbitrage en TUI, l'export des
-flux ETF et le tracker de news. Ce qui manque encore pour atteindre
-la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
+flux ETF et le tracker de news. La feuille de route qui a mené ici — soldée —
+et la liste de ce qui manque encore sont en
+[§7](#7-feuille-de-route-vers-le-terminal).
 
 ```
 /home/stefan/python/btc
@@ -63,11 +65,13 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 ├── terminal/                  ← TERMINAL : l'application Dash
 │   ├── app.py                     grille, horloges, bandeau, plein écran,
 │   │                              disposition configurable
+│   ├── push.py                    canal push des panneaux rapides (§3.10)
 │   ├── theme.py                   palette et styles
 │   ├── charts.py                  figures Plotly
 │   ├── assets/                    CSS et JS servis au navigateur
-│   └── panels/                    price · orderbook · arbitrage · etf ·
-│                                   news · calendar · macro
+│   └── panels/                    price · orderbook · arbitrage ·
+│                                   liquidations · etf · perp · news ·
+│                                   calendar · macro · dominance · onchain
 │
 ├── tests/
 │   ├── test_indicators_parity.py  non-régression des indicateurs
@@ -100,7 +104,7 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 
 | Famille | Où | Boucle d'affichage |
 |---|---|---|
-| Web (Dash/Plotly) | `terminal/` | `dcc.Interval` → callbacks serveur |
+| Web (Dash/Plotly) | `terminal/` | `dcc.Interval` → callbacks serveur, doublé d'un push WebSocket pour les panneaux rapides (§3.10) |
 | TUI (Rich) | `arbitrage/main.py` | `rich.live.Live` piloté par asyncio |
 | CLI batch | `etf_bitcoin_flows.py`, `news/btc_news.py` | one-shot (ou `watch` en boucle) |
 
@@ -332,6 +336,7 @@ SSH, ce qui écartait à la fois une interface texte et une application Qt.
 ```
 terminal/
 ├── app.py           grille, disposition, horloges, bandeau, point d'entrée
+├── push.py          canal push des panneaux rapides (§3.10)
 ├── theme.py         palette et styles partagés
 ├── charts.py        constructeurs de figures Plotly
 └── panels/          un module par panneau
@@ -1106,3 +1111,50 @@ Reste, hors étape :
 - ~~**Versionner le dépôt**~~ — fait : dépôt git local sur `main`.
 - ~~**Empaqueter**~~ — fait : `pyproject.toml` et commande `btcterm`, une fois
   remplie la condition que posait §6 — un point d'entrée unique.
+
+### Ce qui manque encore
+
+La feuille de route est soldée et les chantiers d'hygiène aussi : plus rien
+n'est *en cours*. Ce qui suit n'est donc pas un chemin ordonné mais l'état
+des manques constatés à la clôture — chacun à ouvrir quand l'usage le fera
+sentir, aucun ne conditionnant les autres.
+
+**Pour la surveillance :**
+
+- **Alertes** — le terminal montre tout mais ne prévient de rien : pas de
+  seuil de prix, pas de signal sur une rafale de liquidations, un financement
+  extrême ou une news à fort score. Or l'usage énoncé comprend la
+  surveillance passive : une station qui sait attirer l'attention quand on ne
+  la regarde pas ferait mieux que douze panneaux qu'il faut balayer des yeux.
+- **Historique des données éphémères** — carnets, écarts d'arbitrage et
+  liquidations vivent en mémoire et meurent avec le processus ; seules les
+  news survivent (SQLite, §2.4). Journaliser au moins les liquidations et les
+  opportunités d'arbitrage permettrait de relire une séance a posteriori — et
+  donnerait aux alertes ci-dessus une base de comparaison.
+
+**Hygiène technique :**
+
+- **Tests hors ligne du pousseur** — le canal push n'est couvert que par le
+  contrôle navigateur (`ui_smoke`) : `_merge` et `_frame` se testeraient sans
+  réseau avec un hub factice, et `test_terminal_wiring` ignore la route
+  `/push` et ses relais d'état. C'est la seule pièce du terminal sans test
+  exécutable hors ligne.
+- **Serveur de développement** — le terminal tourne sur le serveur Werkzeug
+  de Flask, suffisant pour un poste personnel mais pas pensé pour des
+  semaines de fonctionnement continu. Si un usage long le justifie, un
+  serveur WSGI qui parle WebSocket (gunicorn + gevent) est le remplacement
+  propre — flask-sock les supporte tous deux.
+- **Service utilisateur** — la collecte de news a son gabarit de timer
+  systemd (`news/systemd_timer.conf`), le terminal lui-même n'a pas d'unité :
+  il se lance à la main à chaque session.
+
+**À trancher :**
+
+- **Le sort des satellites (§5)** — la TUI d'arbitrage suit le même moteur
+  que le panneau du même nom ; son intérêt propre est de vivre sans
+  navigateur. L'export ETF et le tracker de news gardent leur utilité en
+  ligne de commande. Converger davantage, ou assumer la coexistence — mais le
+  décider, pour que §5 cesse d'être un « pas encore ».
+- **Version 1.0** — l'empaquetage affiche `0.9.0`. La feuille de route soldée
+  est le moment naturel de passer le cap ; le faire une fois les manques
+  ci-dessus arbitrés donnerait au numéro un sens réel.
