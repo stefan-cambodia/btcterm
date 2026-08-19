@@ -14,15 +14,13 @@ et son affichage.
 import asyncio
 import sys
 import time
-from collections import defaultdict
-from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # Le socle vit à la racine du dépôt, un niveau au-dessus de ce fichier.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from btcterm.arbitrage import DEFAULT_FEES, ArbitrageEngine  # noqa: E402
 from btcterm.exchanges import (  # noqa: E402
     BinanceConnector,
     BybitConnector,
@@ -46,37 +44,18 @@ console = Console()
 #  CONFIGURATION
 # ─────────────────────────────────────────────
 
+# Les frais viennent du socle ; seule la couleur d'affichage est propre
+# à cette interface.
+COLORS = {
+    "Binance": "yellow", "Kraken": "blue", "Bybit": "magenta",
+    "OKX": "cyan", "Coinbase": "green",
+}
 EXCHANGES = {
-    "Binance":  {"fee": 0.001, "color": "yellow"},
-    "Kraken":   {"fee": 0.0026, "color": "blue"},
-    "Bybit":    {"fee": 0.001, "color": "magenta"},
-    "OKX":      {"fee": 0.001, "color": "cyan"},
-    "Coinbase": {"fee": 0.006, "color": "green"},
+    name: {"fee": DEFAULT_FEES[name], "color": COLORS[name]} for name in COLORS
 }
 
 MIN_PROFIT_PCT = 0.1   # % minimum pour afficher une opportunité
 ORDER_BOOK_DEPTH = 8   # niveaux affichés dans l'order book
-
-# ─────────────────────────────────────────────
-#  MODÈLE D'OPPORTUNITÉ
-# ─────────────────────────────────────────────
-
-@dataclass
-class ArbitrageOpportunity:
-    buy_exchange: str
-    sell_exchange: str
-    buy_price: float
-    sell_price: float
-    gross_profit_pct: float
-    net_profit_pct: float
-    buy_fee: float
-    sell_fee: float
-    timestamp: float = field(default_factory=time.time)
-
-    @property
-    def is_profitable(self) -> bool:
-        return self.net_profit_pct > MIN_PROFIT_PCT
-
 
 # ─────────────────────────────────────────────
 #  CONNECTEURS
@@ -95,70 +74,6 @@ def build_connectors(order_books: dict[str, OrderBook]) -> dict:
         "OKX":      OKXConnector(order_books["OKX"], inst_id="BTC-USDT"),
         "Coinbase": CoinbaseAdvancedConnector(order_books["Coinbase"], product="BTC-USDT"),
     }
-
-
-# ─────────────────────────────────────────────
-#  MOTEUR D'ARBITRAGE
-# ─────────────────────────────────────────────
-
-class ArbitrageEngine:
-    def __init__(self, order_books: dict[str, OrderBook]):
-        self.order_books = order_books
-        self.opportunities: list[ArbitrageOpportunity] = []
-        self.history: list[ArbitrageOpportunity] = []
-        self.stats = defaultdict(int)
-
-    def scan(self) -> list[ArbitrageOpportunity]:
-        opportunities = []
-        exchanges = list(self.order_books.keys())
-
-        for i, buy_ex in enumerate(exchanges):
-            for sell_ex in exchanges:
-                if buy_ex == sell_ex:
-                    continue
-                buy_ob = self.order_books[buy_ex]
-                sell_ob = self.order_books[sell_ex]
-
-                if not (buy_ob.connected and sell_ob.connected):
-                    continue
-                if not (buy_ob.best_ask and sell_ob.best_bid):
-                    continue
-                if buy_ob.age_ms > 5000 or sell_ob.age_ms > 5000:
-                    continue  # données trop vieilles
-
-                buy_price = buy_ob.best_ask
-                sell_price = sell_ob.best_bid
-
-                if sell_price <= buy_price:
-                    continue
-
-                gross_pct = (sell_price - buy_price) / buy_price * 100
-                buy_fee = EXCHANGES[buy_ex]["fee"] * 100
-                sell_fee = EXCHANGES[sell_ex]["fee"] * 100
-                net_pct = gross_pct - buy_fee - sell_fee
-
-                opp = ArbitrageOpportunity(
-                    buy_exchange=buy_ex,
-                    sell_exchange=sell_ex,
-                    buy_price=buy_price,
-                    sell_price=sell_price,
-                    gross_profit_pct=gross_pct,
-                    net_profit_pct=net_pct,
-                    buy_fee=buy_fee,
-                    sell_fee=sell_fee,
-                )
-
-                if opp.is_profitable:
-                    self.stats["total_opportunities"] += 1
-                    self.history.append(opp)
-                    if len(self.history) > 100:
-                        self.history.pop(0)
-
-                opportunities.append(opp)
-
-        opportunities.sort(key=lambda x: x.net_profit_pct, reverse=True)
-        self.opportunities = opportunities
-        return opportunities
 
 
 # ─────────────────────────────────────────────
@@ -301,7 +216,7 @@ async def main():
 
     # Initialisation des order books
     order_books = {name: OrderBook(exchange=name) for name in EXCHANGES}
-    engine = ArbitrageEngine(order_books)
+    engine = ArbitrageEngine(order_books, min_profit_pct=MIN_PROFIT_PCT)
     dashboard = Dashboard(order_books, engine)
 
     # Connecteurs

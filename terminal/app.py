@@ -1,0 +1,174 @@
+"""
+Assemblage du terminal.
+
+Deux régimes de rafraîchissement plutôt qu'un seul — c'est ce qui permet
+d'afficher un carnet vivant sans resérialiser les chandeliers quatre fois
+par seconde :
+
+    tick-fast  250 ms   carnet, profondeur, arbitrage  (mémoire, zéro réseau)
+    tick-slow    2 s    chandeliers, indicateurs, bandeau
+    tick-rare    5 min  flux ETF, news, Fear & Greed
+
+Lancement :
+    python -m terminal.app            # http://127.0.0.1:8050
+    python -m terminal.app --port 8060
+"""
+
+from __future__ import annotations
+
+import argparse
+
+import dash
+from dash import Input, Output, dcc, html
+
+from btcterm.hub import MarketHub
+
+from .panels import PANELS, arbitrage, etf, news, orderbook, price
+from .theme import C, MONO
+
+REFRESH_FAST_MS = 250
+REFRESH_SLOW_MS = 2_000
+REFRESH_RARE_MS = 300_000
+
+# Disposition des panneaux. Le graphique prix occupe toute la colonne de
+# gauche — c'est lui qu'on regarde en séance d'analyse ; les panneaux de
+# surveillance se rangent à droite.
+#
+#     ┌─────────┬────────┬───────────┐
+#     │         │ carnet │ arbitrage │
+#     │  prix   ├────────┼───────────┤
+#     │         │ profo. │           │
+#     │         ├────────┤   news    │
+#     │         │  etf   │           │
+#     └─────────┴────────┴───────────┘
+#
+# Les hauteurs sont fixées en fractions du viewport : Plotly a besoin
+# d'une hauteur explicite pour que le zoom se comporte correctement.
+_GRID = {
+    "display": "grid",
+    "gridTemplateAreas": '"price book arb" "price depth news" "price etf news"',
+    "gridTemplateColumns": "1.35fr 1fr 1fr",
+    "gridTemplateRows": "minmax(0, 1.1fr) minmax(0, 1fr) minmax(0, 1fr)",
+    "gap": "8px",
+    "padding": "8px",
+    "height": "calc(100vh - 46px)",
+    "boxSizing": "border-box",
+    "background": C["bg"],
+}
+
+
+def _cell(area: str, content):
+    """Place un panneau dans sa zone de la grille."""
+    return html.Div(content, style={"gridArea": area, "minHeight": "0",
+                                    "minWidth": "0"})
+
+_STAT = {"fontFamily": MONO, "fontSize": "11px", "color": C["text"],
+         "marginRight": "18px"}
+
+
+def _header():
+    return html.Div([
+        html.Span("₿ BTC TERMINAL", style={
+            "fontFamily": MONO, "fontWeight": "700", "fontSize": "13px",
+            "color": C["yellow"], "letterSpacing": "0.14em", "marginRight": "24px"}),
+        html.Span(id="hdr-price", style={**_STAT, "fontSize": "14px",
+                                         "fontWeight": "600"}),
+        html.Span(id="hdr-change", style=_STAT),
+        html.Span(id="hdr-spread", style=_STAT),
+        html.Span(id="hdr-status", style={**_STAT, "marginLeft": "auto",
+                                          "color": C["muted"]}),
+    ], style={
+        "display": "flex", "alignItems": "center", "padding": "0 14px",
+        "height": "38px", "background": C["panel"],
+        "borderBottom": f"1px solid {C['border']}",
+    })
+
+
+def create_app(hub: MarketHub) -> dash.Dash:
+    app = dash.Dash(
+        __name__,
+        title="₿ BTC Terminal",
+        update_title=None,          # pas de « Updating… » clignotant à 250 ms
+        suppress_callback_exceptions=True,
+    )
+
+    app.layout = html.Div([
+        dcc.Interval(id="tick-fast", interval=REFRESH_FAST_MS),
+        dcc.Interval(id="tick-slow", interval=REFRESH_SLOW_MS),
+        dcc.Interval(id="tick-rare", interval=REFRESH_RARE_MS),
+        _header(),
+        html.Div([
+            _cell("price", price.layout()),
+            _cell("book", orderbook.layout()),
+            _cell("arb", arbitrage.layout()),
+            _cell("depth", orderbook.depth_layout()),
+            _cell("etf", etf.layout()),
+            _cell("news", news.layout()),
+        ], style=_GRID),
+    ], style={"background": C["bg"], "margin": "0", "height": "100vh",
+              "overflow": "hidden"})
+
+    for panel in PANELS:
+        panel.register(app, hub)
+
+    @app.callback(
+        Output("hdr-price", "children"),
+        Output("hdr-change", "children"),
+        Output("hdr-change", "style"),
+        Output("hdr-spread", "children"),
+        Output("hdr-status", "children"),
+        Input("tick-slow", "n_intervals"),
+    )
+    def _refresh_header(_tick):
+        ticker = hub.ticker()
+        live = hub.reference_price()
+        price_txt = f"{live:,.2f} $" if live else "—"
+
+        change = float(ticker.get("priceChangePercent", 0) or 0)
+        change_style = {**_STAT, "color": C["green"] if change >= 0 else C["red"]}
+        change_txt = f"{change:+.2f} % 24 h"
+
+        spreads = [b.spread_pct for b in hub.books.values() if b.spread_pct]
+        spread_txt = f"spread min {min(spreads):.4f} %" if spreads else ""
+
+        uptime = hub.uptime_seconds
+        status = (f"{hub.connected_count}/5 flux · "
+                  f"{uptime // 3600:02d}:{uptime % 3600 // 60:02d}:{uptime % 60:02d}")
+
+        return price_txt, change_txt, change_style, spread_txt, status
+
+    return app
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Terminal Bitcoin")
+    parser.add_argument("--port", type=int, default=8050)
+    parser.add_argument(
+        "--host", default="127.0.0.1",
+        help="127.0.0.1 par défaut : pour un accès distant, préférer un "
+             "tunnel SSH (ssh -L 8050:localhost:8050) plutôt que d'exposer "
+             "le port sur le réseau",
+    )
+    parser.add_argument("--debug", action="store_true")
+    args = parser.parse_args()
+
+    hub = MarketHub()
+    hub.start()
+
+    app = create_app(hub)
+    print(f"""
+╔════════════════════════════════════════════════════════╗
+║  ₿  BTC TERMINAL                                       ║
+║  → http://{args.host}:{args.port}{' ' * (43 - len(args.host) - len(str(args.port)))}║
+║  → à distance :  ssh -L {args.port}:localhost:{args.port} <machine>{' ' * max(0, 6 - len(str(args.port)) * 2)}║
+║  → Ctrl-C pour arrêter                                 ║
+╚════════════════════════════════════════════════════════╝
+""")
+    try:
+        app.run(debug=args.debug, host=args.host, port=args.port)
+    finally:
+        hub.stop()
+
+
+if __name__ == "__main__":
+    main()

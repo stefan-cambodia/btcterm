@@ -6,26 +6,53 @@ synchronisés, tout ce qu'il faut pour lire le marché : prix et indicateurs
 techniques, carnets d'ordres et profondeur multi-exchange, opportunités
 d'arbitrage, flux des ETF spot, news à impact et sentiment de marché.
 
-**État actuel : le socle est posé.** Tout ce qui n'est pas rendu — calculs
-d'indicateurs, connexions aux plateformes, collecte des données — vit dans le
-paquet `btcterm/`, partagé par tous les outils. Chaque script reste pour
-l'instant lançable seul : il n'y a pas encore de point d'entrée unique. La
-feuille de route vers l'interface unifiée est décrite dans
-[`ARCHITECTURE.md`](ARCHITECTURE.md#6-feuille-de-route-vers-le-terminal).
+## Lancement
 
-| Panneau visé | Brique existante |
-|---|---|
-| Prix, chandeliers, indicateurs, signaux | `btc-dash.py`, `btc_dashboard2.py` |
-| Carnet d'ordres et liquidité | `btc-liquidity.py` |
-| Profondeur comparée multi-exchange | `btc_orderbook_live.py` |
-| Écarts inter-exchange / arbitrage | `arbitrage/main.py` |
-| Flux institutionnels (ETF spot) | `etf_bitcoin_flows.py` |
-| Fil de news et Fear & Greed | `news/btc_news.py` |
-| Contexte macro (masse monétaire M2) | `m2supply.html` ⚠️ incomplet |
+```bash
+python -m terminal.app
+```
 
-Socle commun : `btcterm/indicators.py` (calculs techniques),
-`btcterm/exchanges.py` (carnet normalisé et connecteurs WebSocket),
-`btcterm/sources.py` (collecteurs REST, ETF, news).
+→ **http://127.0.0.1:8050**
+
+À distance, par tunnel SSH (le port n'est pas exposé sur le réseau) :
+
+```bash
+ssh -L 8050:localhost:8050 <machine>
+```
+
+## Les panneaux
+
+| Panneau | Contenu | Rafraîchissement |
+|---|---|---|
+| **Prix** | chandeliers, MA 9/26/200, Bollinger, POC + Value Area, RSI, CRSI, volume, signaux, bascule USD/EUR | 2 s |
+| **Carnet** | 12 niveaux de chaque côté, spread, âge du flux, choix de la plateforme | 250 ms |
+| **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian | 250 ms |
+| **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
+| **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
+| **News** | fil scoré + indice Fear & Greed | 5 min |
+
+Le graphique conserve zoom et pan pendant que les données coulent — c'est ce qui
+permet d'analyser une zone sans être recadré à chaque tour d'horloge.
+
+Le panneau news **lit** la base alimentée par `news/btc_news.py` ; il ne la
+remplit pas. Pour l'alimenter : `python news/btc_news.py fetch`, ou le timer
+systemd fourni.
+
+## Architecture
+
+- **`btcterm/`** — le socle : indicateurs, carnets et connecteurs WebSocket,
+  moteur d'arbitrage, collecteurs, et le hub qui n'ouvre qu'une connexion par
+  plateforme pour tous les panneaux.
+- **`terminal/`** — l'application Dash : grille, thème, figures, panneaux.
+
+Détail complet dans [`ARCHITECTURE.md`](ARCHITECTURE.md), feuille de route en
+[§7](ARCHITECTURE.md#7-feuille-de-route-vers-le-terminal).
+
+## Outils hérités
+
+Les scripts d'origine restent lançables le temps de la transition ; ils
+partagent le socle mais gardent chacun leur fenêtre. Le terminal couvre déjà
+`btc-dash.py`, `btc-liquidity.py` et `btc_orderbook_live.py`.
 
 > Données de marché : APIs publiques (Binance, Kraken, Coinbase, Bybit, OKX) —
 > **aucune clé API n'est requise**, aucun ordre n'est jamais passé.
@@ -60,11 +87,8 @@ source venv/bin/activate.fish
 pip install -r requirements.txt
 ```
 
-Le venv présent à la racine (`venv/`, Python 3.14) contient déjà les
-dépendances « lourdes » communes (`pandas`, `numpy`, `matplotlib`, `requests`,
-`lxml`, `beautifulsoup4`, `tabulate`, `websockets`) mais **pas** `dash`,
-`plotly`, `ccxt`, `rich` ni `feedparser` — d'où le `pip install` ci-dessus si
-vous voulez lancer les dashboards, l'arbitrage ou les news.
+Le venv présent à la racine (`venv/`, Python 3.14) contient déjà toutes ces
+dépendances.
 
 `requirements.txt` est groupé par usage : pour n'installer qu'une partie, il
 suffit de reprendre le bloc concerné. Le socle `btcterm/` ne demande que
@@ -80,11 +104,14 @@ plus une fonction fish `btcnews`.
 ### Tests
 
 ```bash
-python tests/test_indicators_parity.py
+python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
+python tests/test_terminal_wiring.py     # panneaux posés et branchés
 ```
 
-Vérifie que les indicateurs du socle produisent exactement les mêmes valeurs
-que les implémentations d'origine, avant leur extraction.
+Le premier vérifie que les indicateurs du socle produisent exactement les mêmes
+valeurs que les implémentations d'avant l'extraction. Le second qu'aucun panneau
+n'a été écrit puis oublié — ni dans la grille, ni dans l'enregistrement des
+callbacks. Aucun des deux ne touche au réseau.
 
 ## Les outils en détail
 

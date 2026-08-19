@@ -15,18 +15,25 @@ même interface : prix et indicateurs, carnet d'ordres, profondeur comparée ent
 exchanges, écarts d'arbitrage, flux des ETF spot, fil de news et sentiment,
 contexte macro.
 
-### État actuel : le socle est posé, l'interface reste à unifier
+### État actuel : le terminal existe
 
-Le dépôt n'est pas encore une application unique, mais ce n'est plus une
-collection de scripts sans rien en commun. La **phase 1 est faite** : tout ce
-qui n'est pas rendu — calculs d'indicateurs, connexions aux plateformes,
-collecte des données — vit désormais dans le paquet `btcterm/` ([§2](#2-le-socle-btcterm)),
-et chaque script s'y ramène.
+Le dépôt est désormais une application, doublée de scripts hérités en sursis.
 
-Ce qui reste à faire pour atteindre la cible, détaillé en
-[§6](#6-feuille-de-route-vers-le-terminal) : **une seule couche de rendu** au
-lieu de quatre, et **une seule couche de données** partagée entre panneaux au
-lieu d'une connexion par script.
+- **Le socle** ([§2](#2-le-socle-btcterm)) : tout ce qui n'est pas rendu —
+  calculs d'indicateurs, connexions aux plateformes, collecte, moteur
+  d'arbitrage — vit dans `btcterm/`.
+- **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
+  regroupant six panneaux sur une grille, avec trois régimes de
+  rafraîchissement et un hub qui n'ouvre qu'une connexion par plateforme.
+
+```bash
+python -m terminal.app        # http://127.0.0.1:8050
+```
+
+Restent les scripts d'origine ([§5](#5-détail-des-panneaux)), maintenus le temps
+de la transition : ils partagent le socle mais gardent chacun leur fenêtre.
+Ce qui manque encore pour atteindre la cible est détaillé en
+[§7](#7-feuille-de-route-vers-le-terminal).
 
 ```
 /home/stefan/python/btc
@@ -34,28 +41,37 @@ lieu d'une connexion par script.
 ├── ARCHITECTURE.md            ← ce fichier
 ├── requirements.txt           ← dépendances de tout le dépôt
 │
-├── btcterm/                   ← SOCLE COMMUN (phase 1)
+├── btcterm/                   ← SOCLE : données, calculs, connexions
 │   ├── indicators.py              calculs techniques purs
 │   ├── exchanges.py               carnet normalisé + connecteurs WebSocket
-│   └── sources.py                 collecteurs REST, ETF, news, sentiment
+│   ├── arbitrage.py               moteur d'écarts inter-plateformes
+│   ├── sources.py                 collecteurs REST, ETF, news, sentiment
+│   └── hub.py                     connexions mutualisées + caches
+│
+├── terminal/                  ← TERMINAL : l'application Dash
+│   ├── app.py                     grille, horloges, bandeau, point d'entrée
+│   ├── theme.py                   palette et styles
+│   ├── charts.py                  figures Plotly
+│   └── panels/                    price · orderbook · arbitrage · etf · news
 │
 ├── tests/
-│   └── test_indicators_parity.py  non-régression de l'extraction
+│   ├── test_indicators_parity.py  non-régression de l'extraction
+│   └── test_terminal_wiring.py    panneaux posés et branchés
 │
-├── btc-dash.py                ← panneau web    (Dash, REST Binance)
-├── btc_dashboard2.py          ← panneau web    (Dash, ccxt)
-├── btc-liquidity.py           ← panneau GUI    (matplotlib, REST polling)
-├── btc_orderbook_live.py      ← panneau GUI    (matplotlib, WebSockets ×3)
-├── etf.py                     ← CLI            (scraping farside — v1, non migrée)
-├── etf_bitcoin_flows.py       ← CLI            (scraping farside — v2)
-├── m2supply.html              ← page statique  (incomplète)
+├── btc-dash.py                ← hérité, couvert par le panneau prix
+├── btc_dashboard2.py          ← hérité (Dash, ccxt)
+├── btc-liquidity.py           ← hérité (matplotlib, REST polling)
+├── btc_orderbook_live.py      ← hérité (matplotlib, WebSockets ×3)
+├── etf.py                     ← hérité, v1 non migrée
+├── etf_bitcoin_flows.py       ← CLI flux ETF (v2)
+├── m2supply.html              ← page statique (incomplète)
 │
-├── arbitrage/                 ← panneau TUI Rich, WebSockets ×5
+├── arbitrage/                 ← TUI Rich, partage le moteur du socle
 │   ├── main.py
 │   ├── requirements.txt
 │   └── README.md
 │
-├── news/                      ← panneau CLI + SQLite
+├── news/                      ← collecte des news + SQLite
 │   ├── btc_news.py
 │   ├── requirements.txt
 │   ├── setup.fish                 installe venv + fonction fish `btcnews`
@@ -65,7 +81,7 @@ lieu d'une connexion par script.
 └── venv/                      ← venv Python 3.14 partagé (racine)
 ```
 
-### Quatre familles d'interface
+### Familles d'interface héritées
 
 | Famille | Scripts | Boucle d'affichage |
 |---|---|---|
@@ -101,7 +117,7 @@ Deux divergences historiques entre les dashboards ont dû être arbitrées :
 - **SMA contre EMA** pour les MA 9 et 26. Les deux comportements sont
   conservés, mais le choix devient explicite au point d'appel via
   `moving_average(..., method=…)` au lieu d'être enfoui dans chaque fichier.
-  La divergence sera tranchée à la fusion des deux panneaux (§6, étape 4).
+  La divergence sera tranchée à la fusion des deux panneaux (§7, étape 4).
 - **Connors RSI**. `btc-dash.py` calculait sa troisième composante comme le rang
   d'un ROC 100 périodes sur **tout l'historique chargé**, au lieu du rang
   centile roulant de la variation d'une période. La valeur dépendait donc du
@@ -182,9 +198,99 @@ sans ce garde-fou, deux séries entièrement `NaN` — cas typique d'une fixture
 indexée — se compareraient comme égales et le test passerait sans rien
 vérifier.
 
-## 3. Patrons transverses
+## 3. Le terminal `terminal/`
 
-### 3.1 Deux modèles d'acquisition de données
+Une application Dash unique, servie en local, qui regroupe tous les panneaux.
+C'est la couche de rendu retenue à l'étape 2 : elle satisfait les trois
+exigences d'usage — station de travail multi-panneaux, analyse graphique fine
+(zoom, crosshair), et accès aussi bien sur la machine qu'à distance par tunnel
+SSH, ce qui écartait à la fois une interface texte et une application Qt.
+
+```
+terminal/
+├── app.py           assemblage de la grille, horloges, bandeau, point d'entrée
+├── theme.py         palette et styles partagés
+├── charts.py        constructeurs de figures Plotly
+└── panels/          un module par panneau
+    ├── price.py         chandeliers, indicateurs, profil de volume
+    ├── orderbook.py     carnet + profondeur comparée
+    ├── arbitrage.py     écarts inter-plateformes
+    ├── etf.py           flux des ETF spot
+    └── news.py          fil de news + Fear & Greed
+```
+
+```
+┌─────────┬────────┬───────────┐
+│         │ carnet │ arbitrage │
+│  prix   ├────────┼───────────┤
+│         │ profo. │           │
+│         ├────────┤   news    │
+│         │  etf   │           │
+└─────────┴────────┴───────────┘
+```
+
+### 3.1 Trois régimes de rafraîchissement
+
+C'est la décision qui rend le terminal utilisable. L'ancien `btc-dash.py` faisait
+vivre tous ses éléments au même rythme et resérialisait la figure entière à
+chaque tour — d'où un rafraîchissement toutes les 10 secondes, incompatible avec
+un carnet d'ordres.
+
+| Horloge | Période | Panneaux | Coût mesuré par tour |
+|---|---|---|---|
+| `tick-fast` | 250 ms | carnet, profondeur, arbitrage | 8–33 ms, 6–25 Ko |
+| `tick-slow` | 2 s | prix, bandeau | 0,3–1,3 s, 162 Ko |
+| `tick-rare` | 5 min | ETF, news, Fear & Greed | 0,3–0,5 s, 8–10 Ko |
+
+Les panneaux rapides ne touchent jamais le réseau : ils lisent les carnets que
+le hub entretient en mémoire, ce qui explique l'écart d'un facteur cinquante
+avec le panneau prix. Ce dernier n'a de toute façon aucune raison d'aller plus
+vite : une bougie journalière ne change pas quatre fois par seconde.
+
+Une conséquence pratique : `update_title=None` désactive le « Updating… » que
+Dash affiche par défaut dans l'onglet, sans quoi il clignoterait en permanence
+au rythme de l'horloge rapide.
+
+### 3.2 Préserver l'état d'analyse
+
+Toutes les figures portent un `uirevision`. Sans lui, chaque rafraîchissement
+réinitialiserait le zoom, le pan et la sélection de légende : impossible
+d'examiner une zone de prix pendant que les données coulent, ce qui viderait de
+son sens l'usage en séance d'analyse.
+
+La valeur encode la série affichée (`"1d:USD"`, `"4h:EUR"`) : elle reste stable
+d'un rafraîchissement à l'autre, mais change quand on change d'intervalle ou de
+devise — cas où le recadrage est justement ce qu'on veut.
+
+### 3.3 Anatomie d'un panneau
+
+Chaque module de `panels/` expose exactement deux fonctions :
+
+- `layout()` — ses composants Dash
+- `register(app, hub)` — ses callbacks
+
+Un panneau ne fait aucun appel réseau : il demande au hub, qui mutualise. Il
+n'écrit rien non plus — le panneau news lit la base du tracker en lecture seule,
+la collecte et le scoring restant la responsabilité de `news/btc_news.py`.
+
+### 3.4 Câblage vérifié
+
+`terminal/panels/__init__.py` déclare `PANELS`, et `app.py` enregistre les
+callbacks en parcourant cette liste : ajouter un module suffit à le brancher.
+
+`tests/test_terminal_wiring.py` vérifie qu'aucun panneau n'est écrit puis
+oublié — il découvre les modules **sur le disque**, jamais via `PANELS`, sinon
+un panneau absent de la liste échapperait aussi au contrôle. C'est l'erreur qui
+a laissé le panneau ETF muet à sa création : écrit, mais ni placé dans la grille
+ni enregistré, sans que rien ne le signale au démarrage.
+
+```bash
+python tests/test_terminal_wiring.py
+```
+
+## 4. Patrons transverses
+
+### 4.1 Deux modèles d'acquisition de données
 
 **Polling REST** (`btc-dash.py`, `btc-liquidity.py`, `etf*.py`) — appel HTTP
 synchrone, `try/except` large, valeur de repli en cas d'échec. Simple, latence
@@ -194,7 +300,7 @@ de l'ordre de la seconde.
 coroutine par exchange, boucle infinie de reconnexion, état mutable partagé.
 Latence de l'ordre de 100 ms.
 
-### 3.2 Séparation producteur / consommateur
+### 4.2 Séparation producteur / consommateur
 
 Les scripts temps réel séparent systématiquement l'acquisition (réseau) du
 rendu (GUI), car les toolkits graphiques ne sont pas thread-safe :
@@ -210,7 +316,7 @@ btc-dash.py / dash2     (pas de thread : fetch synchrone dans le callback)
 Les deux scripts matplotlib prennent le verrou uniquement pour **copier** un
 instantané de l'état, puis dessinent hors verrou.
 
-### 3.3 Dégradation contrôlée
+### 4.3 Dégradation contrôlée
 
 Chaque source distante a une stratégie de repli explicite :
 
@@ -223,7 +329,7 @@ Chaque source distante a une stratégie de repli explicite :
 | flux RSS (`news`) | le feed en échec est sauté, les autres continuent |
 | CryptoPanic sans clé | source simplement désactivée |
 
-### 3.4 Palettes de couleurs
+### 4.4 Palettes de couleurs
 
 Tous les scripts sont en thème sombre, avec une constante de palette en tête de
 fichier (`C` dans `btc-dash.py`, constantes `DARK_BG`/`GREEN`/… dans
@@ -232,9 +338,9 @@ Convention constante : **vert = achat/hausse, rouge = vente/baisse**.
 
 ---
 
-## 4. Détail des panneaux
+## 5. Détail des panneaux
 
-### 4.1 `btc-dash.py` — BTC Ultra Dashboard
+### 5.1 `btc-dash.py` — BTC Ultra Dashboard
 
 Pipeline linéaire, refait à chaque tick de 10 s :
 
@@ -265,7 +371,7 @@ Le réseau passe par `sources.fetch_klines` / `fetch_ticker_24h` /
 Le taux EUR transite par un `dcc.Store` pour éviter un appel FX à chaque
 recalcul de graphique.
 
-### 4.2 `btc_dashboard2.py` — BTC Dashboard (ccxt)
+### 5.2 `btc_dashboard2.py` — BTC Dashboard (ccxt)
 
 Même découpage général, trois différences structurantes :
 
@@ -301,7 +407,7 @@ le seul moyen de multiplexer N boutons vers une sortie unique en Dash.
 en paramètres booléens plutôt qu'en lisant l'état global — la fonction reste
 testable isolément.
 
-### 4.3 `btc-liquidity.py` — pools de liquidité
+### 5.3 `btc-liquidity.py` — pools de liquidité
 
 ```
 thread daemon : background_loop()
@@ -328,7 +434,7 @@ thread principal : FuncAnimation(interval=3000)
 - Un `fetch_data()` synchrone est appelé avant le démarrage du thread pour que
   la première frame ne soit pas vide.
 
-### 4.4 `btc_orderbook_live.py` — carnet d'ordres multi-exchange
+### 5.4 `btc_orderbook_live.py` — carnet d'ordres multi-exchange
 
 Depuis la phase 1, ce fichier ne fait plus que du rendu : les 300 lignes de
 plomberie WebSocket sont parties dans `btcterm.exchanges`, il en reste 120.
@@ -346,7 +452,7 @@ Chaque panneau affiche la profondeur cumulée des deux côtés, le prix médian 
 le spread. La normalisation des trois formats de flux (snapshot répété chez
 Binance, snapshot + deltas chez Coinbase et Kraken) est décrite en §2.2.
 
-### 4.5 `arbitrage/main.py` — moteur d'arbitrage
+### 5.5 `arbitrage/main.py` — moteur d'arbitrage
 
 Architecture en couches, entièrement asyncio :
 
@@ -386,7 +492,7 @@ logique métier dans cette couche.
 `scan_loop` + `display_loop`) via `asyncio.gather`, avec arrêt propre sur
 `KeyboardInterrupt` (`stop()` sur chaque connecteur puis `cancel()`).
 
-### 4.6 `etf.py` / `etf_bitcoin_flows.py` — flux ETF
+### 5.6 `etf.py` / `etf_bitcoin_flows.py` — flux ETF
 
 Pipeline en trois fonctions, identique dans les deux fichiers :
 
@@ -423,7 +529,7 @@ sur la v2. Seule la v2 a été migrée sur le socle (`sources.fetch_etf_flows`) 
 migrer la v1 n'aurait fait qu'entretenir un doublon voué à disparaître à
 l'étape 4.
 
-### 4.7 `news/btc_news.py` — BTC News Tracker
+### 5.7 `news/btc_news.py` — BTC News Tracker
 
 Application CLI à sous-commandes, la plus « structurée » du dépôt.
 
@@ -479,7 +585,7 @@ dépendance à une bibliothèque de rendu.
 `systemd_timer.conf` fournit, en commentaires, les unités `.service` et
 `.timer` utilisateur (`OnUnitActiveSec=30min`, `Persistent=true`).
 
-### 4.8 `m2supply.html`
+### 5.8 `m2supply.html`
 
 Page Plotly autonome censée superposer BTC et masse monétaire M2 normalisés
 (deux axes Y, `rangeslider`, `hovermode: 'x unified'`, rafraîchissement par
@@ -494,13 +600,13 @@ fragment, pas une page fonctionnelle.
 
 ---
 
-## 5. Environnements Python
+## 6. Environnements Python
 
 | Emplacement | Contenu | Utilisé par |
 |---|---|---|
-| `venv/` (racine, Python 3.14) | pandas, numpy, matplotlib, requests, lxml, beautifulsoup4, tabulate, websockets, pillow | `btc-liquidity.py`, `btc_orderbook_live.py`, `etf*.py` |
+| `venv/` (racine, Python 3.14) | l'ensemble de `requirements.txt` : pandas, numpy, matplotlib, requests, lxml, beautifulsoup4, tabulate, websockets, dash, plotly, ccxt, rich, feedparser | le terminal et tous les scripts |
 | `news/.venv` (créé par `setup.fish`) | feedparser, requests | `news/btc_news.py` |
-| — | dash, dash-bootstrap-components, plotly, ccxt, rich | **non installés** : à ajouter pour les dashboards et l'arbitrage |
+| `news/.venv` (optionnel) | feedparser, requests | usage isolé du tracker via `news/setup.fish` |
 
 Un `requirements.txt` à la racine déclare désormais l'ensemble des dépendances,
 regroupées par usage (socle, dashboards, fenêtres matplotlib, temps réel, ETF,
@@ -518,7 +624,7 @@ unique.
 
 ---
 
-## 6. Feuille de route vers le terminal
+## 7. Feuille de route vers le terminal
 
 L'objectif est de passer de « N scripts, N fenêtres » à « un terminal, N
 panneaux ». Les étapes ci-dessous sont ordonnées : chacune réduit le coût de la
@@ -542,48 +648,70 @@ scripts y sont ramenés, sans changement de comportement (§2.4) :
 Reste ouvert de cette étape : `etf.py` (v1) n'a pas été migrée, puisqu'elle doit
 disparaître à l'étape 4.
 
-### Étape 2 — Choisir une couche de rendu unique
+### Étape 2 — Choisir une couche de rendu unique ✅ *faite*
 
-Les quatre familles d'interface (§1) sont incompatibles entre elles : on ne peut
-pas composer un panneau Dash et un panneau matplotlib dans une même fenêtre. Il
-faut trancher, et les deux candidats sérieux sont déjà présents dans le dépôt :
+**Décision : une application web Dash**, décrite en [§3](#3-le-terminal-terminal).
 
-| Piste | Base existante | Pour | Contre |
-|---|---|---|---|
-| **Web (Dash/Plotly)** | `btc-dash.py`, `btc_dashboard2.py` | graphiques riches et interactifs déjà écrits, mise en page en grille, accessible à distance | lourd, un panneau = un callback, latence de rafraîchissement |
-| **TUI (Rich / Textual)** | `arbitrage/main.py` | esthétique « terminal » fidèle à la cible, densité d'information, très faible latence, `Layout` déjà utilisé | chandeliers et profils de volume difficiles à rendre en caractères |
+Trois exigences d'usage ont tranché : une **station de travail professionnelle**
+multi-panneaux, des **séances d'analyse active** (zoom, crosshair, lecture fine
+des chandeliers), et un accès **sur la machine comme à distance par SSH**.
 
-Une piste mixte est possible : TUI pour les panneaux tabulaires (carnets,
-arbitrage, news, flux ETF) et vues web pour les graphiques.
+| Piste écartée | Raison |
+|---|---|
+| TUI (Rich / Textual) | des chandeliers en braille ne supportent ni zoom ni lecture fine, et l'esthétique texte n'était pas le but |
+| GUI native (PyQt + pyqtgraph) | inutilisable à distance : le X11 forwarding sur SSH ne tient pas pour du graphique temps réel |
 
-### Étape 3 — Mutualiser la couche de données
+Le web est la seule famille à satisfaire les trois : servi en local, ouvert dans
+le navigateur ici, atteignable ailleurs par `ssh -L 8050:localhost:8050`. Le port
+reste lié à `127.0.0.1` — le tunnel dispense de l'exposer sur le réseau.
 
-Dans un terminal, plusieurs panneaux consomment la même donnée : le prix Binance
-alimente à la fois le chandelier, le carnet et le scan d'arbitrage. Il faut donc
-un **hub d'état unique** — une seule connexion par exchange, un état partagé, et
-des panneaux qui s'y abonnent — plutôt que la situation actuelle où chaque
-script rouvre ses propres connexions. Le couple `dict[str, OrderBook]` +
-`ArbitrageEngine` d'`arbitrage/main.py` en est déjà une version réduite et
-constitue un bon point de départ.
+Les faiblesses de Dash relevées lors de l'analyse ont été traitées plutôt que
+subies : trois horloges au lieu d'une (§3.1) et `uirevision` sur toutes les
+figures (§3.2).
 
-### Étape 4 — Fusionner les doublons
+**Reste ouvert.** Le push WebSocket serveur→navigateur n'a pas été implémenté :
+les mesures montrent qu'un tour d'horloge rapide coûte 8 à 33 ms pour 6 à 25 Ko,
+ce qui passe sans peine en interrogation à 250 ms sur une boucle locale. Il
+deviendra utile pour descendre sous 100 ms, ou si la latence d'un tunnel SSH
+lointain se fait sentir.
 
-Deux paires de scripts font le même travail et doivent converger avant d'être
-transformées en panneaux :
+### Étape 3 — Mutualiser la couche de données ✅ *faite*
 
-- **Les deux dashboards.** Garder la profondeur analytique de `btc-dash.py`
-  (volume profile avec POC et Value Area, signaux gradués `-2..+2`, ATR,
-  bascule USD/EUR) et l'abstraction `ccxt` + la palette de timeframes de
-  `btc_dashboard2.py`, ainsi que son repli sur données de démo.
-- **Les deux scripts ETF.** Supprimer `etf.py` au profit d'`etf_bitcoin_flows.py`
-  (voir §4.6).
+`btcterm/hub.py` — `MarketHub` ouvre **une** connexion par plateforme dans un
+thread démon, entretient les cinq carnets, expose le moteur d'arbitrage et met
+en cache les appels REST avec une durée de vie propre à chaque nature de donnée
+(chandeliers 5 s, taux de change 1 h, flux ETF 30 min).
+
+Le cache conserve la dernière valeur connue quand un rafraîchissement échoue :
+un panneau qui affiche une donnée un peu datée vaut mieux qu'un panneau vide.
+
+### Étape 4 — Fusionner les doublons ⏳ *engagée*
+
+Fait :
+
+- `build_chart` a quitté `btc-dash.py` pour `terminal/charts.py` ; le script ne
+  fait plus que l'appeler.
+- Le moteur d'arbitrage a quitté `arbitrage/main.py` pour `btcterm/arbitrage.py`,
+  partagé avec le panneau du terminal.
+
+Reste :
+
+- **Supprimer les scripts couverts par le terminal.** Le panneau prix reprend
+  `btc-dash.py` à l'identique ; les panneaux carnet et profondeur couvrent
+  `btc-liquidity.py` et `btc_orderbook_live.py`. À récupérer au préalable depuis
+  `btc_dashboard2.py` : la palette de timeframes plus large (`15m` → `1M`) et le
+  repli sur données de démo.
+- **Supprimer `etf.py`** au profit d'`etf_bitcoin_flows.py` (voir §5.6).
 
 ### Étape 5 — Compléter la couverture
 
-- **Contexte macro** : `m2supply.html` est tronqué (§4.8). La corrélation
-  BTC / masse monétaire M2 est un panneau pertinent pour la cible ; il faut soit
-  reconstruire la page, soit réimplémenter la vue dans la couche de rendu
-  retenue.
+- **Contexte macro** : `m2supply.html` est tronqué (§5.8). La corrélation
+  BTC / masse monétaire M2 mérite un panneau ; la couche de rendu étant
+  tranchée, autant l'écrire directement en panneau Dash plutôt que réparer la
+  page.
+- **Collecte des news** : le panneau lit la base du tracker mais ne la remplit
+  pas. Il faut soit brancher `fetch` sur l'horloge lente du terminal, soit
+  documenter le timer systemd comme prérequis.
 - **Panneaux absents** d'un terminal Bitcoin complet : dominance et
   capitalisation, funding rates et open interest sur les perpétuels,
   liquidations, métriques on-chain (hashrate, flux exchanges), calendrier macro.
@@ -595,7 +723,8 @@ transformées en panneaux :
 - ~~**Déclarer les dépendances**~~ — fait en phase 1 (§5). Le venv racine reste
   toutefois incomplet : ni `dash`, ni `plotly`, ni `ccxt`, ni `rich`, ni
   `feedparser` n'y sont installés.
-- **Ports** : les deux dashboards codent `8050` en dur, ce qui les empêche de
-  tourner ensemble. `btc-dash.py` écoute de plus sur `0.0.0.0`, exposé au
-  réseau local.
+- **Ports** : le terminal accepte `--port` et `--host`, et reste sur
+  `127.0.0.1` par défaut. Les deux dashboards hérités codent encore `8050` en
+  dur — et `btc-dash.py` écoute sur `0.0.0.0` —, ce qui les empêche de tourner
+  en même temps que le terminal. Réglé par leur suppression à l'étape 4.
 - ~~**Versionner le dépôt**~~ — fait : dépôt git local sur `main`.
