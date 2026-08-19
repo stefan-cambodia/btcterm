@@ -1,0 +1,25 @@
+# ── Environnements virtuels ──────────────────────────────────
+venv/
+.venv/
+news/.venv/
+env/
+
+# ── Python ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Données générées par les outils ─────────────────────────
+*.db
+*.sqlite3
+*.csv
+btc_charts/
+
+# ── Éditeurs / OS ───────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+.DS_Store

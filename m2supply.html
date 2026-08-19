@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+            yaxis: 'y2'
+        };
+
+        const layout = {
+            title: 'BTC vs M2 Supply',
+            paper_bgcolor: '#0f172a',
+            plot_bgcolor: '#0f172a',
+            font: {
+                color: 'white'
+            },
+            xaxis: {
+                rangeslider: { visible: true },
+                gridcolor: '#334155'
+            },
+            yaxis: {
+                title: 'BTC normalisé',
+                gridcolor: '#334155'
+            },
+            yaxis2: {
+                title: 'M2 normalisé',
+                overlaying: 'y',
+                side: 'right'
+            },
+            hovermode: 'x unified',
+            legend: {
+                orientation: 'h'
+            }
+        };
+
+        Plotly.newPlot(
+            'chart',
+            [traceBTC, traceM2],
+            layout,
+            {
+                responsive: true,
+                scrollZoom: true
+            }
+        );
+
+    } catch(error) {
+
+        console.error(error);
+
+        document.getElementById('chart').innerHTML = `
+            <div style="padding:20px;color:red;">
+                Erreur : ${error.message}
+            </div>
+        `;
+    }
+}
+
+loadData('24h');
+
+setInterval(() => {
+    loadData('24h');
+}, 300000);
+
+</script>
+
+</body>
+</html>
