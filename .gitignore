@@ -23,3 +23,7 @@ btc_charts/
 .idea/
 *.swp
 .DS_Store
+
+# ── Empaquetage ─────────────────────────────────────────────
+build/
+dist/

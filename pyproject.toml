@@ -1,0 +1,64 @@
+# Empaquetage du terminal. Ce fichier existe depuis que le terminal a un
+# point d'entrée unique — c'était la condition que posait ARCHITECTURE.md
+# (§6) : tant que le dépôt n'était qu'une collection de scripts, un
+# `sys.path` implicite suffisait.
+#
+#     pip install -e .          # installe `btcterm` (la commande) dans le venv
+#     btcterm --port 8060       # équivaut à `python -m terminal.app`
+#
+# `requirements.txt` reste la référence commentée des dépendances par
+# usage ; les listes ci-dessous doivent lui rester fidèles.
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "btcterm"
+version = "0.9.0"
+description = "Terminal Bitcoin : un poste de travail multi-panneaux à la Bloomberg, servi en local"
+readme = "README.md"
+requires-python = ">=3.11"
+license = "MIT"
+
+# Le nécessaire du terminal : socle, rendu Dash, flux WebSocket, et les
+# collecteurs que ses panneaux tirent (read_html du flux ETF → lxml et
+# beautifulsoup4, collecte de news → feedparser).
+dependencies = [
+    "pandas>=2.0",
+    "numpy>=1.24",
+    "requests>=2.31.0",
+    "dash>=2.14",
+    "plotly>=5.18",
+    "websockets>=12.0",
+    "lxml>=5.0",
+    "beautifulsoup4>=4.12",
+    "feedparser>=6.0.11",
+]
+
+[project.optional-dependencies]
+# Les outils en ligne de commande qui entourent le terminal : la TUI
+# d'arbitrage (rich) et l'export des flux ETF (tabulate).
+cli = [
+    "rich>=13.0",
+    "tabulate>=0.9",
+]
+
+[project.scripts]
+btcterm = "terminal.app:main"
+
+[tool.setuptools]
+# Les paquets sont nommés explicitement : `news/` et `arbitrage/` sont
+# des sous-projets à scripts, pas des paquets, et une découverte
+# automatique embarquerait `tests/`.
+packages = [
+    "btcterm",
+    "terminal",
+    "terminal.panels",
+]
+
+[tool.setuptools.package-data]
+# La feuille de style et le JavaScript que Dash sert au navigateur
+# vivent dans le paquet ; sans cette ligne, une installation non
+# éditable produirait un terminal sans styles ni raccourcis clavier.
+terminal = ["assets/*"]

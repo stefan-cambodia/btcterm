@@ -9,7 +9,7 @@ d'arbitrage, flux des ETF spot, news à impact et sentiment de marché.
 ## Lancement
 
 ```bash
-python -m terminal.app
+btcterm                   # ou : python -m terminal.app
 ```
 
 → **http://127.0.0.1:8050**
@@ -153,7 +153,7 @@ et `m2supply.html`, page tronquée que le panneau macro remplace.
 
 | Outil | Type | Sources | Lancement |
 |---|---|---|---|
-| `terminal/` | Terminal web (Dash) | REST + WebSockets, 5 plateformes | `python -m terminal.app` → http://127.0.0.1:8050 |
+| `terminal/` | Terminal web (Dash) | REST + WebSockets, 5 plateformes | `btcterm` (ou `python -m terminal.app`) → http://127.0.0.1:8050 |
 | `arbitrage/main.py` | TUI terminal (Rich) | WebSockets 5 exchanges | `python arbitrage/main.py` |
 | `etf_bitcoin_flows.py` | CLI | farside.co.uk (scraping) | `python etf_bitcoin_flows.py --days 90` |
 | `news/btc_news.py` | CLI + SQLite | RSS, CryptoPanic, Fear & Greed | `python news/btc_news.py fetch` |
@@ -168,19 +168,26 @@ Voir [`ARCHITECTURE.md`](ARCHITECTURE.md) pour le détail interne de chaque modu
 # Activer le venv existant (fish)
 source venv/bin/activate.fish
 
-# Toutes les dépendances du dépôt
+# Le terminal et sa commande `btcterm`
+pip install -e .
+
+# Ou bien : toutes les dépendances du dépôt, sans installer de paquet
 pip install -r requirements.txt
 ```
 
-Le venv présent à la racine (`venv/`, Python 3.14) contient déjà toutes ces
-dépendances.
+Le venv présent à la racine (`venv/`, Python 3.14) contient déjà tout, commande
+comprise.
 
-`requirements.txt` est groupé par usage : pour n'installer qu'une partie, il
-suffit de reprendre le bloc concerné. Le socle `btcterm/` ne demande que
-`pandas`, `numpy` et `requests`.
+`pip install -e .` installe la commande **`btcterm`** avec les seules
+dépendances du terminal ; l'extra `cli` (`pip install -e '.[cli]'`) ajoute
+celles des outils en ligne de commande. `requirements.txt` reste la référence
+groupée par usage : pour n'installer qu'une partie, il suffit de reprendre le
+bloc concerné — le socle `btcterm/` ne demande que `pandas`, `numpy` et
+`requests`.
 
-Aucune installation de paquet n'est nécessaire : les scripts trouvent
-`btcterm/` par eux-mêmes, où que soit le répertoire courant.
+L'installation n'est d'ailleurs pas un prérequis : les scripts trouvent
+`btcterm/` par eux-mêmes, où que soit le répertoire courant, et
+`python -m terminal.app` lance le terminal sans rien installer.
 
 `arbitrage/requirements.txt` et `news/requirements.txt` restent disponibles
 pour installer un seul sous-projet, et `news/setup.fish` crée un venv dédié

@@ -45,6 +45,7 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 /home/stefan/python/btc
 ├── README.md                  ← guide d'utilisation
 ├── ARCHITECTURE.md            ← ce fichier
+├── pyproject.toml             ← empaquetage : commande `btcterm`
 ├── requirements.txt           ← dépendances de tout le dépôt
 │
 ├── btcterm/                   ← SOCLE : données, calculs, connexions
@@ -781,8 +782,7 @@ dépendance à une bibliothèque de rendu.
 | Emplacement | Contenu | Utilisé par |
 |---|---|---|
 | `venv/` (racine, Python 3.14) | l'ensemble de `requirements.txt` : pandas, numpy, requests, dash, plotly, websockets, rich, lxml, beautifulsoup4, tabulate, feedparser | le terminal et tous les outils |
-| `news/.venv` (créé par `setup.fish`) | feedparser, requests | `news/btc_news.py` |
-| `news/.venv` (optionnel) | feedparser, requests | usage isolé du tracker via `news/setup.fish` |
+| `news/.venv` (optionnel, créé par `setup.fish`) | feedparser, requests | usage isolé du tracker |
 
 Un `requirements.txt` à la racine déclare l'ensemble des dépendances, regroupées
 par usage (socle, terminal web, temps réel, ETF, news). La suppression des
@@ -793,11 +793,26 @@ scripts hérités en a retiré trois : `matplotlib`, `ccxt` et
 pip install -r requirements.txt
 ```
 
-Aucune installation du paquet `btcterm` n'est nécessaire : les scripts de la
-racine le trouvent parce que Python ajoute le répertoire du script au chemin
-d'import, et les deux sous-projets remontent explicitement d'un niveau. Un
-`pyproject.toml` deviendra utile quand le terminal aura un point d'entrée
-unique.
+Le terminal ayant désormais un point d'entrée unique, le `pyproject.toml` que
+la version précédente de ce paragraphe annonçait existe : `pip install -e .`
+installe la commande **`btcterm`**, équivalente à `python -m terminal.app`.
+Trois choix y sont commentés :
+
+- les **paquets sont nommés explicitement** (`btcterm`, `terminal`,
+  `terminal.panels`) — `news/` et `arbitrage/` sont des sous-projets à
+  scripts, pas des paquets, et une découverte automatique embarquerait
+  `tests/` ;
+- `terminal/assets/` est déclaré en **package-data** : sans cela, une
+  installation non éditable servirait un terminal sans feuille de style ni
+  raccourcis clavier — le défaut ne se voyant qu'à l'écran, il est vérifié en
+  inspectant la wheel ;
+- les dépendances du projet sont **celles du terminal** ; `rich` et
+  `tabulate`, qui ne servent qu'aux outils en ligne de commande, sont dans
+  l'extra `cli` (`pip install -e '.[cli]'`).
+
+Les scripts restent lançables sans installation : ils trouvent `btcterm/`
+parce que Python ajoute le répertoire du script au chemin d'import, et les
+deux sous-projets remontent explicitement d'un niveau.
 
 ---
 
