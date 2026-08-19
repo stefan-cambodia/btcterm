@@ -30,6 +30,7 @@ dependencies = [
     "requests>=2.31.0",
     "dash>=2.14",
     "plotly>=5.18",
+    "flask-sock>=0.7",
     "websockets>=12.0",
     "lxml>=5.0",
     "beautifulsoup4>=4.12",

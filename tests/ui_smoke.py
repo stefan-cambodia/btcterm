@@ -119,6 +119,27 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("séparateur de spread présent", browser.js(
             "return document.querySelector('#book-table').textContent.includes('spread');"))
 
+        print("\nCanal push")
+        check("le WebSocket prend la main", browser.wait_for(
+            "document.getElementById('hdr-push').textContent === 'push'"))
+        avant = browser.js(
+            "return document.querySelector('#book-table').textContent;")
+        time.sleep(1.2)
+        check("le carnet vit sans l'horloge", browser.js(
+            "return document.querySelector('#book-table').textContent;") != avant)
+        # L'agrandissement ne peut arriver que par le canal : le callback
+        # du carnet ne lit `expanded` qu'en State, et l'horloge qui
+        # l'aurait rejoué est coupée tant que le push tient.
+        browser.js("document.getElementById('zoom-book').click();")
+        time.sleep(1.5)
+        rows = browser.js("return document.querySelectorAll('#book-table tr').length;")
+        check("l'agrandissement passe par le canal", rows >= 30, f"{rows} lignes")
+        browser.js("document.dispatchEvent(new KeyboardEvent('keydown',"
+                   " {key: 'Escape', bubbles: true}));")
+        time.sleep(1.5)
+        rows = browser.js("return document.querySelectorAll('#book-table tr').length;")
+        check("le retour à la grille aussi", rows <= 20, f"{rows} lignes")
+
         print("\nBascule plein écran")
         if capture_dir:
             browser.screenshot(str(capture_dir / "grille.png"))

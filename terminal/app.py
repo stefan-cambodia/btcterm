@@ -9,6 +9,12 @@ par seconde :
     tick-slow    2 s    chandeliers, indicateurs, bandeau
     tick-rare    5 min  flux ETF, news, Fear & Greed
 
+Le régime rapide a un second canal : quand le navigateur tient un
+WebSocket ouvert sur /push, le serveur pousse le rendu et tick-fast est
+coupé (terminal/push.py). L'horloge reste le repli — le terminal
+fonctionne à l'identique sans le canal, juste au rythme de
+l'interrogation.
+
 Lancement :
     python -m terminal.app            # http://127.0.0.1:8050
     python -m terminal.app --port 8060
@@ -24,6 +30,7 @@ from dash import ALL, Input, Output, State, dcc, html
 
 from btcterm.hub import MarketHub
 
+from . import push
 from .panels import (PANELS, arbitrage, calendar, dominance, etf, liquidations,
                      macro, news, onchain, orderbook, perp, price)
 from .theme import C, MONO
@@ -232,6 +239,11 @@ def _header():
         html.Span("⛶ ou double-clic sur un panneau · Échap pour revenir",
                   style={**_STAT, "marginLeft": "12px", "color": C["muted"],
                          "fontSize": "10px"}),
+        # Canal des panneaux rapides : « push » quand le WebSocket est
+        # ouvert, « poll » en repli. Tenu par assets/push.js, jamais par
+        # un callback — c'est un état du navigateur, pas du serveur.
+        html.Span(id="hdr-push", title="canal des panneaux rapides",
+                  style={**_STAT, "color": C["muted"], "fontSize": "10px"}),
         html.Span(id="hdr-status", style={**_STAT, "color": C["muted"]}),
     ], style={
         "display": "flex", "alignItems": "center", "padding": "0 14px",
@@ -302,6 +314,12 @@ def create_app(hub: MarketHub) -> dash.Dash:
         dcc.Interval(id="tick-slow", interval=REFRESH_SLOW_MS),
         dcc.Interval(id="tick-rare", interval=REFRESH_RARE_MS),
         dcc.Store(id="maximized"),
+        # Le panneau que le plein écran montre réellement — l'identifiant
+        # du panneau, pas celui de la cellule : depuis la disposition
+        # configurable, carnet et liquidations peuvent vivre ailleurs que
+        # dans leur cellule d'origine, et c'est à eux que l'agrandissement
+        # accorde des lignes supplémentaires.
+        dcc.Store(id="expanded"),
         # `local` : l'onglet actif de chaque cellule survit au
         # rechargement. Le plein écran, lui, reste en mémoire — restaurer
         # un panneau agrandi sans les classes CSS qui vont avec laisserait
@@ -321,6 +339,10 @@ def create_app(hub: MarketHub) -> dash.Dash:
         # d'onglets), en mémoire : c'est le garde qui évite de re-rendre
         # une cellule dont rien n'a changé (§ _register_tabs).
         *[dcc.Store(id=f"cell-{area}-view") for area in AREAS],
+        # Puits des relais d'état du pousseur (terminal/push.py) : leurs
+        # callbacks clientside n'écrivent que pour avoir une sortie.
+        dcc.Store(id="push-sink-expanded"),
+        dcc.Store(id="push-sink-exchange"),
         _header(),
         html.Div([_cell(area) for area in AREAS], id="grid", style=_GRID),
         _layout_dialog(),
@@ -332,7 +354,9 @@ def create_app(hub: MarketHub) -> dash.Dash:
 
     _register_fullscreen(app)
     _register_tabs(app)
+    _register_expanded(app)
     _register_layout_dialog(app)
+    push.register(app, hub)
 
     @app.callback(
         Output("hdr-price", "children"),
@@ -478,6 +502,29 @@ def _register_tabs(app: dash.Dash) -> None:
             if view == rendered:
                 return dash.no_update, dash.no_update
             return _body(area, active, placement), view
+
+
+def _register_expanded(app: dash.Dash) -> None:
+    """Traduit la cellule agrandie en panneau agrandi.
+
+    `maximized` retient une cellule ; le carnet et les liquidations, qui
+    gagnent des lignes en plein écran, ont besoin de savoir si c'est
+    *eux* qu'on regarde — et depuis la disposition configurable, leur
+    cellule n'est plus connue d'avance. `tabs` est aussi une entrée : on
+    peut changer d'onglet sans quitter le plein écran.
+    """
+    @app.callback(
+        Output("expanded", "data"),
+        Input("maximized", "data"),
+        Input("tabs", "data"),
+        State("placement", "data"),
+    )
+    def _expanded(maximized, tabs, placement):
+        if not maximized:
+            return None
+        panels = normalize_placement(placement)[maximized]
+        active = (tabs or {}).get(maximized, panels[0])
+        return active if active in panels else panels[0]
 
 
 def _register_layout_dialog(app: dash.Dash) -> None:

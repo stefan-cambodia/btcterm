@@ -97,29 +97,41 @@ def _row(event):
     ])
 
 
+def render(hub, expanded: bool):
+    """Table et badges des liquidations, prêts à poser dans le panneau.
+
+    Fonction pure vis-à-vis du rendu, partagée entre le callback Dash et
+    le pousseur WebSocket.
+    """
+    feed = hub.liquidations
+    limit = ROWS_MAX if expanded else ROWS
+    events = feed.latest(limit)
+
+    if not events:
+        age = feed.last_event_age()
+        attente = ("en attente du flux…" if not feed.connected else
+                   "marché calme — aucune liquidation reçue"
+                   if age is None else
+                   f"rien depuis {int(age // 60)} min")
+        table = html.Div(attente, style={
+            "color": C["muted"], "fontFamily": MONO,
+            "fontSize": "11px", "padding": "12px"})
+    else:
+        table = html.Table([html.Tbody([_row(e) for e in events])],
+                           style=TABLE_STYLE)
+
+    return table, _badges(feed)
+
+
 def register(app, hub):
     @app.callback(
         Output("liq-table", "children"),
         Output("liq-badges", "children"),
         Input("tick-fast", "n_intervals"),
-        Input("maximized", "data"),
+        # `expanded` désigne le panneau agrandi, plus sa cellule : depuis
+        # la disposition configurable, les liquidations peuvent vivre
+        # ailleurs que dans la cellule de l'arbitrage.
+        Input("expanded", "data"),
     )
-    def _refresh(_tick, maximized):
-        feed = hub.liquidations
-        limit = ROWS_MAX if maximized == "arb" else ROWS
-        events = feed.latest(limit)
-
-        if not events:
-            age = feed.last_event_age()
-            attente = ("en attente du flux…" if not feed.connected else
-                       "marché calme — aucune liquidation reçue"
-                       if age is None else
-                       f"rien depuis {int(age // 60)} min")
-            table = html.Div(attente, style={
-                "color": C["muted"], "fontFamily": MONO,
-                "fontSize": "11px", "padding": "12px"})
-        else:
-            table = html.Table([html.Tbody([_row(e) for e in events])],
-                               style=TABLE_STYLE)
-
-        return table, _badges(feed)
+    def _refresh(_tick, expanded):
+        return render(hub, expanded == "liq")

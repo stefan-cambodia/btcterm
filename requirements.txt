@@ -13,6 +13,8 @@ requests>=2.31.0
 # ── Terminal web (terminal/) ────────────────────────────────
 dash>=2.14
 plotly>=5.18
+# canal push des panneaux rapides (WebSocket serveur → navigateur)
+flask-sock>=0.7
 
 # ── Flux temps réel (carnets, arbitrage) ────────────────────
 websockets>=12.0

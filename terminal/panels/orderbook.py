@@ -72,47 +72,65 @@ def _row(price, qty, ratio, color):
     ])
 
 
+def render_book(hub, exchange: str, expanded: bool):
+    """Le carnet d'une plateforme, prêt à poser dans `book-table`.
+
+    Fonction pure vis-à-vis du rendu : le callback Dash et le pousseur
+    WebSocket l'appellent tous deux — un seul code décide de ce que le
+    panneau montre, quel que soit le canal qui l'amène au navigateur.
+    """
+    book = hub.books[exchange]
+    depth = DEPTH_MAX if expanded else DEPTH
+    bids = book.top("bids", depth)
+    asks = book.top("asks", depth)
+
+    if not bids or not asks:
+        message = book.error or "connexion en cours…"
+        return html.Div(message, style={"color": C["muted"], "fontFamily": MONO,
+                                        "fontSize": "11px", "padding": "12px"})
+
+    largest = max((q for _, q in bids + asks), default=1) or 1
+    spread = book.spread or 0
+    spread_pct = book.spread_pct or 0
+
+    return html.Table([
+        html.Tbody(
+            [_row(p, q, q / largest, C["red"]) for p, q in reversed(asks)]
+            + [html.Tr(html.Td(
+                f"spread {spread:,.2f} $ · {spread_pct:.4f} % · "
+                f"{book.age_ms:.0f} ms",
+                colSpan=3,
+                style={"color": C["yellow"], "textAlign": "center",
+                       "fontSize": "10px", "padding": "3px",
+                       "borderTop": f"1px solid {C['border']}",
+                       "borderBottom": f"1px solid {C['border']}"},
+            ))]
+            + [_row(p, q, q / largest, C["green"]) for p, q in bids]
+        )
+    ], style=TABLE_STYLE)
+
+
+def render_depth(hub):
+    """La profondeur comparée, prête à poser dans `depth-chart`."""
+    return build_depth_chart(hub.books)
+
+
 def register(app, hub):
     @app.callback(
         Output("book-table", "children"),
         Input("tick-fast", "n_intervals"),
         Input("book-exchange", "value"),
-        State("maximized", "data"),
+        # `expanded` désigne le panneau agrandi, plus sa cellule : depuis
+        # la disposition configurable, le carnet peut vivre ailleurs que
+        # dans sa cellule d'origine.
+        State("expanded", "data"),
     )
-    def _refresh_book(_tick, exchange, maximized):
-        book = hub.books[exchange]
-        depth = DEPTH_MAX if maximized == "book" else DEPTH
-        bids = book.top("bids", depth)
-        asks = book.top("asks", depth)
-
-        if not bids or not asks:
-            message = book.error or "connexion en cours…"
-            return html.Div(message, style={"color": C["muted"], "fontFamily": MONO,
-                                            "fontSize": "11px", "padding": "12px"})
-
-        largest = max((q for _, q in bids + asks), default=1) or 1
-        spread = book.spread or 0
-        spread_pct = book.spread_pct or 0
-
-        return html.Table([
-            html.Tbody(
-                [_row(p, q, q / largest, C["red"]) for p, q in reversed(asks)]
-                + [html.Tr(html.Td(
-                    f"spread {spread:,.2f} $ · {spread_pct:.4f} % · "
-                    f"{book.age_ms:.0f} ms",
-                    colSpan=3,
-                    style={"color": C["yellow"], "textAlign": "center",
-                           "fontSize": "10px", "padding": "3px",
-                           "borderTop": f"1px solid {C['border']}",
-                           "borderBottom": f"1px solid {C['border']}"},
-                ))]
-                + [_row(p, q, q / largest, C["green"]) for p, q in bids]
-            )
-        ], style=TABLE_STYLE)
+    def _refresh_book(_tick, exchange, expanded):
+        return render_book(hub, exchange, expanded == "book")
 
     @app.callback(
         Output("depth-chart", "figure"),
         Input("tick-fast", "n_intervals"),
     )
     def _refresh_depth(_tick):
-        return build_depth_chart(hub.books)
+        return render_depth(hub)

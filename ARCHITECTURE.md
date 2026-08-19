@@ -403,6 +403,11 @@ serait resté figé pendant ce temps. Les panneaux lisent la base, jamais le
 réseau ; le fil affiche l'âge de la dernière tournée, un fil de news figé devant
 se voir.
 
+L'horloge rapide a depuis gagné un second canal : quand le navigateur tient un
+WebSocket ouvert, le serveur pousse le rendu et `tick-fast` est coupé (§3.10).
+Le tableau ci-dessus reste le régime de repli — et le seul mode des horloges
+lente et rare, que rien ne presse.
+
 Une conséquence pratique : `update_title=None` désactive le « Updating… » que
 Dash affiche par défaut dans l'onglet, sans quoi il clignoterait en permanence
 au rythme de l'horloge rapide.
@@ -659,6 +664,49 @@ compare pour cela les layouts écrits à ceux que `CELLS` référence.
 python tests/test_terminal_wiring.py
 ```
 
+### 3.10 Le canal push : l'horloge rapide inversée
+
+L'interrogation à 250 ms convient à une boucle locale — les mesures de §3.1 le
+montrent, un tour coûte 8 à 33 ms. Mais chaque tour paie un aller-retour HTTP
+complet : sur un tunnel SSH lointain, la latence s'ajoute à la période et le
+carnet prend du retard. Le chantier laissé conditionnel à l'étape 2 est
+désormais fait : `terminal/push.py` pose une route WebSocket `/push` sur le serveur Flask qui porte Dash (flask-sock), et
+pousse le rendu des six cibles rapides — carnet, profondeur, arbitrage et son
+compteur, liquidations et leurs badges — à une cadence de 100 ms.
+
+Trois décisions structurent le canal :
+
+- **Un seul code de rendu.** Les panneaux rapides exposent des fonctions
+  `render(…)` pures, appelées par le callback Dash comme par le pousseur : ce
+  que le navigateur reçoit est identique quel que soit le canal. Les trames
+  `{id: {prop: valeur}}` sont sérialisées par le même encodeur que les réponses
+  de callback, et `assets/push.js` les applique par `dash_clientside.set_props`
+  — le même chemin de mise à jour, le navigateur ne voit pas la différence.
+- **Des trames différentielles.** Le serveur compare la sérialisation de chaque
+  cible à la dernière envoyée et n'expédie que ce qui change : un carnet
+  immobile ne transmet rien, ce qui permet une cadence plus serrée que
+  l'horloge remplacée sans coûter davantage.
+- **L'horloge reste le repli.** push.js ne coupe `tick-fast` qu'une fois le
+  canal ouvert, et la rallume dès qu'il tombe — serveur relancé, tunnel rompu —
+  pendant qu'une reconnexion retente en arrière-plan (backoff plafonné à 30 s).
+  Le bandeau dit toujours le canal en vigueur : « push » ou « poll ». Un
+  serveur sans la route laisse simplement le terminal en interrogation.
+
+Le rendu dépend d'un état qui vit côté navigateur — plateforme du carnet,
+panneau agrandi. Deux callbacks clientside le relaient à push.js, qui l'annonce
+au serveur à chaque changement ; le pousseur suit ainsi les mêmes entrées que
+les callbacks qu'il double, et vide son cache d'envoi quand l'état change. Le
+plein écran a au passage clarifié son vocabulaire : le Store `maximized`
+retient la *cellule* agrandie, un Store dérivé `expanded` dit quel *panneau*
+est réellement regardé — distinction devenue nécessaire depuis que la
+disposition configurable (§3.6) permet au carnet ou aux liquidations de vivre
+ailleurs que dans leur cellule d'origine.
+
+`ui_smoke.py` contrôle le canal dans un vrai Firefox : le badge passe à
+« push », le carnet continue de vivre l'horloge coupée, et l'agrandissement —
+qui ne peut arriver que par le canal, le callback du carnet ne lisant
+`expanded` qu'en State — fait bien passer le carnet de 8 à 20 niveaux.
+
 ## 4. Patrons transverses
 
 ### 4.1 Deux modèles d'acquisition de données
@@ -909,9 +957,10 @@ flux ETF, le marché à terme, les news, le calendrier macro, la macro, la
 dominance et la chaîne. La piste de confort laissée ouverte à la pause
 précédente — une disposition de grille configurable — est faite (§3.6) :
 chaque panneau se range dans la cellule de son choix, et le rangement
-survit au rechargement. Reste un seul chantier ouvert, conditionnel : le push
-WebSocket serveur → navigateur, si un tunnel SSH lointain fait un jour sentir
-sa latence.
+survit au rechargement. Le dernier chantier, resté conditionnel depuis
+l'étape 2, est fait à son tour : le serveur pousse les panneaux rapides par
+WebSocket quand le navigateur peut l'entendre, l'interrogation restant le
+repli (§3.10). La feuille de route est soldée.
 
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
@@ -952,11 +1001,11 @@ Les faiblesses de Dash relevées lors de l'analyse ont été traitées plutôt q
 subies : trois horloges au lieu d'une (§3.1) et `uirevision` sur toutes les
 figures (§3.2).
 
-**Reste ouvert.** Le push WebSocket serveur→navigateur n'a pas été implémenté :
-les mesures montrent qu'un tour d'horloge rapide coûte 8 à 33 ms pour 6 à 25 Ko,
-ce qui passe sans peine en interrogation à 250 ms sur une boucle locale. Il
-deviendra utile pour descendre sous 100 ms, ou si la latence d'un tunnel SSH
-lointain se fait sentir.
+**Plus rien d'ouvert.** Le push WebSocket serveur→navigateur, longtemps
+différé parce qu'un tour d'horloge rapide coûte 8 à 33 ms pour 6 à 25 Ko — ce
+qui passe sans peine en interrogation à 250 ms sur une boucle locale —, est
+désormais en place (§3.10) : cadence de 100 ms, trames différentielles, et
+l'interrogation en repli dès que le canal manque.
 
 ### Étape 3 — Mutualiser la couche de données ✅ *faite*
 
@@ -1041,10 +1090,11 @@ Fait :
 
 Reste, hors étape :
 
-- **Push WebSocket serveur → navigateur** (reporté de l'étape 2) — l'horloge
-  rapide à 250 ms suffit sur une boucle locale ; ce chantier ne se justifiera
-  que pour descendre sous 100 ms, ou si un tunnel SSH lointain fait sentir sa
-  latence.
+- ~~**Push WebSocket serveur → navigateur**~~ (reporté de l'étape 2) — fait
+  (§3.10) : le serveur pousse les panneaux rapides à 100 ms sur `/push`,
+  l'horloge à 250 ms restant le repli quand le canal manque. La condition qui
+  différait le chantier — descendre sous 100 ms, ou un tunnel SSH lointain —
+  n'a plus à être guettée.
 
 ### Chantiers d'hygiène (indépendants)
 

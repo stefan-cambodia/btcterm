@@ -58,6 +58,13 @@ dominance et on-chain — plus l'arbitrage, qui partage sa place avec les
 liquidations. Un panneau caché n'est pas dans la page — il ne coûte rien, et il
 se remplit dès qu'on l'affiche.
 
+**Push** — les panneaux à 250 ms ont deux canaux : quand le navigateur tient
+un WebSocket ouvert sur `/push`, le serveur pousse le rendu à 100 ms et
+l'horloge est coupée ; sinon — ou dès que la connexion tombe — l'interrogation
+reprend, sans rien casser. Le bandeau affiche le canal en vigueur (« push » ou
+« poll »). C'est ce qui garde le carnet vif sur un tunnel SSH lointain, où
+chaque aller-retour HTTP paie la latence.
+
 **Disposition** — le **⚙** du bandeau ouvre un dialogue où chaque panneau se
 range dans la cellule de son choix : un sélecteur par panneau, donc aucun moyen
 d'en perdre un ni de l'afficher deux fois ; seule une cellule vidée de tout est
@@ -253,7 +260,9 @@ plein écran effective, carnet montrant ses deux côtés, barre de titre du pann
 prix tenant sur une ligne, échelle logarithmique atteignant l'axe, panneau macro
 traçant ses deux séries, changement d'onglet remplaçant un panneau par
 l'autre, rempli dès son apparition, rechargement de page restaurant onglets
-et sélecteurs mais pas le plein écran — et le dialogue de disposition : un
+et sélecteurs mais pas le plein écran, canal push pris (badge « push »,
+carnet vivant l'horloge coupée, agrandissement acheminé par le WebSocket) —
+et le dialogue de disposition : un
 panneau déménagé arrive dans sa cellule, en repart au rangement d'origine, et
 le déménagement survit au rechargement. Il sait déposer des captures, suppose
 le terminal déjà lancé (`--url` pour un port d'essai), et s'ignore si Firefox
