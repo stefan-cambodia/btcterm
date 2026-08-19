@@ -69,6 +69,32 @@ body {
     border-color: #fbbf24;
 }
 
+/* ── Onglets d'une cellule ─────────────────────────────────
+   Posés à la place du titre du panneau, pas au-dessus : une barre
+   d'onglets qui s'ajouterait volerait une ligne de hauteur à chaque
+   cellule qui en porte. */
+
+.tabs {
+    display: inline-flex;
+    gap: 12px;
+}
+
+.tab {
+    cursor: pointer;
+    color: #4b5563;
+    white-space: nowrap;
+    border-bottom: 1px solid transparent;
+}
+
+.tab:hover {
+    color: #94a3b8;
+}
+
+.tab-active {
+    color: #fbbf24;
+    border-bottom-color: #fbbf24;
+}
+
 /* ── Sélecteurs de barre de titre ──────────────────────────
    Dash enveloppe la case dans un <span> et marque le <label> de la
    classe `selected` : c'est sur elle qu'il faut styler, un sélecteur

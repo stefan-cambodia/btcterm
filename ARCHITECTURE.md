@@ -82,7 +82,6 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 │   ├── setup.fish                 installe venv + fonction fish `btcnews`
 │   └── systemd_timer.conf         gabarit de timer systemd --user
 │
-├── order/                     ← vide
 └── venv/                      ← venv Python 3.14 partagé (racine)
 ```
 
@@ -263,22 +262,25 @@ terminal/
 ```
 
 ```
-┌─────────┬────────┬───────────┐
-│         │ carnet │ arbitrage │
-│  prix   ├────────┼───────────┤
-│         │ profo. │           │
-│         ├────────┤   news    │
-│         │  etf   │           │
-│         ├────────┴───────────┤
-│         │       macro        │
-└─────────┴────────────────────┘
+┌─────────┬──────────────────┬───────────┐
+│         │ CARNET  PROFOND. │ arbitrage │
+│         │                  ├───────────┤
+│  prix   │    (onglets)     │           │
+│         │                  │   news    │
+│         ├──────────────────┤           │
+│         │       etf        │           │
+│         ├──────────────────┴───────────┤
+│         │            macro             │
+└─────────┴──────────────────────────────┘
 ```
 
 Le panneau macro occupe une rangée basse sur toute la largeur restante :
 deux séries mensuelles sur dix ans se lisent en longueur, et cette forme
-est celle qui coûte le moins de hauteur aux autres. Le carnet, lui, est
-passé de six à cinq niveaux par côté dans la grille — la rangée
-supplémentaire a raccourci les cellules d'une centaine de pixels.
+est celle qui coûte le moins de hauteur aux autres. Le carnet et la
+profondeur, eux, partagent une cellule haute de deux rangées et se
+choisissent par onglets (§3.5) — on ne les regarde pas en même temps, et
+la place ainsi rendue permet au carnet d'afficher huit niveaux par côté
+au lieu de cinq.
 
 ### 3.1 Trois régimes de rafraîchissement
 
@@ -367,8 +369,8 @@ devise, d'échelle ou de sous-graphiques : le recadrage est alors ce qu'on veut.
 
 ### 3.4 Plein écran
 
-Une grille de sept panneaux ne laisse pas assez de place pour lire finement un
-graphique. Chaque panneau porte donc un bouton ⛶ qui le fait couvrir la fenêtre
+Une grille de six cellules ne laisse pas assez de place pour lire finement un
+graphique. Chaque cellule porte donc un bouton ⛶ qui le fait couvrir la fenêtre
 entière, les autres étant masqués ; un second clic, ou `Échap`, rend la grille.
 
 La bascule est un callback **clientside** : elle se contente d'échanger des
@@ -388,18 +390,56 @@ Cette logique vivant en JavaScript, elle échapperait aux tests Python.
 `tests/test_fullscreen_toggle.py` extrait la fonction de `app.py` et l'exécute
 sous Node avec un faux `dash_clientside` (test ignoré si Node est absent).
 
-### 3.5 Anatomie d'un panneau
+### 3.5 Onglets : plusieurs panneaux par cellule
+
+La grille était pleine à sept panneaux, et un terminal complet en demande le
+double — dominance, funding, liquidations, on-chain, calendrier. Plutôt que de
+rétrécir encore les cellules, une cellule peut désormais héberger **plusieurs
+panneaux**, choisis par des onglets. Le carnet et la profondeur comparée
+inaugurent le mécanisme : on ne regarde pas les deux en même temps.
+
+`CELLS`, dans `app.py`, est la seule liste qui décide de ce qui est affichable :
+
+```python
+CELLS = {
+    "book": (("book",  "CARNET",     orderbook.layout),
+             ("depth", "PROFONDEUR", orderbook.depth_layout)),
+    ...
+}
+```
+
+Trois décisions méritent d'être expliquées.
+
+**Les onglets remplacent le titre du panneau**, ils ne s'ajoutent pas au-dessus.
+Chaque `layout()` accepte donc un titre imposé par sa cellule, et retombe sur le
+sien quand elle n'en impose pas. Une barre d'onglets supplémentaire aurait coûté
+une ligne de hauteur à chaque cellule qui en porte.
+
+**Un panneau caché n'est pas dans la page.** La cellule ne rend que son panneau
+actif ; Dash ne fait donc tourner aucun callback des autres — un panneau masqué
+en CSS aurait continué de recalculer sa figure à chaque tour d'horloge. En
+retour, Dash exécute les callbacks d'un composant dès son apparition : un
+panneau lent se remplit à l'ouverture de son onglet, sans attendre les cinq
+minutes de son horloge. `ui_smoke.py` le vérifie explicitement.
+
+**Le clic passe par un `Store`.** Le callback qui rend le corps d'une cellule
+remplacerait ses propres entrées s'il écoutait les onglets directement, et
+chaque rendu le redéclencherait. Un callback clientside traduit donc le clic en
+une entrée du `Store` `tabs`, seul déclencheur du rendu.
+
+### 3.6 Anatomie d'un panneau
 
 Chaque module de `panels/` expose exactement deux fonctions :
 
-- `layout()` — ses composants Dash
+- `layout(title=None)` — ses composants Dash, titrés par sa cellule ou par
+  lui-même
 - `register(app, hub)` — ses callbacks
 
 Un panneau ne fait aucun appel réseau : il demande au hub, qui mutualise. Il
-n'écrit rien non plus — le panneau news lit la base du tracker en lecture seule,
-la collecte et le scoring restant la responsabilité de `news/btc_news.py`.
+n'écrit rien non plus — le panneau news lit la base en lecture seule, c'est le
+collecteur du hub qui l'alimente (§2.4).
 
-### 3.6 Contrôle visuel
+### 3.7 Contrôle visuel
 
 Une partie des défauts d'interface ne se voit qu'à l'écran, et aucune quantité
 de tests Python ne les révèle. `tests/ui_smoke.py` pilote donc Firefox par
@@ -412,9 +452,12 @@ python -m terminal.app &
 python tests/ui_smoke.py --capture /tmp/captures
 ```
 
-Il vérifie les panneaux posés, la visibilité et le non-recouvrement du bouton,
-l'agrandissement réel, le retour par `Échap`, le double-clic, et que le carnet
-montre bien ses deux côtés. Les captures qu'il dépose ont mis au jour deux
+Il vérifie les cellules posées, la visibilité et le non-recouvrement du bouton,
+l'agrandissement réel, le retour par `Échap`, le double-clic, que le carnet
+montre bien ses deux côtés, que la barre de titre du panneau prix tient sur une
+ligne, que la bascule LOG atteint l'axe, que le panneau macro trace ses deux
+séries — et que changer d'onglet remplace bien un panneau par l'autre, rempli
+dès son apparition. Les captures qu'il dépose ont mis au jour deux
 défauts qu'aucun test logique n'aurait signalés : la légende du graphique
 recouvrait les bougies, et le carnet, trop haut pour son panneau, n'affichait
 que les ventes. C'est aussi ainsi qu'a été repérée une feuille de style qui ne
@@ -422,7 +465,7 @@ prenait pas : les sélecteurs étaient stylés via `input:checked + span`, alors
 que Dash enveloppe la case dans un `<span>` et marque le `<label>` d'une classe
 `selected` — rien n'indiquait donc l'option active.
 
-### 3.7 Câblage vérifié
+### 3.8 Câblage vérifié
 
 `terminal/panels/__init__.py` déclare `PANELS`, et `app.py` enregistre les
 callbacks en parcourant cette liste : ajouter un module suffit à le brancher.
@@ -432,6 +475,10 @@ oublié — il découvre les modules **sur le disque**, jamais via `PANELS`, sin
 un panneau absent de la liste échapperait aussi au contrôle. C'est l'erreur qui
 a laissé le panneau ETF muet à sa création : écrit, mais ni placé dans la grille
 ni enregistré, sans que rien ne le signale au démarrage.
+
+Les onglets ont ajouté une variante moderne de cette erreur : un panneau écrit,
+enregistré, mais absent de `CELLS` — donc affichable par aucun clic. Le test
+compare pour cela les layouts écrits à ceux que `CELLS` référence.
 
 ```bash
 python tests/test_terminal_wiring.py
@@ -763,12 +810,10 @@ Reste :
 - **Panneaux absents** d'un terminal Bitcoin complet : dominance et
   capitalisation, funding rates et open interest sur les perpétuels,
   liquidations, métriques on-chain (hashrate, flux exchanges), calendrier macro.
-- `order/` est un répertoire vide — soit il matérialise un panneau prévu et
-  reste à écrire, soit il est à supprimer.
-- **La grille est pleine.** Sept panneaux tiennent sur quatre rangées ; le
-  huitième ne tiendra pas sans changer de principe — onglets, panneaux
-  empilables ou espaces de travail commutables. C'est la question à trancher
-  avant d'ajouter les panneaux ci-dessus.
+- ~~**La grille est pleine**~~ — réglé : une cellule peut héberger plusieurs
+  panneaux, choisis par onglets (§3.5). Ajouter un panneau consiste désormais à
+  écrire son module et à l'inscrire dans la cellule qui l'accueille ; la place
+  n'est plus le facteur limitant.
 
 ### Chantiers d'hygiène (indépendants)
 

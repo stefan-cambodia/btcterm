@@ -25,12 +25,17 @@ ssh -L 8050:localhost:8050 <machine>
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
 | **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels | 2 s |
-| **Carnet** | 5 niveaux de chaque côté, spread, âge du flux, choix de la plateforme | 250 ms |
-| **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian | 250 ms |
+| **Carnet** | 8 niveaux de chaque côté, spread, âge du flux, choix de la plateforme | 250 ms |
+| **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
 | **News** | fil scoré + indice Fear & Greed, collecte comprise | 5 min |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
+
+**Onglets** — une cellule peut héberger plusieurs panneaux, choisis par les
+onglets posés à la place du titre : le carnet et la profondeur comparée
+partagent ainsi la colonne du milieu. Un panneau caché n'est pas dans la page —
+il ne coûte rien, et il se remplit dès qu'on l'affiche.
 
 **Plein écran** — trois façons d'agrandir un panneau :
 
@@ -45,7 +50,7 @@ Les panneaux s'adaptent à la place disponible :
 
 - le **cours** occupe 69 % de la hauteur du graphique dans la grille, 77 % en
   plein écran, et **100 %** si l'on décoche tout ;
-- le **carnet** affiche 5 niveaux de chaque côté dans la grille, 20 en plein
+- le **carnet** affiche 8 niveaux de chaque côté dans la grille, 20 en plein
   écran.
 
 **Intervalles** — `15m` `30m` `1h` `4h` `6h` `12h` `1d` `1w` `1M`, à la casse
@@ -242,7 +247,6 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 
 ## Notes
 
-- `order/` est un répertoire vide.
 - Le terminal écrit dans `~/.btc_news/news.db` — la base du tracker, mêmes
   règles, mêmes déduplications. `--no-news` l'en dispense.
 - Aucun de ces scripts n'écrit d'ordre sur un exchange ; ils sont en lecture

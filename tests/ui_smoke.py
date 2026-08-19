@@ -33,6 +33,16 @@ def run(capture_dir: Path | None) -> int:
     browser = Firefox()
     failures = 0
 
+    #: Le domaine de l'axe des prix n'existe qu'une fois la figure posée
+    #: par Plotly. L'attendre plutôt que dormir : au premier passage après
+    #: un démarrage du serveur, deux secondes ne suffisent pas toujours.
+    PRIX_PRET = ("((document.getElementById('price-chart') || {})"
+                 ".querySelector('.js-plotly-plot') || {}).layout"
+                 " && !!document.getElementById('price-chart')"
+                 ".querySelector('.js-plotly-plot').layout.yaxis"
+                 " && !!document.getElementById('price-chart')"
+                 ".querySelector('.js-plotly-plot').layout.yaxis.domain")
+
     def check(label, condition, detail=""):
         nonlocal failures
         print(f"  {'✓' if condition else '✗'} {label}{'  ' + str(detail) if detail else ''}")
@@ -47,10 +57,10 @@ def run(capture_dir: Path | None) -> int:
         time.sleep(2.5)
 
         print("\nGrille")
-        check("7 panneaux posés",
-              browser.js("return document.querySelectorAll('.cell').length;") == 7)
-        check("7 boutons plein écran",
-              browser.js("return document.querySelectorAll('.zoom-btn').length;") == 7)
+        check("6 cellules posées",
+              browser.js("return document.querySelectorAll('.cell').length;") == 6)
+        check("6 boutons plein écran",
+              browser.js("return document.querySelectorAll('.zoom-btn').length;") == 6)
         check("feuille de style chargée", browser.js(
             "return !!Array.from(document.styleSheets)"
             ".find(s => (s.href || '').includes('terminal.css'));"))
@@ -96,6 +106,7 @@ def run(capture_dir: Path | None) -> int:
             browser.screenshot(str(capture_dir / "grille.png"))
         browser.js("document.getElementById('zoom-price').click();")
         time.sleep(2)
+        browser.wait_for(PRIX_PRET)
         geometry = browser.js("""
             const el = document.getElementById('cell-price');
             const r = el.getBoundingClientRect();
@@ -110,7 +121,7 @@ def run(capture_dir: Path | None) -> int:
               f"{geometry['couvre']*100:.0f} %")
         check("graphique redimensionné", geometry["graphe"] > 900,
               f"{geometry['graphe']} px")
-        check("autres panneaux masqués", geometry["autres"] == 6)
+        check("autres panneaux masqués", geometry["autres"] == 5)
         if capture_dir:
             browser.screenshot(str(capture_dir / "plein-ecran.png"))
 
@@ -128,6 +139,7 @@ def run(capture_dir: Path | None) -> int:
                 "document.querySelectorAll('#price-extras input')"
                 f"[{('rsi', 'crsi', 'volume', 'profile').index(value)}].click();")
             time.sleep(2.2)
+        browser.wait_for(PRIX_PRET)
         share = browser.js("""
             const gd = document.getElementById('price-chart')
                 .querySelector('.js-plotly-plot');
@@ -161,6 +173,37 @@ def run(capture_dir: Path | None) -> int:
         time.sleep(2)
         check("Échap restaure la grille",
               browser.js("return document.getElementById('cell-price').className;") == "cell")
+
+        print("\nOnglets de cellule")
+        check("le carnet est l'onglet actif", browser.js(
+            "return document.querySelector('#cell-book .tab-active').textContent;")
+            == "CARNET")
+        check("la profondeur n'est pas rendue",
+              browser.js("return !document.getElementById('depth-chart');"))
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-book .tab'))
+                 .find(t => t.textContent === 'PROFONDEUR').click();
+        """)
+        time.sleep(2.5)
+        check("l'onglet profondeur affiche son graphique",
+              browser.js("return !!document.getElementById('depth-chart');"))
+        check("et remplace le carnet",
+              browser.js("return !document.getElementById('book-table');"))
+        # Le graphique doit se remplir sans attendre le tour d'horloge du
+        # panneau : un onglet qui s'ouvre vide pendant cinq minutes serait
+        # inutilisable pour les panneaux lents.
+        check("rempli à l'ouverture, sans attendre l'horloge", browser.js("""
+            const gd = document.getElementById('depth-chart')
+                .querySelector('.js-plotly-plot');
+            return gd && gd.data && gd.data.length > 0;
+        """))
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-book .tab'))
+                 .find(t => t.textContent === 'CARNET').click();
+        """)
+        time.sleep(2)
+        check("retour au carnet",
+              browser.js("return !!document.getElementById('book-table');"))
 
         print("\nPanneau macro")
         macro = browser.js("""

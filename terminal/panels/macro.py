@@ -28,9 +28,10 @@ DEFAULT_WINDOW = "5A"
 LAGS = (0, 1, 2, 3)
 
 
-def layout():
+def layout(title=None):
     return html.Div([
         html.Div([
+            title if title is not None else
             html.Span("BTC × masse monétaire M2 (US)"),
             html.Div([
                 html.Span(id="macro-stats", style={"fontSize": "10px",

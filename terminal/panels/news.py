@@ -27,10 +27,10 @@ ROWS = 12
 SENTIMENT_COLOR = {"bullish": C["green"], "bearish": C["red"], "neutral": C["muted"]}
 
 
-def layout():
+def layout(title=None):
     return html.Div([
         html.Div([
-            html.Span("News à impact"),
+            title if title is not None else html.Span("News à impact"),
             html.Span([
                 html.Span(id="news-collecte",
                           style={"fontSize": "10px", "marginRight": "10px"}),

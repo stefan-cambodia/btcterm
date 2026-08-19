@@ -15,10 +15,10 @@ from ..theme import C, MONO, PANEL_STYLE, TABLE_STYLE, TITLE_STYLE
 ROWS = 8
 
 
-def layout():
+def layout(title=None):
     return html.Div([
         html.Div([
-            html.Span("Arbitrage"),
+            title if title is not None else html.Span("Arbitrage"),
             html.Span(id="arb-count", style={"color": C["muted"], "fontSize": "9px"}),
         ], style=TITLE_STYLE),
         html.Div(id="arb-table", style={"flex": "1", "overflow": "hidden"}),

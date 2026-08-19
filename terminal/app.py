@@ -20,7 +20,7 @@ import argparse
 import os
 
 import dash
-from dash import Input, Output, State, dcc, html
+from dash import ALL, Input, Output, State, dcc, html
 
 from btcterm.hub import MarketHub
 
@@ -53,7 +53,7 @@ REFRESH_RARE_MS = 300_000
 # d'une hauteur explicite pour que le zoom se comporte correctement.
 _GRID = {
     "display": "grid",
-    "gridTemplateAreas": ('"price book arb" "price depth news"'
+    "gridTemplateAreas": ('"price book arb" "price book news"'
                           ' "price etf news" "price macro macro"'),
     "gridTemplateColumns": "1.35fr 1fr 1fr",
     "gridTemplateRows": ("minmax(0, 1.05fr) minmax(0, 1fr)"
@@ -66,13 +66,59 @@ _GRID = {
 }
 
 
+#: Composition des cellules. Une cellule peut héberger plusieurs
+#: panneaux, choisis par des onglets posés à la place du titre — c'est ce
+#: qui permet d'ajouter des panneaux à une grille déjà pleine.
+#:
+#: Un panneau caché n'est pas dans la page : Dash ne fait donc tourner
+#: aucun de ses callbacks, et il se remplit dès qu'on l'affiche, sans
+#: attendre le prochain tour de son horloge.
+CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
+    "price": (("price", "PRIX", price.layout),),
+    "book": (("book", "CARNET", orderbook.layout),
+             ("depth", "PROFONDEUR", orderbook.depth_layout)),
+    "arb": (("arb", "ARBITRAGE", arbitrage.layout),),
+    "etf": (("etf", "FLUX ETF", etf.layout),),
+    "news": (("news", "NEWS", news.layout),),
+    "macro": (("macro", "MACRO", macro.layout),),
+}
+
 #: Zones de la grille, dans l'ordre où elles sont posées. C'est aussi
 #: l'ordre des sorties du callback de plein écran.
-AREAS = ("price", "book", "arb", "depth", "etf", "news", "macro")
+AREAS = tuple(CELLS)
+
+#: Panneau affiché par défaut dans chaque cellule.
+DEFAULT_TABS = {area: panels[0][0] for area, panels in CELLS.items()}
 
 
-def _cell(area: str, content):
-    """Place un panneau dans sa zone, avec son bouton d'agrandissement.
+def _tabs(area: str, active: str):
+    """Barre d'onglets d'une cellule, posée à la place du titre du panneau.
+
+    Rien n'est rendu pour une cellule qui n'héberge qu'un panneau : ce
+    dernier garde alors son propre titre.
+    """
+    panels = CELLS[area]
+    if len(panels) < 2:
+        return None
+    return html.Span([
+        html.Span(
+            label,
+            id={"type": "tab", "area": area, "panel": panel_id},
+            className="tab tab-active" if panel_id == active else "tab",
+            n_clicks=0,
+        )
+        for panel_id, label, _ in panels
+    ], className="tabs")
+
+
+def _body(area: str, active: str):
+    """Contenu d'une cellule : le seul panneau actif, titré par ses onglets."""
+    layout_fn = next(fn for panel_id, _, fn in CELLS[area] if panel_id == active)
+    return layout_fn(_tabs(area, active))
+
+
+def _cell(area: str):
+    """Place une cellule dans sa zone, avec son bouton d'agrandissement.
 
     Le bouton est ajouté ici plutôt que dans chaque panneau : c'est la
     grille qui sait ce qu'agrandir veut dire, pas le panneau.
@@ -81,7 +127,8 @@ def _cell(area: str, content):
         [
             html.Button("⛶", id=f"zoom-{area}", className="zoom-btn",
                         title="plein écran (Échap pour revenir)"),
-            content,
+            html.Div(_body(area, DEFAULT_TABS[area]), id=f"cell-{area}-body",
+                     style={"height": "100%"}),
         ],
         id=f"cell-{area}",
         className="cell",
@@ -125,16 +172,9 @@ def create_app(hub: MarketHub) -> dash.Dash:
         dcc.Interval(id="tick-slow", interval=REFRESH_SLOW_MS),
         dcc.Interval(id="tick-rare", interval=REFRESH_RARE_MS),
         dcc.Store(id="maximized"),
+        dcc.Store(id="tabs", data=DEFAULT_TABS),
         _header(),
-        html.Div([
-            _cell("price", price.layout()),
-            _cell("book", orderbook.layout()),
-            _cell("arb", arbitrage.layout()),
-            _cell("depth", orderbook.depth_layout()),
-            _cell("etf", etf.layout()),
-            _cell("news", news.layout()),
-            _cell("macro", macro.layout()),
-        ], id="grid", style=_GRID),
+        html.Div([_cell(area) for area in AREAS], id="grid", style=_GRID),
     ], style={"background": C["bg"], "margin": "0", "height": "100vh",
               "overflow": "hidden"})
 
@@ -142,6 +182,7 @@ def create_app(hub: MarketHub) -> dash.Dash:
         panel.register(app, hub)
 
     _register_fullscreen(app)
+    _register_tabs(app)
 
     @app.callback(
         Output("hdr-price", "children"),
@@ -213,6 +254,53 @@ def _register_fullscreen(app: dash.Dash) -> None:
         State("maximized", "data"),
         prevent_initial_call=True,
     )
+
+
+def _register_tabs(app: dash.Dash) -> None:
+    """Onglets : un clic choisit le panneau, le serveur rend le corps.
+
+    Le clic est traité côté navigateur pour ne mettre à jour qu'un
+    `Store` ; c'est ce Store, et non les onglets eux-mêmes, qui déclenche
+    le rendu du corps. Sans ce détour, le callback aurait pour entrées
+    des composants qu'il remplace lui-même, et chaque rendu le
+    redéclencherait.
+    """
+    app.clientside_callback(
+        r"""
+        function (...args) {
+            const context = dash_clientside.callback_context;
+            if (!context.triggered.length) {
+                return dash_clientside.no_update;
+            }
+            const current = args[args.length - 1] || {};
+            const id = JSON.parse(
+                context.triggered[0].prop_id.replace(/\.n_clicks$/, ''));
+            if (current[id.area] === id.panel) {
+                return dash_clientside.no_update;
+            }
+            const next = Object.assign({}, current);
+            next[id.area] = id.panel;
+            return next;
+        }
+        """,
+        Output("tabs", "data"),
+        Input({"type": "tab", "area": ALL, "panel": ALL}, "n_clicks"),
+        State("tabs", "data"),
+        prevent_initial_call=True,
+    )
+
+    for area, panels in CELLS.items():
+        if len(panels) < 2:
+            continue
+
+        @app.callback(
+            Output(f"cell-{area}-body", "children"),
+            Input("tabs", "data"),
+            prevent_initial_call=True,
+        )
+        def _switch(tabs, area=area):
+            return _body(area, (tabs or DEFAULT_TABS).get(area,
+                                                          DEFAULT_TABS[area]))
 
 
 def main() -> None:

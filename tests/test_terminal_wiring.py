@@ -23,7 +23,8 @@ import importlib  # noqa: E402
 import pkgutil  # noqa: E402
 
 from btcterm.hub import MarketHub  # noqa: E402
-from terminal.app import create_app  # noqa: E402
+from terminal.app import CELLS, create_app  # noqa: E402
+from terminal.app import _body  # noqa: E402
 from terminal.panels import PANELS  # noqa: E402
 
 
@@ -71,7 +72,16 @@ def panel_ids(panel) -> set[str]:
 
 HUB = MarketHub()
 APP = create_app(HUB)
+
+#: Identifiants présents dans la page, onglets compris. Une cellule ne
+#: rend que son panneau actif — c'est ce qui rend les onglets gratuits —
+#: mais un panneau derrière un onglet reste posé dans la grille, et le
+#: test doit le voir comme tel.
 APP_IDS = collect_ids(APP.layout)
+for _area, _panels in CELLS.items():
+    for _panel_id, _label, _layout in _panels:
+        APP_IDS |= collect_ids(_body(_area, _panel_id))
+
 CALLBACK_KEYS = " ".join(APP.callback_map)
 
 
@@ -99,6 +109,24 @@ def test_panneaux_enregistres():
         pilotes = [i for i in panel_ids(panel) if f"{i}." in CALLBACK_KEYS]
         assert pilotes, f"panneau {name} : aucun callback enregistré"
         print(f"  ✓ {name:10s} branché ({len(pilotes)} sorties)")
+
+
+def test_tous_les_layouts_sont_atteignables():
+    """Tout layout écrit doit être posé dans une cellule.
+
+    Depuis les onglets, un panneau peut exister, être enregistré, et
+    n'être atteignable par aucun clic — l'équivalent moderne du panneau
+    oublié. `CELLS` est la seule liste qui décide de ce qu'on peut
+    afficher : c'est donc elle qu'on compare aux layouts écrits.
+    """
+    poses = {fonction for panels in CELLS.values() for _, _, fonction in panels}
+    for panel in DISCOVERED:
+        name = panel.__name__.rsplit(".", 1)[-1]
+        ecrits = {getattr(panel, attribut) for attribut in dir(panel)
+                  if attribut == "layout" or attribut.endswith("_layout")}
+        orphelins = ecrits - poses
+        assert not orphelins, f"panneau {name} : layout écrit mais absent de CELLS"
+        print(f"  ✓ {name:10s} atteignable ({len(ecrits)} layout(s))")
 
 
 def test_horloges_declarees():

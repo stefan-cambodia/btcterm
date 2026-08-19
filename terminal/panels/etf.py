@@ -15,10 +15,10 @@ from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 DAYS = 30
 
 
-def layout():
+def layout(title=None):
     return html.Div([
         html.Div([
-            html.Span("Flux ETF spot (M$)"),
+            title if title is not None else html.Span("Flux ETF spot (M$)"),
             html.Span(id="etf-total", style={"fontSize": "10px"}),
         ], style=TITLE_STYLE),
         dcc.Graph(id="etf-chart", style={"flex": "1", "minHeight": "0"},

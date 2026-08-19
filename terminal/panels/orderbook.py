@@ -13,19 +13,19 @@ from dash import Input, Output, State, dcc, html
 from ..charts import build_depth_chart
 from ..theme import C, MONO, PANEL_STYLE, TABLE_STYLE, TITLE_STYLE
 
-#: Dans la grille, le panneau ne peut afficher qu'une dizaine de lignes :
-#: au-delà, les meilleures offres d'achat sortaient du cadre et seules les
-#: ventes restaient visibles. Cinq niveaux de chaque côté depuis que la
-#: rangée macro a raccourci les cellules. En plein écran, la place ne
-#: manque plus.
-DEPTH = 5
+#: Le carnet et la profondeur partagent désormais une cellule haute de
+#: deux rangées, au lieu d'une chacun : la place regagnée revient aux
+#: niveaux affichés. Au-delà, les meilleures offres d'achat sortent du
+#: cadre et seules les ventes restent visibles. En plein écran, la place
+#: ne manque plus du tout.
+DEPTH = 8
 DEPTH_MAX = 20
 
 
-def layout():
+def layout(title=None):
     return html.Div([
         html.Div([
-            html.Span("Carnet"),
+            title if title is not None else html.Span("Carnet"),
             # Libellés abrégés : les noms complets faisaient passer le
             # sélecteur à la ligne dans la largeur du panneau.
             dcc.RadioItems(
@@ -41,9 +41,10 @@ def layout():
     ], style=PANEL_STYLE)
 
 
-def depth_layout():
+def depth_layout(title=None):
     return html.Div([
-        html.Div(html.Span("Profondeur comparée"), style=TITLE_STYLE),
+        html.Div(title if title is not None else
+                 html.Span("Profondeur comparée"), style=TITLE_STYLE),
         dcc.Graph(
             id="depth-chart",
             style={"flex": "1", "minHeight": "0"},

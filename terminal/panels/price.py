@@ -36,15 +36,16 @@ _BTN = {
 }
 
 
-def layout():
+def layout(title=None):
     return html.Div([
         html.Div([
             # Titre court : la barre porte neuf intervalles, la devise,
             # l'échelle et quatre sous-graphiques ; un intitulé plus long
             # les faisait passer à la ligne dans la largeur de la grille.
+            title if title is not None else
             html.Span("BTC/USDT", style={"fontSize": "9px",
-                                        "letterSpacing": "0.02em",
-                                        "whiteSpace": "nowrap"}),
+                                         "letterSpacing": "0.02em",
+                                         "whiteSpace": "nowrap"}),
             html.Div([
                 dcc.RadioItems(
                     id="price-interval",
