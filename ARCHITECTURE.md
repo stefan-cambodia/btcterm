@@ -12,8 +12,9 @@ récurrents, flux de données et détail module par module.
 Le projet vise un **poste de travail unifié** — un terminal à la Bloomberg,
 centré sur le Bitcoin — où chaque famille d'information occupe un panneau d'une
 même interface : prix et indicateurs, carnet d'ordres, profondeur comparée entre
-exchanges, écarts d'arbitrage, flux des ETF spot, fil de news et sentiment,
-contexte macro.
+exchanges, écarts d'arbitrage, liquidations, flux des ETF spot, marché à terme,
+fil de news et sentiment, calendrier macro, dominance, données de chaîne,
+contexte monétaire.
 
 ### État actuel : le terminal existe
 
@@ -346,17 +347,20 @@ terminal/
 ```
 
 ```
-┌─────────┬──────────────────┬───────────┐
-│         │ CARNET  PROFOND. │ arbitrage │
-│         │                  ├───────────┤
-│  prix   │    (onglets)     │           │
-│         │                  │   news    │
-│         ├──────────────────┤           │
-│         │       etf        │           │
-│         ├──────────────────┴───────────┤
-│         │            macro             │
-└─────────┴──────────────────────────────┘
+┌─────────┬──────────────────┬─────────────────┐
+│         │ CARNET  PROFOND. │ ARBITRAGE  LIQ. │
+│         │                  ├─────────────────┤
+│  prix   │                  │                 │
+│         │                  │ NEWS  CALENDRIER│
+│         ├──────────────────┤                 │
+│         │ ETF   PERPÉTUEL  │                 │
+│         ├──────────────────┴─────────────────┤
+│         │ MACRO  DOMINANCE  ON-CHAIN         │
+└─────────┴────────────────────────────────────┘
 ```
+
+Chaque cellule, hormis le prix, héberge plusieurs panneaux choisis par
+onglets (§3.5) — les majuscules du croquis sont les barres d'onglets.
 
 Le panneau macro occupe une rangée basse sur toute la largeur restante :
 deux séries mensuelles sur dix ans se lisent en longueur, et cette forme
@@ -995,3 +999,5 @@ Reste, hors étape :
   `127.0.0.1` par défaut ; les deux dashboards hérités, qui codaient `8050` en
   dur et dont l'un écoutait sur `0.0.0.0`, ont été supprimés à l'étape 4.
 - ~~**Versionner le dépôt**~~ — fait : dépôt git local sur `main`.
+- ~~**Empaqueter**~~ — fait : `pyproject.toml` et commande `btcterm`, une fois
+  remplie la condition que posait §6 — un point d'entrée unique.

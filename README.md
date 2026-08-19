@@ -4,7 +4,9 @@
 Bitcoin** — un poste de travail unique regroupant, sur des panneaux
 synchronisés, tout ce qu'il faut pour lire le marché : prix et indicateurs
 techniques, carnets d'ordres et profondeur multi-exchange, opportunités
-d'arbitrage, flux des ETF spot, news à impact et sentiment de marché.
+d'arbitrage, liquidations, flux des ETF spot, marché perpétuel, news à impact
+et sentiment, calendrier macro, dominance, données on-chain et contexte
+monétaire.
 
 ## Lancement
 
@@ -236,8 +238,9 @@ six ne touche au réseau.
 qu'à l'écran — cellules posées, bouton visible et sans recouvrement, bascule
 plein écran effective, carnet montrant ses deux côtés, barre de titre du panneau
 prix tenant sur une ligne, échelle logarithmique atteignant l'axe, panneau macro
-traçant ses deux séries, et changement d'onglet remplaçant un panneau par
-l'autre, rempli dès son apparition. Il sait déposer des captures, suppose le
+traçant ses deux séries, changement d'onglet remplaçant un panneau par
+l'autre, rempli dès son apparition — et rechargement de page restaurant onglets
+et sélecteurs mais pas le plein écran. Il sait déposer des captures, suppose le
 terminal déjà lancé, et s'ignore si Firefox est absent.
 
 ## Les outils en détail
