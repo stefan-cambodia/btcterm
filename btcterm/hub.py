@@ -85,6 +85,11 @@ class MarketHub:
     #: retard : la rafraîchir plus souvent qu'une fois par demi-journée
     #: ne peut rien apprendre.
     TTL_M2 = 21600
+    #: Le financement tombe toutes les huit heures, l'open interest par
+    #: tranches de quatre ; seul l'instantané mérite d'être frais.
+    TTL_FUNDING = 900
+    TTL_OPEN_INTEREST = 300
+    TTL_PERP = 30
 
     #: Période de collecte des news, en secondes. Les flux RSS publient
     #: quelques articles par heure : un quart d'heure suffit largement.
@@ -201,6 +206,40 @@ class MarketHub:
             return self._cache.get("m2", self.TTL_M2, sources.fetch_m2_supply)
         except Exception:
             return pd.DataFrame(columns=["time", "m2"])
+
+    def funding_history(self, limit: int = 90) -> pd.DataFrame:
+        """Taux de financement du perpétuel, un point par 8 h.
+
+        Comme les autres accès au marché à terme, retourne un tableau
+        vide plutôt que de lever : le panneau le dit, le terminal vit.
+        """
+        try:
+            return self._cache.get(
+                f"funding:{limit}", self.TTL_FUNDING,
+                lambda: sources.fetch_funding_history(self.symbol, limit),
+            )
+        except Exception:
+            return pd.DataFrame(columns=["time", "rate"])
+
+    def open_interest(self, period: str = "4h", limit: int = 180) -> pd.DataFrame:
+        """Open interest du perpétuel — trente jours, Binance n'en garde pas plus."""
+        try:
+            return self._cache.get(
+                f"oi:{period}:{limit}", self.TTL_OPEN_INTEREST,
+                lambda: sources.fetch_open_interest(self.symbol, period, limit),
+            )
+        except Exception:
+            return pd.DataFrame(columns=["time", "oi", "oi_usd"])
+
+    def perp_snapshot(self) -> dict:
+        """Prix marqué, financement courant et positionnement des comptes."""
+        try:
+            return self._cache.get(
+                "perp", self.TTL_PERP,
+                lambda: sources.fetch_perp_snapshot(self.symbol),
+            )
+        except Exception:
+            return {}
 
     def fear_greed(self) -> Optional[dict]:
         return self._cache.get(

@@ -65,6 +65,24 @@ def run(capture_dir: Path | None) -> int:
             "return !!Array.from(document.styleSheets)"
             ".find(s => (s.href || '').includes('terminal.css'));"))
 
+        # Une barre de titre qui passe à deux lignes vole sa hauteur au
+        # graphique. C'est arrivé pour de bon : la feuille de style de
+        # `dcc.Tabs` revendique la classe `.tab` et y met 20 px de
+        # remplissage, ce qui avait fait passer les cellules à onglets de
+        # 14 à 55 px sans que rien ne le signale.
+        print("\nBarres de titre")
+        hauteurs = browser.js("""
+            const out = {};
+            for (const cell of document.querySelectorAll('.cell')) {
+                const bar = cell.children[1].firstElementChild.firstElementChild;
+                out[cell.id] = Math.round(bar.getBoundingClientRect().height);
+            }
+            return out;
+        """)
+        trop_hautes = {k: v for k, v in hauteurs.items() if v > 24}
+        check("toutes tiennent sur une ligne", not trop_hautes,
+              trop_hautes or f"max {max(hauteurs.values())} px")
+
         print("\nBarre de titre du panneau prix")
         check("9 intervalles proposés", browser.js(
             "return document.querySelectorAll('#price-interval input').length;") == 9)
@@ -176,12 +194,12 @@ def run(capture_dir: Path | None) -> int:
 
         print("\nOnglets de cellule")
         check("le carnet est l'onglet actif", browser.js(
-            "return document.querySelector('#cell-book .tab-active').textContent;")
+            "return document.querySelector('#cell-book .cell-tab-active').textContent;")
             == "CARNET")
         check("la profondeur n'est pas rendue",
               browser.js("return !document.getElementById('depth-chart');"))
         browser.js("""
-            Array.from(document.querySelectorAll('#cell-book .tab'))
+            Array.from(document.querySelectorAll('#cell-book .cell-tab'))
                  .find(t => t.textContent === 'PROFONDEUR').click();
         """)
         time.sleep(2.5)
@@ -198,12 +216,30 @@ def run(capture_dir: Path | None) -> int:
             return gd && gd.data && gd.data.length > 0;
         """))
         browser.js("""
-            Array.from(document.querySelectorAll('#cell-book .tab'))
+            Array.from(document.querySelectorAll('#cell-book .cell-tab'))
                  .find(t => t.textContent === 'CARNET').click();
         """)
         time.sleep(2)
         check("retour au carnet",
               browser.js("return !!document.getElementById('book-table');"))
+
+        print("\nOnglet perpétuel")
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-etf .cell-tab'))
+                 .find(t => t.textContent === 'PERPÉTUEL').click();
+        """)
+        time.sleep(3)
+        perp = browser.js("""
+            const gd = document.getElementById('perp-chart')
+                .querySelector('.js-plotly-plot');
+            return {series: gd.data.map(t => t.name),
+                    badges: document.getElementById('perp-badges').textContent};
+        """)
+        check("financement et open interest tracés",
+              perp["series"] == ["financement", "open interest"], perp["series"])
+        check("financement et OI chiffrés dans le titre",
+              "%" in perp["badges"] and "OI" in perp["badges"],
+              perp["badges"][:46])
 
         print("\nPanneau macro")
         macro = browser.js("""

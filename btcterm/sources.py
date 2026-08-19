@@ -28,6 +28,7 @@ __all__ = [
     "fetch_klines", "fetch_ticker_24h", "fetch_depth",
     "KLINE_FREQ", "KLINE_HOURS", "generate_demo_ohlcv",
     "fetch_eur_rate", "fetch_m2_supply",
+    "fetch_funding_history", "fetch_open_interest", "fetch_perp_snapshot",
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
 ]
@@ -36,6 +37,10 @@ BINANCE_REST = "https://api.binance.com/api/v3"
 FX_URL = "https://api.exchangerate-api.com/v4/latest/USD"
 FARSIDE_URL = "https://farside.co.uk/btc/"
 FEAR_GREED_URL = "https://api.alternative.me/fng/?limit=1"
+
+#: API des contrats à terme Binance : financement, open interest et
+#: positionnement des comptes. Publique et sans clé, comme le reste.
+BINANCE_FUTURES = "https://fapi.binance.com"
 
 #: Masse monétaire M2 des États-Unis (série H.6 de la Réserve fédérale,
 #: mensuelle, désaisonnalisée), servie par DBnomics. FRED publie la même
@@ -211,6 +216,99 @@ def fetch_eur_rate(default: float = 0.924) -> float:
 # ─────────────────────────────────────────────────────────────
 # Flux des ETF Bitcoin spot
 # ─────────────────────────────────────────────────────────────
+
+def fetch_funding_history(
+    symbol: str = "BTCUSDT", limit: int = 90
+) -> pd.DataFrame:
+    """Historique du taux de financement du perpétuel, un point par 8 h.
+
+    Le taux est le loyer que les longs paient aux shorts (ou l'inverse
+    s'il est négatif) toutes les huit heures : c'est la mesure la plus
+    directe du déséquilibre entre les deux côtés du marché à terme.
+
+    Retourne `time` / `rate`, le taux en fraction (0,0001 = 0,01 %).
+    """
+    response = requests.get(
+        f"{BINANCE_FUTURES}/fapi/v1/fundingRate",
+        params={"symbol": symbol, "limit": limit},
+        timeout=12,
+    )
+    response.raise_for_status()
+
+    df = pd.DataFrame(response.json())
+    if df.empty:
+        return pd.DataFrame(columns=["time", "rate"])
+    return pd.DataFrame({
+        "time": pd.to_datetime(df["fundingTime"], unit="ms"),
+        "rate": df["fundingRate"].astype(float),
+    })
+
+
+def fetch_open_interest(
+    symbol: str = "BTCUSDT", period: str = "4h", limit: int = 180
+) -> pd.DataFrame:
+    """Open interest du perpétuel, en BTC et en dollars.
+
+    Binance ne conserve que **trente jours** d'historique sur cet
+    endpoint : demander plus ne renvoie pas davantage.
+
+    Retourne `time` / `oi` (BTC) / `oi_usd`.
+    """
+    response = requests.get(
+        f"{BINANCE_FUTURES}/futures/data/openInterestHist",
+        params={"symbol": symbol, "period": period, "limit": limit},
+        timeout=12,
+    )
+    response.raise_for_status()
+
+    df = pd.DataFrame(response.json())
+    if df.empty:
+        return pd.DataFrame(columns=["time", "oi", "oi_usd"])
+    return pd.DataFrame({
+        "time": pd.to_datetime(df["timestamp"], unit="ms"),
+        "oi": df["sumOpenInterest"].astype(float),
+        "oi_usd": df["sumOpenInterestValue"].astype(float),
+    })
+
+
+def fetch_perp_snapshot(symbol: str = "BTCUSDT") -> dict[str, Any]:
+    """Instantané du perpétuel : prix marqué, financement courant, ratio.
+
+    Réunit deux endpoints — `premiumIndex` pour le prix marqué et le
+    prochain financement, `globalLongShortAccountRatio` pour la part des
+    comptes longs. Chaque partie manquante est simplement absente du
+    résultat : un ratio indisponible ne doit pas priver le panneau du
+    financement.
+    """
+    snapshot: dict[str, Any] = {}
+    try:
+        response = requests.get(
+            f"{BINANCE_FUTURES}/fapi/v1/premiumIndex",
+            params={"symbol": symbol}, timeout=8,
+        )
+        response.raise_for_status()
+        data = response.json()
+        snapshot["mark_price"] = float(data["markPrice"])
+        snapshot["index_price"] = float(data["indexPrice"])
+        snapshot["funding_rate"] = float(data["lastFundingRate"])
+        snapshot["next_funding"] = int(data["nextFundingTime"])
+    except Exception:
+        pass
+
+    try:
+        response = requests.get(
+            f"{BINANCE_FUTURES}/futures/data/globalLongShortAccountRatio",
+            params={"symbol": symbol, "period": "1h", "limit": 1}, timeout=8,
+        )
+        response.raise_for_status()
+        row = response.json()[0]
+        snapshot["long_account"] = float(row["longAccount"])
+        snapshot["long_short_ratio"] = float(row["longShortRatio"])
+    except Exception:
+        pass
+
+    return snapshot
+
 
 def fetch_m2_supply(start: str = "2013-01-01") -> pd.DataFrame:
     """Masse monétaire M2 des États-Unis, en milliards de dollars.

@@ -24,7 +24,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant sept panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant huit panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement, un hub qui n'ouvre qu'une connexion par plateforme et un
   collecteur de news en tâche de fond.
@@ -181,6 +181,7 @@ son premier état — et le moteur d'arbitrage, qui écarte les carnets de plus 
 | Change | `fetch_eur_rate` |
 | Institutionnel | `fetch_etf_flows` |
 | Macro | `fetch_m2_supply` |
+| Marché à terme | `fetch_funding_history`, `fetch_open_interest`, `fetch_perp_snapshot` |
 | News | `fetch_rss_entries`, `fetch_cryptopanic_posts`, `fetch_fear_greed` |
 
 Ces fonctions récupèrent et normalisent, rien de plus : ni écriture en base, ni
@@ -259,6 +260,7 @@ terminal/
     ├── orderbook.py     carnet + profondeur comparée
     ├── arbitrage.py     écarts inter-plateformes
     ├── etf.py           flux des ETF spot
+    ├── perp.py          financement, open interest, positionnement
     ├── news.py          fil de news + Fear & Greed
     └── macro.py         cours contre masse monétaire M2
 ```
@@ -295,7 +297,7 @@ un carnet d'ordres.
 |---|---|---|---|
 | `tick-fast` | 250 ms | carnet, profondeur, arbitrage | 8–33 ms, 6–25 Ko |
 | `tick-slow` | 2 s | prix, bandeau, fil de news | 0,3–1,3 s, 162 Ko |
-| `tick-rare` | 5 min | flux ETF, macro | 0,3–0,5 s, 8–10 Ko |
+| `tick-rare` | 5 min | flux ETF, perpétuel, macro | 0,3–0,5 s, 8–10 Ko |
 
 Les panneaux rapides ne touchent jamais le réseau : ils lisent les carnets que
 le hub entretient en mémoire, ce qui explique l'écart d'un facteur cinquante
@@ -428,6 +430,13 @@ retour, Dash exécute les callbacks d'un composant dès son apparition : un
 panneau lent se remplit à l'ouverture de son onglet, sans attendre les cinq
 minutes de son horloge. `ui_smoke.py` le vérifie explicitement.
 
+**Un piège de nommage.** Les classes CSS portent le préfixe `cell-` :
+`cell-tabs`, `cell-tab`, `cell-tab-active`. Dash sert en effet la feuille de
+style de `dcc.Tabs`, qui revendique `.tab` et y met `padding: 20px` et
+`flex: 1 1 0`. Les premiers onglets, nommés `.tab`, héritaient donc d'une barre
+de titre haute de 55 px au lieu de 14, sans que rien ne le signale — le
+contrôle d'interface mesure désormais la hauteur de chaque barre de titre.
+
 **Le clic passe par un `Store`.** Le callback qui rend le corps d'une cellule
 remplacerait ses propres entrées s'il écoutait les onglets directement, et
 chaque rendu le redéclencherait. Un callback clientside traduit donc le clic en
@@ -529,6 +538,7 @@ Chaque source distante a une stratégie de repli explicite :
 | chandeliers Binance, sans rien en cache | série de démonstration, signalée par un bandeau |
 | taux EUR | constante `0.924` |
 | masse monétaire M2 | tableau vide, le panneau macro le dit |
+| marché à terme Binance | tableau ou dictionnaire vide, le panneau perpétuel le dit |
 | ticker 24 h | dict vide, le bandeau affiche `—` |
 | WebSocket (tous) | reconnexion (3 s fixes, ou backoff exponentiel plafonné à 30 s) |
 | flux RSS (`news`) | le feed en échec est sauté, les autres continuent |
@@ -814,6 +824,10 @@ Fait :
   des États-Unis, décalage réglable de zéro à trois mois, et deux corrélations
   dont seule celle des variations informe. La série vient de la Fed par
   DBnomics, sans clé d'API.
+- **Marché à terme** — un panneau perpétuel en onglet des flux ETF : taux de
+  financement en barres, open interest en ligne, et dans la barre de titre le
+  financement courant, son équivalent annualisé et la part des comptes longs.
+  Binance ne conserve que trente jours d'open interest, ce qui borne la fenêtre.
 - **Collecte des news** — le terminal remplit désormais la base qu'il lisait,
   toutes les quinze minutes, avec les règles du tracker devenues communes
   (§2.4). Le timer systemd n'est plus un prérequis, seulement une façon de
@@ -827,21 +841,20 @@ Reste :
   écrire son module et à l'inscrire dans la cellule qui l'accueille ; la place
   n'est plus le facteur limitant.
 
-- **Cinq panneaux manquent** à un terminal Bitcoin complet. Les sources
+- **Quatre panneaux manquent** à un terminal Bitcoin complet. Les sources
   ci-dessous ont été interrogées le 19 août 2026 : toutes répondent sans clé
   d'API, ce qui reste la règle du dépôt.
 
   | Panneau | Source vérifiée | Cellule d'accueil |
   |---|---|---|
   | Dominance et capitalisation | CoinGecko `/api/v3/global` | onglet de la cellule macro |
-  | Funding et open interest | Binance `fapi/v1/fundingRate` et `futures/data/openInterestHist` | onglet de la cellule ETF |
   | Liquidations | Binance WebSocket `!forceOrder@arr` — flux ouvert, mais épisodique par nature | onglet de la cellule arbitrage |
   | On-chain | mempool.space `/api/v1/mining/hashrate/3m`, `/api/v1/fees/recommended` | onglet de la cellule macro |
   | Calendrier macro | **aucune source publique satisfaisante trouvée** : les calendriers économiques ouverts sont soit payants, soit sans licence claire. À défaut, une liste de dates FOMC tenue à la main ferait déjà l'essentiel. | onglet de la cellule news |
 
-  Les quatre premiers sont mécaniques : un collecteur dans `sources.py`, un
+  Les trois premiers sont mécaniques : un collecteur dans `sources.py`, un
   cache dans le hub, un module dans `panels/`, une ligne dans `CELLS`. Le
-  cinquième demande d'abord de trancher la question de la source.
+  quatrième demande d'abord de trancher la question de la source.
 
 - **Push WebSocket serveur → navigateur** (reporté de l'étape 2) — l'horloge
   rapide à 250 ms suffit sur une boucle locale ; ce chantier ne se justifiera

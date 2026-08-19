@@ -24,7 +24,7 @@ from dash import ALL, Input, Output, State, dcc, html
 
 from btcterm.hub import MarketHub
 
-from .panels import PANELS, arbitrage, etf, macro, news, orderbook, price
+from .panels import PANELS, arbitrage, etf, macro, news, orderbook, perp, price
 from .theme import C, MONO
 
 REFRESH_FAST_MS = 250
@@ -78,7 +78,8 @@ CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
     "book": (("book", "CARNET", orderbook.layout),
              ("depth", "PROFONDEUR", orderbook.depth_layout)),
     "arb": (("arb", "ARBITRAGE", arbitrage.layout),),
-    "etf": (("etf", "FLUX ETF", etf.layout),),
+    "etf": (("etf", "FLUX ETF", etf.layout),
+            ("perp", "PERPÉTUEL", perp.layout)),
     "news": (("news", "NEWS", news.layout),),
     "macro": (("macro", "MACRO", macro.layout),),
 }
@@ -104,11 +105,12 @@ def _tabs(area: str, active: str):
         html.Span(
             label,
             id={"type": "tab", "area": area, "panel": panel_id},
-            className="tab tab-active" if panel_id == active else "tab",
+            className=("cell-tab cell-tab-active" if panel_id == active
+                       else "cell-tab"),
             n_clicks=0,
         )
         for panel_id, label, _ in panels
-    ], className="tabs")
+    ], className="cell-tabs")
 
 
 def _body(area: str, active: str):

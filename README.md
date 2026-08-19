@@ -29,12 +29,20 @@ ssh -L 8050:localhost:8050 <machine>
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
+| **Perpétuel** | financement, open interest et part des comptes longs (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed | 2 s en lecture, collecte toutes les 15 min |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
 
+Le **perpétuel** se lit avec le carnet : le taux de financement est le loyer que
+les longs paient aux shorts toutes les huit heures, l'open interest mesure la
+taille des positions ouvertes. Un financement élevé sur un open interest qui
+gonfle décrit un marché endetté d'un seul côté — la configuration d'où sortent
+les liquidations en cascade.
+
 **Onglets** — une cellule peut héberger plusieurs panneaux, choisis par les
 onglets posés à la place du titre : le carnet et la profondeur comparée
-partagent ainsi la colonne du milieu. Un panneau caché n'est pas dans la page —
+partagent ainsi la colonne du milieu, les flux ETF et le perpétuel la cellule
+sous elle. Un panneau caché n'est pas dans la page —
 il ne coûte rien, et il se remplit dès qu'on l'affiche.
 
 **Plein écran** — trois façons d'agrandir un panneau :
@@ -107,8 +115,8 @@ contexte macro. Les scripts qu'il remplace ont été supprimés ; ceux qui reste
 panneau.
 
 Restent à écrire, avec leurs sources publiques déjà identifiées : dominance et
-capitalisation, funding et open interest, liquidations, métriques on-chain, et
-un calendrier macro dont la source reste à trancher. La grille les accueillera
+capitalisation, liquidations, métriques on-chain, et un calendrier macro dont la
+source reste à trancher. La grille les accueillera
 en onglets — c'est ce que le mécanisme mis en place a débloqué.
 
 ## Outils complémentaires

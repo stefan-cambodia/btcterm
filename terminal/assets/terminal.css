@@ -72,25 +72,30 @@ body {
 /* ── Onglets d'une cellule ─────────────────────────────────
    Posés à la place du titre du panneau, pas au-dessus : une barre
    d'onglets qui s'ajouterait volerait une ligne de hauteur à chaque
-   cellule qui en porte. */
+   cellule qui en porte.
 
-.tabs {
+   Préfixe `cell-` obligatoire : Dash sert la feuille de style de
+   `dcc.Tabs`, qui revendique `.tab` et y met `padding: 20px` et
+   `flex: 1 1 0`. Des onglets nommés `.tab` héritaient donc d'une barre
+   de titre haute de 55 px au lieu de 14. */
+
+.cell-tabs {
     display: inline-flex;
     gap: 12px;
 }
 
-.tab {
+.cell-tab {
     cursor: pointer;
     color: #4b5563;
     white-space: nowrap;
     border-bottom: 1px solid transparent;
 }
 
-.tab:hover {
+.cell-tab:hover {
     color: #94a3b8;
 }
 
-.tab-active {
+.cell-tab-active {
     color: #fbbf24;
     border-bottom-color: #fbbf24;
 }
