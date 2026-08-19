@@ -196,13 +196,18 @@ class ExchangeConnector:
     Les sous-classes n'implémentent que `_stream()`, qui doit lire le
     flux et alimenter `self.book`. Toute exception qui en sort est
     traitée comme une déconnexion et déclenche une nouvelle tentative.
+
+    `book` est optionnel : un flux qui n'alimente pas de carnet — celui
+    des liquidations, par exemple — passe `None` et redéfinit
+    `_mark_connected` / `_mark_disconnected` pour publier son état
+    ailleurs. La boucle de reconnexion, elle, reste commune.
     """
 
     name = "?"
 
     def __init__(
         self,
-        book: OrderBook,
+        book: Optional[OrderBook] = None,
         max_retries: Optional[int] = None,
         max_backoff: float = 30.0,
     ):
@@ -224,14 +229,19 @@ class ExchangeConnector:
                 await coro_factory()
                 retries = 0  # la connexion a tenu : on repart de zéro
             except Exception as exc:  # noqa: BLE001 — toute panne vaut reconnexion
-                self.book.connected = False
-                self.book.error = str(exc)[:50]
+                self._mark_disconnected(exc)
                 retries += 1
                 await asyncio.sleep(min(2 ** retries, self.max_backoff))
 
     def _mark_connected(self) -> None:
-        self.book.connected = True
-        self.book.error = None
+        if self.book is not None:
+            self.book.connected = True
+            self.book.error = None
+
+    def _mark_disconnected(self, exc: Exception) -> None:
+        if self.book is not None:
+            self.book.connected = False
+            self.book.error = str(exc)[:50]
 
     def _connect(self, url: str):
         """Contexte de connexion partagé (ping applicatif + taille de message)."""

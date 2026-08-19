@@ -22,6 +22,7 @@ import pandas as pd
 from . import sources
 from .arbitrage import ArbitrageEngine
 from .newsdb import NewsCollector
+from .liquidations import LiquidationFeed
 from .exchanges import (
     BinanceConnector,
     BybitConnector,
@@ -87,6 +88,13 @@ class MarketHub:
     TTL_M2 = 21600
     #: Le financement tombe toutes les huit heures, l'open interest par
     #: tranches de quatre ; seul l'instantané mérite d'être frais.
+    #: Les agrégats de marché bougent lentement et CoinGecko limite le
+    #: débit de son offre gratuite : cinq minutes suffisent.
+    TTL_GLOBAL = 300
+    #: Le hashrate est une moyenne journalière et la difficulté ne change
+    #: que tous les quinze jours : une heure de cache est généreuse.
+    TTL_CHAIN = 3600
+    TTL_CHAIN_STATS = 300
     TTL_FUNDING = 900
     TTL_OPEN_INTEREST = 300
     TTL_PERP = 30
@@ -108,6 +116,10 @@ class MarketHub:
             for name in ("Binance", "Kraken", "Bybit", "OKX", "Coinbase")
         }
         self.engine = ArbitrageEngine(self.books, min_profit_pct=min_profit_pct)
+        #: Fil des liquidations forcées, toutes paires confondues : il
+        #: partage le thread des connecteurs et ne garde qu'une fenêtre
+        #: glissante en mémoire.
+        self.liquidations = LiquidationFeed()
         self.started_at = time.time()
 
         # Le panneau news lisait une base que personne ne remplissait
@@ -134,6 +146,7 @@ class MarketHub:
             BybitConnector(self.books["Bybit"], symbol="BTCUSDT", depth=50),
             OKXConnector(self.books["OKX"], inst_id="BTC-USDT"),
             CoinbaseAdvancedConnector(self.books["Coinbase"], product="BTC-USDT"),
+            self.liquidations,
         ]
         self._thread = run_connectors_in_thread(self._connectors)
 
@@ -206,6 +219,35 @@ class MarketHub:
             return self._cache.get("m2", self.TTL_M2, sources.fetch_m2_supply)
         except Exception:
             return pd.DataFrame(columns=["time", "m2"])
+
+    def market_global(self) -> dict:
+        """Capitalisation, dominance et volume — instantané, ou `{}`."""
+        try:
+            return self._cache.get(
+                "global", self.TTL_GLOBAL, sources.fetch_market_global
+            )
+        except Exception:
+            return {}
+
+    def chain_chart(self, name: str = "hash-rate",
+                    timespan: str = "1year") -> pd.DataFrame:
+        """Série on-chain (hashrate, difficulté, mempool), ou tableau vide."""
+        try:
+            return self._cache.get(
+                f"chain:{name}:{timespan}", self.TTL_CHAIN,
+                lambda: sources.fetch_chain_chart(name, timespan),
+            )
+        except Exception:
+            return pd.DataFrame(columns=["time", "value"])
+
+    def chain_stats(self) -> dict:
+        """Instantané du réseau : hashrate, difficulté, rythme des blocs."""
+        try:
+            return self._cache.get(
+                "chain_stats", self.TTL_CHAIN_STATS, sources.fetch_chain_stats
+            )
+        except Exception:
+            return {}
 
     def funding_history(self, limit: int = 90) -> pd.DataFrame:
         """Taux de financement du perpétuel, un point par 8 h.

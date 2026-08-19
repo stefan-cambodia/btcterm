@@ -24,7 +24,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant huit panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant onze panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement, un hub qui n'ouvre qu'une connexion par plateforme et un
   collecteur de news en tâche de fond.
@@ -51,7 +51,9 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 │   ├── indicators.py              calculs techniques purs
 │   ├── exchanges.py               carnet normalisé + connecteurs WebSocket
 │   ├── arbitrage.py               moteur d'écarts inter-plateformes
-│   ├── sources.py                 collecteurs REST, ETF, M2, news, sentiment
+│   ├── liquidations.py            fil des positions fermées de force
+│   ├── sources.py                 collecteurs REST : marché, ETF, M2,
+│   │                              terme, chaîne, news, sentiment
 │   ├── newsdb.py                  base de news : schéma, scoring, collecte
 │   └── hub.py                     connexions mutualisées + caches
 │
@@ -66,6 +68,7 @@ la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
 ├── tests/
 │   ├── test_indicators_parity.py  non-régression des indicateurs
 │   ├── test_news_scoring.py       non-régression du scoring des news
+│   ├── test_liquidations.py       lecture du flux de liquidations
 │   ├── test_terminal_wiring.py    panneaux posés et branchés
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
 │   ├── marionette_client.py       pilotage minimal de Firefox
@@ -102,7 +105,7 @@ deux familles de plus ; leur suppression est ce qui a ramené la liste à trois.
 
 ## 2. Le socle `btcterm`
 
-Six modules sans dépendance à une quelconque interface. Ils ne connaissent ni
+Sept modules sans dépendance à une quelconque interface. Ils ne connaissent ni
 Dash ni Rich : ce sont les panneaux qui les composent, jamais l'inverse. Aucun
 n'affiche quoi que ce soit, et seul `newsdb` écrit sur disque — c'est sa raison
 d'être.
@@ -182,6 +185,8 @@ son premier état — et le moteur d'arbitrage, qui écarte les carnets de plus 
 | Institutionnel | `fetch_etf_flows` |
 | Macro | `fetch_m2_supply` |
 | Marché à terme | `fetch_funding_history`, `fetch_open_interest`, `fetch_perp_snapshot` |
+| Agrégats de marché | `fetch_market_global` |
+| Chaîne | `fetch_chain_chart`, `fetch_chain_stats` |
 | News | `fetch_rss_entries`, `fetch_cryptopanic_posts`, `fetch_fear_greed` |
 
 Ces fonctions récupèrent et normalisent, rien de plus : ni écriture en base, ni
@@ -220,12 +225,45 @@ et les panneaux se contentent de lire. L'état de la dernière tournée est publ
 dans `status`, ce qui permet à la barre de titre d'afficher son âge, et de dire
 quand elle échoue.
 
-### 2.5 Non-régression
+### 2.5 `liquidations` — le fil des positions fermées de force
+
+Une position à levier qui ne couvre plus sa marge est fermée au marché
+par la plateforme. Ces fermetures arrivent par rafales, et ces rafales
+expliquent une partie des mèches du graphique du cours.
+
+`LiquidationFeed` écoute `!forceOrder@arr` — toutes les paires, sans clé —
+et garde une **fenêtre glissante** de 500 événements en mémoire. Rien
+n'est persisté : c'est un indicateur de tension du moment, pas un
+journal. Il expose les derniers événements, les totaux par côté sur une
+heure, et la part des paires Bitcoin dans ce total, qui distingue une
+cascade locale d'une cascade de marché.
+
+Deux points méritent attention.
+
+**Le sens.** Une vente forcée ferme une position *longue*, un achat forcé
+une position *courte*. L'inverser donnerait un panneau qui raconte le
+contraire de ce qui se passe ; `tests/test_liquidations.py` le vérifie,
+faute de pouvoir compter sur l'arrivée d'un événement au bon moment.
+
+**La boucle de reconnexion est celle des connecteurs.** `LiquidationFeed`
+hérite d'`ExchangeConnector`, dont le carnet est devenu optionnel pour
+l'occasion : un flux qui n'alimente aucun carnet publie son état de
+connexion lui-même, en redéfinissant deux marqueurs, et hérite du reste —
+backoff exponentiel plafonné, remise à zéro après une connexion qui tient.
+
+### 2.6 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
 valeurs — RSI, streak, rang centile, Connors RSI, Bollinger, ATR, volatilité,
 profil de volume, signaux gradués et marqueurs.
+
+`tests/test_liquidations.py` couvre ce qu'aucune observation ne pourrait
+garantir : le flux des liquidations est épisodique, et le contrôle d'interface
+trouve presque toujours le panneau vide. Le test lui injecte des messages au
+format documenté par Binance et vérifie le sens des événements, les totaux, la
+fenêtre glissante, le rejet des messages aberrants et la mise en forme du
+panneau.
 
 `tests/test_news_scoring.py` fait de même pour le scoring extrait du tracker —
 mêmes scores, mêmes mots-clés, mêmes sentiments qu'avant — et vérifie en prime
@@ -261,6 +299,9 @@ terminal/
     ├── arbitrage.py     écarts inter-plateformes
     ├── etf.py           flux des ETF spot
     ├── perp.py          financement, open interest, positionnement
+    ├── liquidations.py  positions fermées de force
+    ├── dominance.py     parts de capitalisation
+    ├── onchain.py       hashrate, difficulté, mempool
     ├── news.py          fil de news + Fear & Greed
     └── macro.py         cours contre masse monétaire M2
 ```
@@ -295,9 +336,9 @@ un carnet d'ordres.
 
 | Horloge | Période | Panneaux | Coût mesuré par tour |
 |---|---|---|---|
-| `tick-fast` | 250 ms | carnet, profondeur, arbitrage | 8–33 ms, 6–25 Ko |
+| `tick-fast` | 250 ms | carnet, profondeur, arbitrage, liquidations | 8–33 ms, 6–25 Ko |
 | `tick-slow` | 2 s | prix, bandeau, fil de news | 0,3–1,3 s, 162 Ko |
-| `tick-rare` | 5 min | flux ETF, perpétuel, macro | 0,3–0,5 s, 8–10 Ko |
+| `tick-rare` | 5 min | flux ETF, perpétuel, macro, dominance, on-chain | 0,3–0,5 s, 8–10 Ko |
 
 Les panneaux rapides ne touchent jamais le réseau : ils lisent les carnets que
 le hub entretient en mémoire, ce qui explique l'écart d'un facteur cinquante
@@ -539,6 +580,7 @@ Chaque source distante a une stratégie de repli explicite :
 | taux EUR | constante `0.924` |
 | masse monétaire M2 | tableau vide, le panneau macro le dit |
 | marché à terme Binance | tableau ou dictionnaire vide, le panneau perpétuel le dit |
+| agrégats de marché, données de chaîne | idem : le panneau affiche son indisponibilité |
 | ticker 24 h | dict vide, le bandeau affiche `—` |
 | WebSocket (tous) | reconnexion (3 s fixes, ou backoff exponentiel plafonné à 30 s) |
 | flux RSS (`news`) | le feed en échec est sauté, les autres continuent |
@@ -728,15 +770,16 @@ panneaux ». Les étapes ci-dessous sont ordonnées : chacune réduit le coût d
 suivante.
 
 **Où en est-on.** Les étapes 1 à 4 sont faites — socle extrait, couche de rendu
-tranchée, données mutualisées, doublons supprimés. L'étape 5 est engagée : le
-panneau macro et la collecte des news sont en place, et le mécanisme d'onglets
-(§3.5) lève ce qui bloquait la suite. Restent cinq panneaux à écrire, dont
-quatre n'attendent que d'être branchés sur des sources déjà vérifiées.
+tranchée, données mutualisées, doublons supprimés. L'étape 5 est presque
+achevée : onze panneaux couvrent le prix, la liquidité, l'arbitrage, les
+liquidations, les flux ETF, le marché à terme, les news, la macro, la dominance
+et la chaîne. Ne manque plus qu'un calendrier macro, faute de source publique
+propre.
 
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.5) :
+scripts y sont ramenés, sans changement de comportement (§2.6) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -828,6 +871,20 @@ Fait :
   financement en barres, open interest en ligne, et dans la barre de titre le
   financement courant, son équivalent annualisé et la part des comptes longs.
   Binance ne conserve que trente jours d'open interest, ce qui borne la fenêtre.
+- **Dominance et capitalisation** — en onglet de la cellule macro : parts de
+  capitalisation en barres, Bitcoin et stablecoins distingués par la couleur,
+  capitalisation totale et volume dans la barre de titre. CoinGecko réserve
+  l'historique de ces agrégats à son offre payante : c'est un instantané, et le
+  panneau le dit plutôt que de laisser croire à une tendance.
+- **On-chain** — hashrate et difficulté sur un an, rythme des blocs et taille du
+  mempool. La source prévue, mempool.space, a dû être abandonnée : elle publie
+  souvent des adresses IPv6 seules et cette machine n'a pas de route IPv6, d'où
+  des « Network is unreachable » intermittents. blockchain.info répond en IPv4
+  et donne les mêmes séries.
+- **Liquidations** — en onglet de l'arbitrage, alimenté par le fil du socle
+  (§2.5) : les dernières positions fermées de force, toutes paires, et les
+  totaux de l'heure par côté. Le flux est épisodique ; le panneau distingue un
+  flux coupé d'un marché calme plutôt que de rester muet.
 - **Collecte des news** — le terminal remplit désormais la base qu'il lisait,
   toutes les quinze minutes, avec les règles du tracker devenues communes
   (§2.4). Le timer systemd n'est plus un prérequis, seulement une façon de
@@ -841,20 +898,11 @@ Reste :
   écrire son module et à l'inscrire dans la cellule qui l'accueille ; la place
   n'est plus le facteur limitant.
 
-- **Quatre panneaux manquent** à un terminal Bitcoin complet. Les sources
-  ci-dessous ont été interrogées le 19 août 2026 : toutes répondent sans clé
-  d'API, ce qui reste la règle du dépôt.
-
-  | Panneau | Source vérifiée | Cellule d'accueil |
-  |---|---|---|
-  | Dominance et capitalisation | CoinGecko `/api/v3/global` | onglet de la cellule macro |
-  | Liquidations | Binance WebSocket `!forceOrder@arr` — flux ouvert, mais épisodique par nature | onglet de la cellule arbitrage |
-  | On-chain | mempool.space `/api/v1/mining/hashrate/3m`, `/api/v1/fees/recommended` | onglet de la cellule macro |
-  | Calendrier macro | **aucune source publique satisfaisante trouvée** : les calendriers économiques ouverts sont soit payants, soit sans licence claire. À défaut, une liste de dates FOMC tenue à la main ferait déjà l'essentiel. | onglet de la cellule news |
-
-  Les trois premiers sont mécaniques : un collecteur dans `sources.py`, un
-  cache dans le hub, un module dans `panels/`, une ligne dans `CELLS`. Le
-  quatrième demande d'abord de trancher la question de la source.
+- **Un panneau manque** : le **calendrier macro**. Aucune source publique
+  satisfaisante n'a été trouvée — les calendriers économiques ouverts sont
+  soit payants, soit sans licence claire. À défaut, une liste de dates FOMC
+  tenue à la main ferait déjà l'essentiel. C'est la question à trancher avant
+  d'écrire le panneau, qui prendrait place en onglet de la cellule news.
 
 - **Push WebSocket serveur → navigateur** (reporté de l'étape 2) — l'horloge
   rapide à 250 ms suffit sur une boucle locale ; ce chantier ne se justifiera

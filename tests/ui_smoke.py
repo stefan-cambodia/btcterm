@@ -241,6 +241,45 @@ def run(capture_dir: Path | None) -> int:
               "%" in perp["badges"] and "OI" in perp["badges"],
               perp["badges"][:46])
 
+        print("\nOnglets dominance et on-chain")
+        for label, graphe, badge in (("DOMINANCE", "dominance-chart", "dominance-badges"),
+                                     ("ON-CHAIN", "onchain-chart", "onchain-badges")):
+            browser.js(f"""
+                Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
+                     .find(t => t.textContent === '{label}').click();
+            """)
+            time.sleep(3.5)
+            etat = browser.js(f"""
+                const gd = document.getElementById('{graphe}')
+                    .querySelector('.js-plotly-plot');
+                return {{series: gd ? gd.data.length : 0,
+                        badge: document.getElementById('{badge}').textContent}};
+            """)
+            check(f"{label} : tracé et chiffré",
+                  etat["series"] >= 1 and len(etat["badge"]) > 8,
+                  etat["badge"][:44])
+
+        print("\nOnglet liquidations")
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-arb .cell-tab'))
+                 .find(t => t.textContent === 'LIQUIDATIONS').click();
+        """)
+        time.sleep(2.5)
+        liq = browser.js("""
+            return {badges: document.getElementById('liq-badges').textContent,
+                    table: document.getElementById('liq-table').textContent};
+        """)
+        # Le flux est épisodique : le panneau peut légitimement être vide,
+        # mais il doit alors le dire — et jamais rester muet.
+        check("le fil dit son état", len(liq["badges"]) > 8, liq["badges"][:44])
+        check("le tableau dit le sien", len(liq["table"]) > 4, liq["table"][:44])
+
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
+                 .find(t => t.textContent === 'MACRO').click();
+        """)
+        time.sleep(3)
+
         print("\nPanneau macro")
         macro = browser.js("""
             const gd = document.getElementById('macro-chart')

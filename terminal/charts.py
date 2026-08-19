@@ -23,7 +23,8 @@ from .theme import C, MONO
 
 __all__ = ["VOL_BINS", "prepare_price_frame", "build_price_chart",
            "build_depth_chart", "prepare_macro_frame", "macro_stats",
-           "build_macro_chart", "build_perp_chart"]
+           "build_macro_chart", "build_perp_chart", "build_dominance_chart",
+           "build_chain_chart"]
 
 VOL_BINS = 60
 
@@ -572,6 +573,131 @@ def build_perp_chart(
     if funding.empty and open_interest.empty:
         fig.add_annotation(
             text="marché à terme indisponible", xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(family=MONO, size=11, color=C["muted"]),
+        )
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────
+# Dominance : parts de capitalisation
+# ─────────────────────────────────────────────────────────────
+
+#: Actifs traités comme des dollars : leur part mesure le cash qui attend
+#: sur le marché, pas une concurrence faite au Bitcoin.
+STABLES = {"USDT", "USDC", "DAI", "FDUSD", "TUSD", "USDE", "PYUSD"}
+
+
+def build_dominance_chart(
+    shares: dict, top: int = 8, uirevision: str = "dominance"
+) -> go.Figure:
+    """Parts de capitalisation, en barres horizontales.
+
+    Un instantané, pas une série : CoinGecko réserve l'historique de ces
+    agrégats à son offre payante. Le Bitcoin garde sa couleur, les
+    stablecoins la leur — leur part ne dit pas la même chose que celle
+    d'un concurrent —, et tout ce qui n'entre pas dans le classement est
+    regroupé, pour que les barres somment bien à cent.
+    """
+    fig = go.Figure()
+    if not shares:
+        fig.add_annotation(
+            text="agrégats de marché indisponibles", xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(family=MONO, size=11, color=C["muted"]),
+        )
+    else:
+        classement = sorted(shares.items(), key=lambda kv: -kv[1])[:top]
+        reste = max(0.0, 100 - sum(part for _, part in classement))
+        if reste > 0.05:
+            classement.append(("AUTRES", reste))
+
+        noms = [nom for nom, _ in classement][::-1]
+        parts = [part for _, part in classement][::-1]
+        couleurs = [
+            C["yellow"] if nom == "BTC" else
+            C["blue"] if nom in STABLES else
+            C["muted"] if nom == "AUTRES" else C["cyan"]
+            for nom in noms
+        ]
+        fig.add_trace(go.Bar(
+            x=parts, y=noms, orientation="h",
+            marker_color=couleurs,
+            text=[f"{part:.1f} %" for part in parts],
+            textposition="outside", textfont=dict(size=9, color=C["text"]),
+            cliponaxis=False,
+            hovertemplate="%{y} · %{x:.2f} %<extra></extra>",
+        ))
+
+    axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
+                       tickfont=dict(size=9, color=C["muted"]))
+    fig.update_layout(
+        paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
+        font=dict(family=MONO, color=C["text"], size=10),
+        margin=dict(l=8, r=42, t=6, b=4),
+        showlegend=False,
+        bargap=0.25,
+        xaxis=dict(title_text="part de la capitalisation (%)", **axis_common),
+        yaxis=dict(**axis_common),
+        uirevision=uirevision,
+    )
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────
+# On-chain : puissance de calcul et difficulté
+# ─────────────────────────────────────────────────────────────
+
+def build_chain_chart(
+    hashrate: pd.DataFrame,
+    difficulty: pd.DataFrame,
+    uirevision: str = "onchain",
+    maximized: bool = False,
+) -> go.Figure:
+    """Hashrate en aire, difficulté en marches, sur deux axes.
+
+    Les deux disent la même chose à des rythmes différents : le hashrate
+    varie d'heure en heure au gré des mineurs branchés, la difficulté ne
+    bouge que tous les 2 016 blocs, en marches d'escalier. L'écart entre
+    les deux courbes annonce le sens du prochain ajustement.
+    """
+    fig = go.Figure()
+
+    if not hashrate.empty:
+        fig.add_trace(go.Scatter(
+            x=hashrate["time"], y=hashrate["value"] / 1e6, name="hashrate",
+            mode="lines", line=dict(color=C["green"], width=1.5),
+            fill="tozeroy", fillcolor="rgba(0,212,170,0.07)",
+            hovertemplate="%{y:,.0f} EH/s<extra></extra>",
+        ))
+
+    if not difficulty.empty:
+        fig.add_trace(go.Scatter(
+            x=difficulty["time"], y=difficulty["value"] / 1e12, name="difficulté",
+            mode="lines", line=dict(color=C["purple"], width=1.6, shape="hv"),
+            yaxis="y2", hovertemplate="%{y:,.1f} T<extra></extra>",
+        ))
+
+    axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
+                       tickfont=dict(size=9, color=C["muted"]))
+    fig.update_layout(
+        paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
+        font=dict(family=MONO, color=C["text"], size=10),
+        margin=dict(l=8, r=8, t=18 if maximized else 4, b=4),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
+                        font_color=C["text"], font_size=10),
+        legend=dict(orientation="h", y=1.02, x=0, yanchor="bottom",
+                    font=dict(size=9), bgcolor="rgba(0,0,0,0)"),
+        xaxis=dict(**axis_common),
+        yaxis=dict(title_text="hashrate (EH/s)", **axis_common),
+        yaxis2=dict(title_text="difficulté (T)", overlaying="y", side="right",
+                    showgrid=False, tickfont=dict(size=9, color=C["purple"])),
+        uirevision=uirevision,
+    )
+    if hashrate.empty and difficulty.empty:
+        fig.add_annotation(
+            text="données de chaîne indisponibles", xref="paper", yref="paper",
             x=0.5, y=0.5, showarrow=False,
             font=dict(family=MONO, size=11, color=C["muted"]),
         )

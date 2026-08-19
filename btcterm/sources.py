@@ -29,6 +29,7 @@ __all__ = [
     "KLINE_FREQ", "KLINE_HOURS", "generate_demo_ohlcv",
     "fetch_eur_rate", "fetch_m2_supply",
     "fetch_funding_history", "fetch_open_interest", "fetch_perp_snapshot",
+    "fetch_market_global", "fetch_chain_chart", "fetch_chain_stats",
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
 ]
@@ -37,6 +38,20 @@ BINANCE_REST = "https://api.binance.com/api/v3"
 FX_URL = "https://api.exchangerate-api.com/v4/latest/USD"
 FARSIDE_URL = "https://farside.co.uk/btc/"
 FEAR_GREED_URL = "https://api.alternative.me/fng/?limit=1"
+
+#: Données de chaîne — blockchain.info, sans clé.
+#:
+#: mempool.space, la source la plus riche, a dû être écartée : elle ne
+#: publie souvent que des adresses IPv6 et cette machine n'a pas de route
+#: IPv6, d'où des « Network is unreachable » intermittents. blockchain.info
+#: répond en IPv4 et suffit à ce que le panneau montre.
+BLOCKCHAIN_CHARTS = "https://api.blockchain.info/charts"
+BLOCKCHAIN_STATS = "https://api.blockchain.info/stats"
+
+#: Agrégats de marché (capitalisation, dominance) — CoinGecko, endpoint
+#: public sans clé. Les séries historiques, elles, sont payantes : ce
+#: collecteur ne rapporte qu'un instantané.
+COINGECKO_GLOBAL = "https://api.coingecko.com/api/v3/global"
 
 #: API des contrats à terme Binance : financement, open interest et
 #: positionnement des comptes. Publique et sans clé, comme le reste.
@@ -216,6 +231,75 @@ def fetch_eur_rate(default: float = 0.924) -> float:
 # ─────────────────────────────────────────────────────────────
 # Flux des ETF Bitcoin spot
 # ─────────────────────────────────────────────────────────────
+
+def fetch_chain_chart(
+    name: str = "hash-rate", timespan: str = "1year"
+) -> pd.DataFrame:
+    """Une série on-chain de blockchain.info : `time` / `value`.
+
+    Les noms utiles sont `hash-rate` (en TH/s), `difficulty` et
+    `mempool-size` (en octets) ; l'unité reste celle de la source, la
+    mise à l'échelle appartient à l'affichage.
+    """
+    response = requests.get(
+        f"{BLOCKCHAIN_CHARTS}/{name}",
+        params={"timespan": timespan, "format": "json", "cors": "true"},
+        timeout=20,
+    )
+    response.raise_for_status()
+
+    values = response.json().get("values", [])
+    if not values:
+        return pd.DataFrame(columns=["time", "value"])
+    df = pd.DataFrame(values)
+    return pd.DataFrame({
+        "time": pd.to_datetime(df["x"], unit="s"),
+        "value": df["y"].astype(float),
+    })
+
+
+def fetch_chain_stats() -> dict[str, Any]:
+    """Instantané du réseau : hashrate, difficulté, rythme des blocs.
+
+    `hash_rate` est en GH/s chez blockchain.info — la conversion en EH/s
+    appartient à l'appelant, comme pour les séries.
+
+    Le champ `total_fees_btc` de la source est ignoré : il revient
+    négatif, donc inexploitable.
+    """
+    response = requests.get(BLOCKCHAIN_STATS, timeout=15)
+    response.raise_for_status()
+    data = response.json()
+
+    return {
+        "hash_rate_ghs": float(data.get("hash_rate", 0)),
+        "difficulty": float(data.get("difficulty", 0)),
+        "minutes_between_blocks": float(data.get("minutes_between_blocks", 0)),
+        "n_tx": int(data.get("n_tx", 0)),
+    }
+
+
+def fetch_market_global() -> dict[str, Any]:
+    """Capitalisation totale, dominance et volume — instantané.
+
+    CoinGecko ne donne l'historique de ces agrégats que sur son offre
+    payante : ce collecteur rapporte l'état du moment, et le panneau qui
+    l'utilise le dit plutôt que de faire croire à une série.
+
+    Retourne `{}` en cas d'échec, les parts étant en pourcentage.
+    """
+    response = requests.get(COINGECKO_GLOBAL, timeout=12)
+    response.raise_for_status()
+    data = response.json()["data"]
+
+    return {
+        "total_cap_usd": float(data["total_market_cap"]["usd"]),
+        "total_volume_usd": float(data["total_volume"]["usd"]),
+        "cap_change_24h": float(data.get("market_cap_change_percentage_24h_usd", 0)),
+        "shares": {k.upper(): float(v) for k, v in data["market_cap_percentage"].items()},
+        "updated_at": int(data.get("updated_at", 0)),
+    }
+
 
 def fetch_funding_history(
     symbol: str = "BTCUSDT", limit: int = 90

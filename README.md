@@ -28,10 +28,19 @@ ssh -L 8050:localhost:8050 <machine>
 | **Carnet** | 8 niveaux de chaque côté, spread, âge du flux, choix de la plateforme | 250 ms |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
+| **Liquidations** | positions fermées de force, toutes paires, totaux de l'heure (onglet de l'arbitrage) | 250 ms |
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
 | **Perpétuel** | financement, open interest et part des comptes longs (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed | 2 s en lecture, collecte toutes les 15 min |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
+| **Dominance** | parts de capitalisation, cap totale et volume 24 h (onglet de la macro) | 5 min |
+| **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
+
+Les **liquidations** sont le pendant du perpétuel : quand une position à levier
+ne couvre plus sa marge, la plateforme la ferme au marché, et ces fermetures
+arrivent par rafales qui expliquent une partie des mèches du graphique. Le flux
+est épisodique — plusieurs minutes de silence ne signalent aucune panne, et le
+panneau distingue un flux coupé d'un marché calme.
 
 Le **perpétuel** se lit avec le carnet : le taux de financement est le loyer que
 les longs paient aux shorts toutes les huit heures, l'open interest mesure la
@@ -40,9 +49,9 @@ gonfle décrit un marché endetté d'un seul côté — la configuration d'où s
 les liquidations en cascade.
 
 **Onglets** — une cellule peut héberger plusieurs panneaux, choisis par les
-onglets posés à la place du titre : le carnet et la profondeur comparée
-partagent ainsi la colonne du milieu, les flux ETF et le perpétuel la cellule
-sous elle. Un panneau caché n'est pas dans la page —
+onglets posés à la place du titre. Trois cellules en portent : carnet et
+profondeur, flux ETF et perpétuel, macro et dominance et on-chain — plus
+l'arbitrage, qui partage sa place avec les liquidations. Un panneau caché n'est pas dans la page —
 il ne coûte rien, et il se remplit dès qu'on l'affiche.
 
 **Plein écran** — trois façons d'agrandir un panneau :
@@ -114,9 +123,8 @@ contexte macro. Les scripts qu'il remplace ont été supprimés ; ceux qui reste
 (arbitrage en TUI, export ETF, tracker de news) ne font double emploi avec aucun
 panneau.
 
-Restent à écrire, avec leurs sources publiques déjà identifiées : dominance et
-capitalisation, liquidations, métriques on-chain, et un calendrier macro dont la
-source reste à trancher. La grille les accueillera
+Reste à écrire : un calendrier macro, dont aucune source publique satisfaisante
+n'a été trouvée — c'est la question à trancher avant de l'écrire. La grille les accueillera
 en onglets — c'est ce que le mécanisme mis en place a débloqué.
 
 ## Outils complémentaires
@@ -175,6 +183,7 @@ plus une fonction fish `btcnews`.
 ```bash
 python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
 python tests/test_news_scoring.py        # scoring et collecte des news
+python tests/test_liquidations.py        # lecture du flux de liquidations
 python tests/test_terminal_wiring.py     # panneaux posés et branchés
 python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node)
 
@@ -189,12 +198,16 @@ la garantie. Le deuxième fait de même pour le scoring des news, extrait du
 tracker, et vérifie en prime ce que l'extraction rend enfin testable : la
 collecte filtre sous le seuil et n'insère pas deux fois le même article.
 
-Le troisième vérifie qu'aucun panneau n'a été écrit puis oublié — ni dans la
+Le troisième lit un flux de liquidations au format documenté par Binance sans
+toucher au réseau — ce flux étant épisodique, le contrôle Firefox trouve presque
+toujours le panneau vide, et le sens des événements (une vente forcée ferme une
+position longue) mérite mieux qu'une observation chanceuse. Le quatrième vérifie
+qu'aucun panneau n'a été écrit puis oublié — ni dans la
 grille, ni dans l'enregistrement des callbacks, ni dans la liste des panneaux
 qu'une cellule peut afficher, un panneau absent de cette liste n'étant
-atteignable par aucun clic. Le quatrième exécute la fonction JavaScript du plein
+atteignable par aucun clic. Le cinquième exécute la fonction JavaScript du plein
 écran sous Node, faute de quoi elle échapperait à toute couverture. Aucun des
-quatre ne touche au réseau.
+cinq ne touche au réseau.
 
 `ui_smoke.py` est à part : il pilote Firefox pour contrôler ce qui ne se voit
 qu'à l'écran — cellules posées, bouton visible et sans recouvrement, bascule

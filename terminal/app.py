@@ -24,7 +24,8 @@ from dash import ALL, Input, Output, State, dcc, html
 
 from btcterm.hub import MarketHub
 
-from .panels import PANELS, arbitrage, etf, macro, news, orderbook, perp, price
+from .panels import (PANELS, arbitrage, dominance, etf, liquidations, macro,
+                     news, onchain, orderbook, perp, price)
 from .theme import C, MONO
 
 REFRESH_FAST_MS = 250
@@ -77,11 +78,14 @@ CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
     "price": (("price", "PRIX", price.layout),),
     "book": (("book", "CARNET", orderbook.layout),
              ("depth", "PROFONDEUR", orderbook.depth_layout)),
-    "arb": (("arb", "ARBITRAGE", arbitrage.layout),),
+    "arb": (("arb", "ARBITRAGE", arbitrage.layout),
+            ("liq", "LIQUIDATIONS", liquidations.layout)),
     "etf": (("etf", "FLUX ETF", etf.layout),
             ("perp", "PERPÉTUEL", perp.layout)),
     "news": (("news", "NEWS", news.layout),),
-    "macro": (("macro", "MACRO", macro.layout),),
+    "macro": (("macro", "MACRO", macro.layout),
+              ("dominance", "DOMINANCE", dominance.layout),
+              ("onchain", "ON-CHAIN", onchain.layout)),
 }
 
 #: Zones de la grille, dans l'ordre où elles sont posées. C'est aussi
