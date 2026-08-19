@@ -29,7 +29,7 @@ ssh -L 8050:localhost:8050 <machine>
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
-| **News** | fil scoré + indice Fear & Greed, collecte comprise | 5 min |
+| **News** | fil scoré + indice Fear & Greed | 2 s en lecture, collecte toutes les 15 min |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
 
 **Onglets** — une cellule peut héberger plusieurs panneaux, choisis par les
@@ -93,12 +93,23 @@ est la seule qui informe.
 ## Architecture
 
 - **`btcterm/`** — le socle : indicateurs, carnets et connecteurs WebSocket,
-  moteur d'arbitrage, collecteurs, et le hub qui n'ouvre qu'une connexion par
-  plateforme pour tous les panneaux.
+  moteur d'arbitrage, collecteurs REST, base de news partagée avec le tracker,
+  et le hub qui n'ouvre qu'une connexion par plateforme pour tous les panneaux.
 - **`terminal/`** — l'application Dash : grille, thème, figures, panneaux.
 
 Détail complet dans [`ARCHITECTURE.md`](ARCHITECTURE.md), feuille de route en
 [§7](ARCHITECTURE.md#7-feuille-de-route-vers-le-terminal).
+
+**Où en est le projet** — le terminal couvre le prix et ses indicateurs, le
+carnet, la profondeur comparée, l'arbitrage, les flux ETF, les news et le
+contexte macro. Les scripts qu'il remplace ont été supprimés ; ceux qui restent
+(arbitrage en TUI, export ETF, tracker de news) ne font double emploi avec aucun
+panneau.
+
+Restent à écrire, avec leurs sources publiques déjà identifiées : dominance et
+capitalisation, funding et open interest, liquidations, métriques on-chain, et
+un calendrier macro dont la source reste à trancher. La grille les accueillera
+en onglets — c'est ce que le mécanisme mis en place a débloqué.
 
 ## Outils complémentaires
 
@@ -168,17 +179,22 @@ valeurs que les implémentations des dashboards d'origine, dont il conserve des
 copies conformes — c'est ce qui a permis de supprimer ces scripts sans perdre
 la garantie. Le deuxième fait de même pour le scoring des news, extrait du
 tracker, et vérifie en prime ce que l'extraction rend enfin testable : la
-collecte filtre sous le seuil et n'insère pas deux fois le même article. Le
-troisième qu'aucun
-panneau n'a été écrit puis oublié — ni dans la grille, ni dans l'enregistrement
-des callbacks. Le quatrième exécute la fonction JavaScript du plein écran sous
-Node, faute de quoi elle échapperait à toute couverture. Aucun des quatre ne
-touche au réseau.
+collecte filtre sous le seuil et n'insère pas deux fois le même article.
+
+Le troisième vérifie qu'aucun panneau n'a été écrit puis oublié — ni dans la
+grille, ni dans l'enregistrement des callbacks, ni dans la liste des panneaux
+qu'une cellule peut afficher, un panneau absent de cette liste n'étant
+atteignable par aucun clic. Le quatrième exécute la fonction JavaScript du plein
+écran sous Node, faute de quoi elle échapperait à toute couverture. Aucun des
+quatre ne touche au réseau.
 
 `ui_smoke.py` est à part : il pilote Firefox pour contrôler ce qui ne se voit
-qu'à l'écran — panneaux posés, bouton visible et sans recouvrement, bascule
-effective, carnet montrant ses deux côtés — et sait déposer des captures. Il
-suppose le terminal déjà lancé, et s'ignore si Firefox est absent.
+qu'à l'écran — cellules posées, bouton visible et sans recouvrement, bascule
+plein écran effective, carnet montrant ses deux côtés, barre de titre du panneau
+prix tenant sur une ligne, échelle logarithmique atteignant l'axe, panneau macro
+traçant ses deux séries, et changement d'onglet remplaçant un panneau par
+l'autre, rempli dès son apparition. Il sait déposer des captures, suppose le
+terminal déjà lancé, et s'ignore si Firefox est absent.
 
 ## Les outils en détail
 

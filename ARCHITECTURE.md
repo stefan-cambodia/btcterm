@@ -24,8 +24,10 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant sept panneaux sur une grille, avec trois régimes de
-  rafraîchissement et un hub qui n'ouvre qu'une connexion par plateforme.
+  regroupant sept panneaux sur une grille de six cellules — une cellule pouvant
+  en héberger plusieurs, choisis par onglets —, avec trois régimes de
+  rafraîchissement, un hub qui n'ouvre qu'une connexion par plateforme et un
+  collecteur de news en tâche de fond.
 
 ```bash
 python -m terminal.app        # http://127.0.0.1:8050
@@ -34,7 +36,7 @@ python -m terminal.app        # http://127.0.0.1:8050
 Les quatre scripts que le terminal remplace — les deux dashboards Dash et les
 deux fenêtres matplotlib — ont été supprimés à l'étape 4, après récupération de
 ce qu'ils avaient de propre, et `m2supply.html` a suivi à l'étape 5, remplacé
-par le panneau macro. Ce qui subsiste ([§5](#5-détail-des-panneaux)) ne fait pas
+par le panneau macro. Ce qui subsiste ([§5](#5-détail-des-outils-restants)) ne fait pas
 double emploi avec un panneau : le moniteur d'arbitrage en TUI, l'export des
 flux ETF et le tracker de news. Ce qui manque encore pour atteindre
 la cible est détaillé en [§7](#7-feuille-de-route-vers-le-terminal).
@@ -292,13 +294,17 @@ un carnet d'ordres.
 | Horloge | Période | Panneaux | Coût mesuré par tour |
 |---|---|---|---|
 | `tick-fast` | 250 ms | carnet, profondeur, arbitrage | 8–33 ms, 6–25 Ko |
-| `tick-slow` | 2 s | prix, bandeau | 0,3–1,3 s, 162 Ko |
-| `tick-rare` | 5 min | ETF, macro, Fear & Greed | 0,3–0,5 s, 8–10 Ko |
+| `tick-slow` | 2 s | prix, bandeau, fil de news | 0,3–1,3 s, 162 Ko |
+| `tick-rare` | 5 min | flux ETF, macro | 0,3–0,5 s, 8–10 Ko |
 
 Les panneaux rapides ne touchent jamais le réseau : ils lisent les carnets que
 le hub entretient en mémoire, ce qui explique l'écart d'un facteur cinquante
 avec le panneau prix. Ce dernier n'a de toute façon aucune raison d'aller plus
 vite : une bougie journalière ne change pas quatre fois par seconde.
+
+Le fil de news est passé de l'horloge rare à l'horloge lente : il ne lit qu'une
+douzaine de lignes dans une base locale, et l'âge de la dernière collecte qu'il
+affiche doit avancer sans attendre cinq minutes.
 
 Un quatrième rythme échappe aux horloges : la **collecte des news**, toutes les
 quinze minutes, dans un thread démon du hub (§2.4). Elle ne pouvait pas vivre
@@ -711,10 +717,16 @@ L'objectif est de passer de « N scripts, N fenêtres » à « un terminal, N
 panneaux ». Les étapes ci-dessous sont ordonnées : chacune réduit le coût de la
 suivante.
 
+**Où en est-on.** Les étapes 1 à 4 sont faites — socle extrait, couche de rendu
+tranchée, données mutualisées, doublons supprimés. L'étape 5 est engagée : le
+panneau macro et la collecte des news sont en place, et le mécanisme d'onglets
+(§3.5) lève ce qui bloquait la suite. Restent cinq panneaux à écrire, dont
+quatre n'attendent que d'être branchés sur des sources déjà vérifiées.
+
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.4) :
+scripts y sont ramenés, sans changement de comportement (§2.5) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -761,10 +773,13 @@ lointain se fait sentir.
 `btcterm/hub.py` — `MarketHub` ouvre **une** connexion par plateforme dans un
 thread démon, entretient les cinq carnets, expose le moteur d'arbitrage et met
 en cache les appels REST avec une durée de vie propre à chaque nature de donnée
-(chandeliers 5 s, taux de change 1 h, flux ETF 30 min).
+(chandeliers 5 s, taux de change 1 h, flux ETF 30 min, masse monétaire 6 h).
 
 Le cache conserve la dernière valeur connue quand un rafraîchissement échoue :
 un panneau qui affiche une donnée un peu datée vaut mieux qu'un panneau vide.
+
+Le hub a gagné depuis un rôle de producteur : le collecteur de news (§2.4)
+tourne dans son thread et remplit la base que les panneaux lisent.
 
 ### Étape 4 — Fusionner les doublons ✅ *faite*
 
@@ -807,13 +822,31 @@ Fait :
 
 Reste :
 
-- **Panneaux absents** d'un terminal Bitcoin complet : dominance et
-  capitalisation, funding rates et open interest sur les perpétuels,
-  liquidations, métriques on-chain (hashrate, flux exchanges), calendrier macro.
 - ~~**La grille est pleine**~~ — réglé : une cellule peut héberger plusieurs
   panneaux, choisis par onglets (§3.5). Ajouter un panneau consiste désormais à
   écrire son module et à l'inscrire dans la cellule qui l'accueille ; la place
   n'est plus le facteur limitant.
+
+- **Cinq panneaux manquent** à un terminal Bitcoin complet. Les sources
+  ci-dessous ont été interrogées le 19 août 2026 : toutes répondent sans clé
+  d'API, ce qui reste la règle du dépôt.
+
+  | Panneau | Source vérifiée | Cellule d'accueil |
+  |---|---|---|
+  | Dominance et capitalisation | CoinGecko `/api/v3/global` | onglet de la cellule macro |
+  | Funding et open interest | Binance `fapi/v1/fundingRate` et `futures/data/openInterestHist` | onglet de la cellule ETF |
+  | Liquidations | Binance WebSocket `!forceOrder@arr` — flux ouvert, mais épisodique par nature | onglet de la cellule arbitrage |
+  | On-chain | mempool.space `/api/v1/mining/hashrate/3m`, `/api/v1/fees/recommended` | onglet de la cellule macro |
+  | Calendrier macro | **aucune source publique satisfaisante trouvée** : les calendriers économiques ouverts sont soit payants, soit sans licence claire. À défaut, une liste de dates FOMC tenue à la main ferait déjà l'essentiel. | onglet de la cellule news |
+
+  Les quatre premiers sont mécaniques : un collecteur dans `sources.py`, un
+  cache dans le hub, un module dans `panels/`, une ligne dans `CELLS`. Le
+  cinquième demande d'abord de trancher la question de la source.
+
+- **Push WebSocket serveur → navigateur** (reporté de l'étape 2) — l'horloge
+  rapide à 250 ms suffit sur une boucle locale ; ce chantier ne se justifiera
+  que pour descendre sous 100 ms, ou si un tunnel SSH lointain fait sentir sa
+  latence.
 
 ### Chantiers d'hygiène (indépendants)
 
