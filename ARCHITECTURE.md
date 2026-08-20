@@ -1269,6 +1269,6 @@ sentir, aucun ne conditionnant les autres.
   besoin énoncé (§1) — tandis que l'export ETF et le tracker de news, qui
   produisent ou exportent ce qu'aucun panneau ne couvre, deviennent des
   satellites assumés. §5 n'est plus un « pas encore ».
-- **Version 1.0** — l'empaquetage affiche `0.9.0`. La feuille de route soldée
-  est le moment naturel de passer le cap ; le faire une fois les manques
-  ci-dessus arbitrés donnerait au numéro un sens réel.
+- ~~**Version 1.0**~~ — fait : l'empaquetage affiche `1.0.0`. La feuille
+  de route est soldée, les chantiers d'hygiène fermés, les deux derniers
+  points arbitrés — le numéro dit désormais quelque chose de vrai.
