@@ -598,6 +598,11 @@ def main() -> None:
              "contente alors de lire ce que le tracker y a mis",
     )
     parser.add_argument(
+        "--no-journal", action="store_true",
+        help="ne pas tenir ~/.btcterm/journal.db (liquidations et épisodes "
+             "d'arbitrage de la séance)",
+    )
+    parser.add_argument(
         "--cryptopanic-key", default=os.environ.get("CRYPTOPANIC_API_KEY", ""),
         help="clé CryptoPanic pour la collecte de news (défaut : variable "
              "d'environnement CRYPTOPANIC_API_KEY)",
@@ -607,6 +612,7 @@ def main() -> None:
     hub = MarketHub(
         collect_news=not args.no_news,
         cryptopanic_key=args.cryptopanic_key,
+        keep_journal=not args.no_journal,
     )
     hub.start()
 

@@ -123,6 +123,17 @@ python -m terminal.app --no-news                 # laisser la base au tracker
 CRYPTOPANIC_API_KEY=… python -m terminal.app     # ajouter CryptoPanic aux RSS
 ```
 
+**Journal** — les données qui mouraient avec le processus sont désormais
+journalisées dans `~/.btcterm/journal.db` (30 jours de rétention) : chaque
+liquidation, et chaque épisode d'arbitrage rentable — ouvert quand une paire
+devient rentable, clos quand elle a cessé de l'être, une ligne par épisode
+avec le meilleur profit observé. La séance se relit après coup :
+
+```bash
+python -m btcterm.journal --heures 6             # relire la séance
+python -m terminal.app --no-journal              # s'en passer
+```
+
 **Macro** — le panneau du bas confronte le cours à la masse monétaire M2 des
 États-Unis (série H.6 de la Fed, mensuelle). Le sélecteur `+1M` … `+3M` décale
 M2 vers l'avant pour éprouver l'idée d'un cours qui suivrait la liquidité avec
@@ -226,6 +237,7 @@ python tests/test_terminal_wiring.py     # panneaux posés et branchés
 python tests/test_grid_layout.py         # rangement configurable des panneaux
 python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node)
 python tests/test_push.py                # pousseur WebSocket, sans navigateur
+python tests/test_journal.py             # journal : événements, épisodes, rétention
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
@@ -256,7 +268,10 @@ faute de quoi elle échapperait à toute couverture. Le huitième contrôle le
 pousseur WebSocket sans navigateur : l'état annoncé est traité comme une
 entrée hostile, le rendu poussé suit la plateforme et l'agrandissement, et la
 sérialisation est stable à données constantes — l'hypothèse dont vivent les
-trames différentielles. Aucun des huit ne touche au réseau.
+trames différentielles. Le neuvième déroule la vie d'un épisode d'arbitrage
+dans le journal au temps simulé — l'épisode ne s'écrit qu'une fois clos, et le
+test ne pouvait pas attendre 30 secondes de grâce en temps réel. Aucun des
+neuf ne touche au réseau.
 
 `ui_smoke.py` est à part : il pilote Firefox pour contrôler ce qui ne se voit
 qu'à l'écran — cellules posées, bouton visible et sans recouvrement, bascule
@@ -341,6 +356,8 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 
 - Le terminal écrit dans `~/.btc_news/news.db` — la base du tracker, mêmes
   règles, mêmes déduplications. `--no-news` l'en dispense.
+- Il tient aussi `~/.btcterm/journal.db` — liquidations et épisodes
+  d'arbitrage de la séance. `--no-journal` l'en dispense.
 - Aucun de ces scripts n'écrit d'ordre sur un exchange ; ils sont en lecture
   seule sur des endpoints publics.
 - Le terminal se lie à `127.0.0.1:8050` ; `--host` et `--port` permettent d'en

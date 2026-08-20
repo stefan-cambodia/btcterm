@@ -23,7 +23,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Optional
+from typing import Callable, Optional
 
 from .exchanges import ExchangeConnector
 
@@ -51,9 +51,11 @@ class Liquidation:
 class LiquidationFeed(ExchangeConnector):
     """Fil temps réel, gardé en mémoire dans une fenêtre glissante.
 
-    Rien n'est persisté : le panneau lit les dernières liquidations et
-    leurs totaux, et ce qui sort de la fenêtre est oublié. C'est un
-    indicateur de tension du moment, pas un journal.
+    Le fil lui-même ne persiste rien : le panneau lit les dernières
+    liquidations et leurs totaux, et ce qui sort de la fenêtre est
+    oublié — l'indicateur de tension du moment. La persistance est
+    l'affaire du rappel `on_event`, où le hub branche le journal
+    (btcterm/journal.py).
 
     L'état de connexion est publié ici plutôt que dans un carnet — ce
     flux n'en alimente aucun — d'où la redéfinition des deux marqueurs.
@@ -71,6 +73,11 @@ class LiquidationFeed(ExchangeConnector):
         self.connected = False
         self.error: Optional[str] = None
         self._lock = threading.Lock()
+        #: Rappel appelé à chaque événement retenu — même convention que
+        #: les collectes de newsdb : c'est l'appelant qui décide quoi en
+        #: faire (le hub y branche le journal). Une erreur du rappel ne
+        #: doit jamais fermer le flux.
+        self.on_event: Optional[Callable[[Liquidation], None]] = None
 
     # ── État de connexion ───────────────────────────────────
 
@@ -156,3 +163,10 @@ class LiquidationFeed(ExchangeConnector):
             return
         with self._lock:
             self.events.append(event)
+        if self.on_event is not None:
+            try:
+                self.on_event(event)
+            except Exception:
+                # Le journal peut échouer (disque plein, base verrouillée) ;
+                # le fil, lui, doit continuer à nourrir le panneau.
+                pass

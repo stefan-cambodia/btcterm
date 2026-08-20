@@ -60,6 +60,8 @@ et la liste de ce qui manque encore sont en
 │   │                              terme, chaîne, news, sentiment
 │   ├── macrocal.py                calendrier macro tenu à la main
 │   ├── newsdb.py                  base de news : schéma, scoring, collecte
+│   ├── journal.py                 journal des liquidations + épisodes
+│   │                              d'arbitrage (~/.btcterm/journal.db)
 │   └── hub.py                     connexions mutualisées + caches
 │
 ├── terminal/                  ← TERMINAL : l'application Dash
@@ -82,6 +84,7 @@ et la liste de ce qui manque encore sont en
 │   ├── test_grid_layout.py        rangement configurable des panneaux
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
 │   ├── test_push.py               pousseur WebSocket, sans navigateur
+│   ├── test_journal.py            journal : événements, épisodes, rétention
 │   ├── marionette_client.py       pilotage minimal de Firefox
 │   └── ui_smoke.py                contrôle de l'interface à l'écran
 │
@@ -243,9 +246,10 @@ par la plateforme. Ces fermetures arrivent par rafales, et ces rafales
 expliquent une partie des mèches du graphique du cours.
 
 `LiquidationFeed` écoute `!forceOrder@arr` — toutes les paires, sans clé —
-et garde une **fenêtre glissante** de 500 événements en mémoire. Rien
-n'est persisté : c'est un indicateur de tension du moment, pas un
-journal. Il expose les derniers événements, les totaux par côté sur une
+et garde une **fenêtre glissante** de 500 événements en mémoire :
+l'indicateur de tension du moment. Chaque événement retenu est aussi
+signalé par un rappel `on_event`, où le hub branche le journal (§2.7) —
+la fenêtre nourrit le panneau, le journal la séance. Le fil expose les derniers événements, les totaux par côté sur une
 heure, et la part des paires Bitcoin dans ce total, qui distingue une
 cascade locale d'une cascade de marché.
 
@@ -291,7 +295,46 @@ Deux pièges justifient que ce soit du code et non un simple tableau :
   prévient quand il approche — le pendant du fil de news qui affiche
   l'âge de sa collecte.
 
-### 2.7 Non-régression
+### 2.7 `journal` — la séance se relit
+
+Carnets, écarts d'arbitrage et liquidations vivaient en mémoire et
+mouraient avec le processus. `Journal` persiste dans
+`~/.btcterm/journal.db` (SQLite, 30 jours de rétention, purge au
+démarrage) les deux données qui valent d'être relues, chacune selon sa
+nature :
+
+- une **liquidation** est un événement — une ligne par événement,
+  écrite au fil de l'eau par le rappel `on_event` du fil (§2.5) ;
+- une **opportunité d'arbitrage** est un état qui dure — la journaliser
+  à chaque balayage rempilerait la même paire dix fois par seconde. Le
+  journal tient des **épisodes** : ouvert quand une paire devient
+  rentable, tolérant 30 s de flottement (les écarts clignotent au
+  rythme des carnets), écrit en une seule ligne à sa clôture — bornes,
+  meilleur profit net, prix à ce meilleur, nombre d'observations.
+
+C'est le hub qui fait vivre les épisodes, dans une boucle d'observation
+propre à cadence lente (1 s) : aucun callback d'interface ne pouvait
+s'en charger — il n'en tourne aucun sans navigateur ouvert, et le
+journal doit couvrir la séance entière. L'arrêt du hub clôt et écrit
+les épisodes encore ouverts ; une panne d'écriture ne remonte jamais
+jusqu'au flux ni à la boucle, qui retentera au balayage suivant.
+
+La base n'existe qu'à la première écriture : construire un `Journal` —
+ce que fait tout `MarketHub`, démarré ou non — ne crée aucun fichier,
+et les tests ne laissent aucune trace. `--no-journal` dispense le
+terminal d'en tenir un. La séance se relit à même la ligne de
+commande :
+
+```bash
+python -m btcterm.journal --heures 6
+```
+
+`tests/test_journal.py` déroule la vie d'un épisode au temps simulé —
+ouverture, meilleur profit, flottement toléré, clôture après la grâce —
+et protège les frontières : panne du rappel sans effet sur le flux,
+aucun fichier créé sans écriture, rétention appliquée.
+
+### 2.8 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
@@ -980,7 +1023,7 @@ repli (§3.10). La feuille de route est soldée.
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.7) :
+scripts y sont ramenés, sans changement de comportement (§2.8) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -1136,11 +1179,10 @@ sentir, aucun ne conditionnant les autres.
   extrême ou une news à fort score. Or l'usage énoncé comprend la
   surveillance passive : une station qui sait attirer l'attention quand on ne
   la regarde pas ferait mieux que douze panneaux qu'il faut balayer des yeux.
-- **Historique des données éphémères** — carnets, écarts d'arbitrage et
-  liquidations vivent en mémoire et meurent avec le processus ; seules les
-  news survivent (SQLite, §2.4). Journaliser au moins les liquidations et les
-  opportunités d'arbitrage permettrait de relire une séance a posteriori — et
-  donnerait aux alertes ci-dessus une base de comparaison.
+- ~~**Historique des données éphémères**~~ — fait : `btcterm/journal.py`
+  (§2.7) écrit liquidations et épisodes d'arbitrage rentables dans
+  `~/.btcterm/journal.db`, et `python -m btcterm.journal` relit la séance.
+  Les alertes y trouveront leur base de comparaison.
 
 **Hygiène technique :**
 
