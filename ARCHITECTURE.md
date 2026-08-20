@@ -38,10 +38,11 @@ python -m terminal.app        # http://127.0.0.1:8050
 Les quatre scripts que le terminal remplace — les deux dashboards Dash et les
 deux fenêtres matplotlib — ont été supprimés à l'étape 4, après récupération de
 ce qu'ils avaient de propre, et `m2supply.html` a suivi à l'étape 5, remplacé
-par le panneau macro. Ce qui subsiste ([§5](#5-détail-des-outils-restants)) ne fait pas
-double emploi avec un panneau : le moniteur d'arbitrage en TUI, l'export des
-flux ETF et le tracker de news. La feuille de route qui a mené ici — soldée —
-et la liste de ce qui manque encore sont en
+par le panneau macro. La TUI d'arbitrage, dernier doublon d'un panneau, les a
+suivis à la clôture de la feuille de route ; ce qui subsiste
+([§5](#5-détail-des-outils-restants)) ne fait pas double emploi avec un
+panneau : l'export des flux ETF et le tracker de news. La feuille de route qui
+a mené ici — soldée — et la liste de ce qui manque encore sont en
 [§7](#7-feuille-de-route-vers-le-terminal).
 
 ```
@@ -95,11 +96,6 @@ et la liste de ce qui manque encore sont en
 │
 ├── etf_bitcoin_flows.py       ← CLI flux ETF
 │
-├── arbitrage/                 ← TUI Rich, partage le moteur du socle
-│   ├── main.py
-│   ├── requirements.txt
-│   └── README.md
-│
 ├── news/                      ← collecte des news + SQLite
 │   ├── btc_news.py
 │   ├── requirements.txt
@@ -114,11 +110,12 @@ et la liste de ce qui manque encore sont en
 | Famille | Où | Boucle d'affichage |
 |---|---|---|
 | Web (Dash/Plotly) | `terminal/` | `dcc.Interval` → callbacks serveur, doublé d'un push WebSocket pour les panneaux rapides (§3.10) |
-| TUI (Rich) | `arbitrage/main.py` | `rich.live.Live` piloté par asyncio |
 | CLI batch | `etf_bitcoin_flows.py`, `news/btc_news.py` | one-shot (ou `watch` en boucle) |
 
 Les deux fenêtres matplotlib et les deux dashboards Dash d'origine occupaient
-deux familles de plus ; leur suppression est ce qui a ramené la liste à trois.
+deux familles de plus, et la TUI Rich d'arbitrage une troisième ; leurs
+suppressions — l'étape 4 pour les unes, l'arbitrage rendu à la clôture pour
+l'autre (§5) — ont ramené la liste à deux.
 
 ---
 
@@ -884,7 +881,6 @@ producteur ne partageant avec le consommateur qu'un état protégé par verrou :
 ```
 terminal/            MarketHub : thread démon (event loop asyncio)
                      → dict[str, OrderBook] verrouillés → callbacks Dash
-arbitrage/main.py    tâches asyncio → dict[str, OrderBook] → Live (asyncio)
 ```
 
 Le consommateur ne prend le verrou que pour **copier** un instantané de l'état,
@@ -931,50 +927,17 @@ de commande gardent la leur en tête de fichier. Convention constante :
 Les quatre scripts que le terminal a remplacés ne sont plus décrits ici : ils
 ont été supprimés à l'étape 4 ([§7](#7-feuille-de-route-vers-le-terminal)), et
 leur contenu vit maintenant dans le socle et les panneaux, comme celui de
-`m2supply.html`, repris par le panneau macro à l'étape 5. Restent trois outils
-qui ne font double emploi avec aucun panneau.
+`m2supply.html`, repris par le panneau macro à l'étape 5. La TUI d'arbitrage
+(`arbitrage/main.py`) les a suivis à la clôture de la feuille de route,
+l'arbitrage une fois rendu : elle suivait le même moteur que le panneau du
+même nom (`btcterm/arbitrage.py`) dont elle n'était qu'une seconde façade, et
+son intérêt propre — vivre sans navigateur — ne répondait pas au besoin
+énoncé, une station de travail multi-panneaux servie en local et atteignable
+par tunnel SSH (§1). Restent deux outils **assumés** : ils ne font double
+emploi avec aucun panneau — ils produisent ou exportent ce que le terminal ne
+fait qu'afficher, et gardent leur utilité quand il ne tourne pas.
 
-### 5.1 `arbitrage/main.py` — moteur d'arbitrage
-
-Architecture en couches, entièrement asyncio :
-
-```
-                  ┌─────────────────────────────────────────┐
-   5 × Connector  │  dict[str, OrderBook]  (état partagé)    │
-   (WebSocket)  ──▶│                                         │──▶ ArbitrageEngine.scan()
-                  └─────────────────────────────────────────┘        (toutes les 0,2 s)
-                                                                            │
-                                                              Dashboard.render() → Rich Live
-                                                                      (4 fois/s)
-```
-
-**Modèles (`@dataclass`)**
-
-- `OrderBook` vient du socle (§2.2) ; toute la logique de fraîcheur découle de
-  sa propriété `age_ms`.
-- `ArbitrageOpportunity` — les deux exchanges, les prix, profit brut et net,
-  frais, horodatage, et `is_profitable` (`net > MIN_PROFIT_PCT`).
-
-**Connecteurs** — fournis par le socle (§2.2) depuis la phase 1.
-`build_connectors()` se contente d'associer chaque plateforme à son produit en
-USDT ; Coinbase passe par le flux Advanced Trade, son flux public historique ne
-cotant pas cette paire.
-
-**Moteur** — `scan()` parcourt les paires **ordonnées** (acheter sur A, vendre
-sur B ≠ acheter sur B, vendre sur A) et écarte : exchanges déconnectés,
-carnets sans meilleur prix, carnets de plus de 5 s, et paires où
-`sell_price <= buy_price`. Le profit net retranche les frais des deux côtés.
-L'historique est borné à 100 opportunités rentables (pop en tête).
-
-**Vue** — `Dashboard` compose un `rich.layout.Layout` : en-tête, une table par
-carnet, la table des opportunités triées et un panneau d'historique. Aucune
-logique métier dans cette couche.
-
-**Orchestration** — `main()` lance 7 tâches concourantes (5 connecteurs +
-`scan_loop` + `display_loop`) via `asyncio.gather`, avec arrêt propre sur
-`KeyboardInterrupt` (`stop()` sur chaque connecteur puis `cancel()`).
-
-### 5.2 `etf_bitcoin_flows.py` — flux ETF
+### 5.1 `etf_bitcoin_flows.py` — flux ETF
 
 Pipeline en trois fonctions :
 
@@ -1010,7 +973,7 @@ antérieure du même script, restée en arrière sur six points :
 Seule la v2 avait été migrée sur le socle (`sources.fetch_etf_flows`) : migrer
 la v1 n'aurait fait qu'entretenir un doublon voué à disparaître.
 
-### 5.3 `news/btc_news.py` — BTC News Tracker
+### 5.2 `news/btc_news.py` — BTC News Tracker
 
 Application CLI à sous-commandes, la plus « structurée » du dépôt.
 
@@ -1064,7 +1027,7 @@ dépendance à une bibliothèque de rendu.
 
 | Emplacement | Contenu | Utilisé par |
 |---|---|---|
-| `venv/` (racine, Python 3.14) | l'ensemble de `requirements.txt` : pandas, numpy, requests, dash, plotly, gunicorn, websockets, rich, lxml, beautifulsoup4, tabulate, feedparser | le terminal et tous les outils |
+| `venv/` (racine, Python 3.14) | l'ensemble de `requirements.txt` : pandas, numpy, requests, dash, plotly, gunicorn, websockets, lxml, beautifulsoup4, tabulate, feedparser | le terminal et tous les outils |
 | `news/.venv` (optionnel, créé par `setup.fish`) | feedparser, requests | usage isolé du tracker |
 
 Un `requirements.txt` à la racine déclare l'ensemble des dépendances, regroupées
@@ -1082,17 +1045,16 @@ installe la commande **`btcterm`**, équivalente à `python -m terminal.app`.
 Trois choix y sont commentés :
 
 - les **paquets sont nommés explicitement** (`btcterm`, `terminal`,
-  `terminal.panels`) — `news/` et `arbitrage/` sont des sous-projets à
-  scripts, pas des paquets, et une découverte automatique embarquerait
-  `tests/` ;
+  `terminal.panels`) — `news/` est un sous-projet à scripts, pas un
+  paquet, et une découverte automatique embarquerait `tests/` ;
 - `terminal/assets/` est déclaré en **package-data** : sans cela, une
   installation non éditable servirait un terminal sans feuille de style ni
   raccourcis clavier — le défaut ne se voyant qu'à l'écran, il est vérifié en
   inspectant la wheel ;
-- les dépendances du projet sont **celles du terminal** ; `rich` et
-  `tabulate`, qui ne servent qu'aux outils en ligne de commande, sont dans
-  l'extra `cli` (`pip install -e '.[cli]'`), et `gunicorn`, qui ne sert
-  qu'au régime service (§3.11), dans l'extra `serve`.
+- les dépendances du projet sont **celles du terminal** ; `tabulate`, qui
+  ne sert qu'à l'export ETF en ligne de commande, est dans l'extra `cli`
+  (`pip install -e '.[cli]'`), et `gunicorn`, qui ne sert qu'au régime
+  service (§3.11), dans l'extra `serve`.
 
 Les scripts restent lançables sans installation : ils trouvent `btcterm/`
 parce que Python ajoute le répertoire du script au chemin d'import, et les
@@ -1186,11 +1148,11 @@ Cinq scripts ont disparu, après récupération de ce qu'ils avaient de propre :
 | `btc_dashboard2.py` | panneau prix | palette `15m` → `1M`, échelle log, repli hors ligne |
 | `btc-liquidity.py` | panneaux carnet et profondeur | — |
 | `btc_orderbook_live.py` | panneaux carnet et profondeur | `max_levels` / `MAX_WS_SIZE` (étape 1) |
-| `etf.py` | `etf_bitcoin_flows.py` (§5.2) | — |
+| `etf.py` | `etf_bitcoin_flows.py` (§5.1) | — |
 
 Le moteur d'arbitrage avait quitté `arbitrage/main.py` pour `btcterm/arbitrage.py`
-à l'étape 3 ; la TUI, elle, reste : elle ne fait pas double emploi avec le
-panneau, elle en est une autre façade.
+à l'étape 3 ; la TUI, autre façade du même moteur, était alors restée — avant
+d'être supprimée à son tour, l'arbitrage rendu à la clôture (§5).
 
 Ce qui n'a **pas** été repris, volontairement : les bascules d'affichage de
 `btc_dashboard2.py` (signaux, Bollinger, MA 200 activables un à un) — le
@@ -1301,11 +1263,12 @@ sentir, aucun ne conditionnant les autres.
 
 **À trancher :**
 
-- **Le sort des satellites (§5)** — la TUI d'arbitrage suit le même moteur
-  que le panneau du même nom ; son intérêt propre est de vivre sans
-  navigateur. L'export ETF et le tracker de news gardent leur utilité en
-  ligne de commande. Converger davantage, ou assumer la coexistence — mais le
-  décider, pour que §5 cesse d'être un « pas encore ».
+- ~~**Le sort des satellites (§5)**~~ — tranché, dans le sens de la
+  convergence là où il y avait doublon : la TUI d'arbitrage est supprimée —
+  même moteur que le panneau, et « vivre sans navigateur » ne répond pas au
+  besoin énoncé (§1) — tandis que l'export ETF et le tracker de news, qui
+  produisent ou exportent ce qu'aucun panneau ne couvre, deviennent des
+  satellites assumés. §5 n'est plus un « pas encore ».
 - **Version 1.0** — l'empaquetage affiche `0.9.0`. La feuille de route soldée
   est le moment naturel de passer le cap ; le faire une fois les manques
   ci-dessus arbitrés donnerait au numéro un sens réel.

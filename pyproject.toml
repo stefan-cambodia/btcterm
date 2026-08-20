@@ -38,10 +38,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Les outils en ligne de commande qui entourent le terminal : la TUI
-# d'arbitrage (rich) et l'export des flux ETF (tabulate).
+# L'outil en ligne de commande qui entoure le terminal : l'export des
+# flux ETF (tabulate). Le tracker de news, lui, ne demande rien de plus
+# que le socle — feedparser est déjà dans les dépendances.
 cli = [
-    "rich>=13.0",
     "tabulate>=0.9",
 ]
 # Le régime service : gunicorn sert le terminal en continu, derrière

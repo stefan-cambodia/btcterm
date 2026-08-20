@@ -182,17 +182,19 @@ Détail complet dans [`ARCHITECTURE.md`](ARCHITECTURE.md), feuille de route en
 carnet, la profondeur comparée, l'arbitrage, les liquidations, les flux ETF, le
 marché à terme, les news, le calendrier macro, la dominance, la chaîne et le
 contexte macro : la couverture visée par la feuille de route est atteinte. Les
-scripts qu'il remplace ont été supprimés ; ceux qui restent (arbitrage en TUI,
-export ETF, tracker de news) ne font double emploi avec aucun panneau.
+scripts qu'il remplace ont été supprimés — la TUI d'arbitrage, doublon du
+panneau du même nom, en dernier — et ceux qui restent (export ETF, tracker
+de news) ne font double emploi avec aucun panneau.
 
 ## Outils complémentaires
 
-Ce que le terminal ne couvre pas encore garde sa ligne de commande : le
-moniteur d'arbitrage en TUI, l'export des flux ETF et le tracker de news, tous
-bâtis sur le même socle. Les quatre scripts que le terminal a remplacés —
-`btc-dash.py`, `btc_dashboard2.py`, `btc-liquidity.py`, `btc_orderbook_live.py` —
-ont été supprimés, de même qu'`etf.py`, doublon antérieur d'`etf_bitcoin_flows.py`,
-et `m2supply.html`, page tronquée que le panneau macro remplace.
+Ce que le terminal ne couvre pas garde sa ligne de commande : l'export des
+flux ETF et le tracker de news, tous deux bâtis sur le socle. Les quatre
+scripts que le terminal a remplacés — `btc-dash.py`, `btc_dashboard2.py`,
+`btc-liquidity.py`, `btc_orderbook_live.py` — ont été supprimés, de même
+qu'`etf.py`, doublon antérieur d'`etf_bitcoin_flows.py`, `m2supply.html`,
+page tronquée que le panneau macro remplace, et `arbitrage/main.py`, la TUI
+qui n'était qu'une autre façade du moteur du panneau ARBITRAGE.
 
 > Données de marché : APIs publiques (Binance, Kraken, Coinbase, Bybit, OKX) —
 > **aucune clé API n'est requise**, aucun ordre n'est jamais passé.
@@ -204,7 +206,6 @@ et `m2supply.html`, page tronquée que le panneau macro remplace.
 | Outil | Type | Sources | Lancement |
 |---|---|---|---|
 | `terminal/` | Terminal web (Dash) | REST + WebSockets, 5 plateformes | `btcterm` (ou `python -m terminal.app`) → http://127.0.0.1:8050 |
-| `arbitrage/main.py` | TUI terminal (Rich) | WebSockets 5 exchanges | `python arbitrage/main.py` |
 | `etf_bitcoin_flows.py` | CLI | farside.co.uk (scraping) | `python etf_bitcoin_flows.py --days 90` |
 | `news/btc_news.py` | CLI + SQLite | RSS, CryptoPanic, Fear & Greed | `python news/btc_news.py fetch` |
 
@@ -240,9 +241,8 @@ L'installation n'est d'ailleurs pas un prérequis : les scripts trouvent
 `btcterm/` par eux-mêmes, où que soit le répertoire courant, et
 `python -m terminal.app` lance le terminal sans rien installer.
 
-`arbitrage/requirements.txt` et `news/requirements.txt` restent disponibles
-pour installer un seul sous-projet, et `news/setup.fish` crée un venv dédié
-plus une fonction fish `btcnews`.
+`news/requirements.txt` reste disponible pour installer le seul tracker, et
+`news/setup.fish` crée un venv dédié plus une fonction fish `btcnews`.
 
 ### Tests
 
@@ -316,23 +316,7 @@ est absent.
 
 ## Les outils en détail
 
-### 1. `arbitrage/main.py` — Moniteur d'arbitrage temps réel
-
-TUI Rich plein écran surveillant **5 exchanges** (Binance, Kraken, Bybit, OKX,
-Coinbase) et scannant toutes les paires ordonnées 5 fois par seconde :
-
-```
-profit_brut = (best_bid_vente - best_ask_achat) / best_ask_achat * 100
-profit_net  = profit_brut - frais_achat - frais_vente
-```
-
-Une opportunité est retenue au-delà de `MIN_PROFIT_PCT = 0.1 %`, et les
-carnets de plus de **5 s** sont ignorés. Le carnet Bybit était figé sur son
-premier snapshot tout en paraissant frais ; corrigé en phase 1. Voir `arbitrage/README.md` pour la
-grille de frais et les avertissements — c'est un outil d'observation, pas un
-bot d'exécution.
-
-### 2. `etf_bitcoin_flows.py` — Flux des ETF Bitcoin spot
+### 1. `etf_bitcoin_flows.py` — Flux des ETF Bitcoin spot
 
 Récupère le tableau public de `farside.co.uk/btc/` (flux quotidiens IBIT,
 FBTC, GBTC, ARKB, BITB, HODL…) et affiche les N derniers jours en millions
@@ -349,7 +333,7 @@ en-têtes multi-niveaux du site, n'élaguait pas les colonnes vides, passait le
 HTML directement à `pd.read_html()` (déprécié) et affichait via
 `DataFrame.to_string` au lieu de `tabulate`. Il a été supprimé.
 
-### 3. `news/btc_news.py` — BTC News Tracker
+### 2. `news/btc_news.py` — BTC News Tracker
 
 CLI d'agrégation de news à impact sur le cours, stockées dans SQLite
 (`~/.btc_news/news.db`). Sources : 6 flux RSS (CoinDesk, CoinTelegraph,

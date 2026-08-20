@@ -21,7 +21,6 @@ gunicorn>=23
 
 # ── Flux temps réel (carnets, arbitrage) ────────────────────
 websockets>=12.0
-rich>=13.0
 
 # ── Flux ETF (etf_bitcoin_flows.py) ─────────────────────────
 lxml>=5.0
