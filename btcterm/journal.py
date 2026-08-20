@@ -18,6 +18,9 @@ Deux natures d'enregistrement, à l'image des données :
   et n'écrit qu'une ligne par épisode : bornes, meilleur profit, prix à
   ce meilleur, nombre d'observations.
 
+Les **alertes** (§ alerts) s'y écrivent aussi, une ligne par sonnerie :
+relire une séance, c'est aussi relire ce qui a sonné.
+
 La base n'existe qu'à la première écriture : construire un `Journal`
 (comme le fait tout `MarketHub`, démarré ou non) ne crée aucun fichier —
 les tests et les usages sans réseau ne laissent aucune trace.
@@ -79,6 +82,13 @@ CREATE TABLE IF NOT EXISTS arbitrage_episodes (
     samples       INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_episodes_ts ON arbitrage_episodes (first_seen);
+
+CREATE TABLE IF NOT EXISTS alerts (
+    ts      REAL NOT NULL,
+    kind    TEXT NOT NULL,       -- price | liq | funding | news | arb
+    message TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts (ts);
 """
 
 
@@ -119,6 +129,15 @@ class Journal:
                 "INSERT INTO liquidations VALUES (?, ?, ?, ?, ?, ?)",
                 (event.time, event.symbol, event.side,
                  event.price, event.quantity, event.notional),
+            )
+            self._db.commit()
+
+    def record_alert(self, alert) -> None:
+        """Une ligne par sonnerie — branché sur le moteur d'alertes."""
+        with self._lock:
+            self._connection().execute(
+                "INSERT INTO alerts VALUES (?, ?, ?)",
+                (alert.time, alert.kind, alert.message),
             )
             self._db.commit()
 
@@ -186,6 +205,7 @@ class Journal:
             db.execute("DELETE FROM liquidations WHERE ts < ?", (horizon,))
             db.execute("DELETE FROM arbitrage_episodes WHERE last_seen < ?",
                        (horizon,))
+            db.execute("DELETE FROM alerts WHERE ts < ?", (horizon,))
             db.commit()
 
     # ── Lectures ────────────────────────────────────────────
@@ -207,6 +227,14 @@ class Journal:
                 "SELECT * FROM arbitrage_episodes"
                 " WHERE last_seen >= ? AND first_seen <= ?"
                 " ORDER BY first_seen", (start, end)).fetchall()
+
+    def alerts_between(self, start: float, end: float) -> list[sqlite3.Row]:
+        if not self.path.exists():
+            return []
+        with self._lock:
+            return self._connection().execute(
+                "SELECT * FROM alerts WHERE ts BETWEEN ? AND ?"
+                " ORDER BY ts", (start, end)).fetchall()
 
 
 def _relire(hours: float) -> None:
@@ -232,6 +260,15 @@ def _relire(hours: float) -> None:
         quand = time.strftime("%H:%M", time.localtime(gros["ts"]))
         print(f"  la plus grosse : {gros['symbol']} {gros['side']} "
               f"{gros['notional']:,.0f} $ à {quand}")
+
+    alerts = journal.alerts_between(start, end)
+    if not alerts:
+        print("Alertes : aucune.")
+    else:
+        print(f"Alertes : {len(alerts)}")
+        for row in alerts[-12:]:
+            quand = time.strftime("%H:%M", time.localtime(row["ts"]))
+            print(f"  {quand}  [{row['kind']:>7s}]  {row['message']}")
 
     episodes = journal.episodes_between(start, end)
     if not episodes:

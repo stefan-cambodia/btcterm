@@ -6,7 +6,7 @@ synchronisés, tout ce qu'il faut pour lire le marché : prix et indicateurs
 techniques, carnets d'ordres et profondeur multi-exchange, opportunités
 d'arbitrage, liquidations, flux des ETF spot, marché perpétuel, news à impact
 et sentiment, calendrier macro, dominance, données on-chain et contexte
-monétaire.
+monétaire — le tout sous alertes configurables.
 
 ## Lancement
 
@@ -35,6 +35,7 @@ ssh -L 8050:localhost:8050 <machine>
 | **Perpétuel** | financement, open interest et part des comptes longs (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed | 2 s en lecture, collecte toutes les 15 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
+| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
 | **Dominance** | parts de capitalisation, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
@@ -53,9 +54,9 @@ les liquidations en cascade.
 
 **Onglets** — une cellule peut héberger plusieurs panneaux, choisis par les
 onglets posés à la place du titre. Par défaut, cinq cellules en portent :
-carnet et profondeur, flux ETF et perpétuel, news et calendrier, macro et
-dominance et on-chain — plus l'arbitrage, qui partage sa place avec les
-liquidations. Un panneau caché n'est pas dans la page — il ne coûte rien, et il
+carnet et profondeur, flux ETF et perpétuel, news avec calendrier et
+alertes, macro et dominance et on-chain — plus l'arbitrage, qui partage sa
+place avec les liquidations. Un panneau caché n'est pas dans la page — il ne coûte rien, et il
 se remplit dès qu'on l'affiche.
 
 **Push** — les panneaux à 250 ms ont deux canaux : quand le navigateur tient
@@ -133,6 +134,17 @@ avec le meilleur profit observé. La séance se relit après coup :
 python -m btcterm.journal --heures 6             # relire la séance
 python -m terminal.app --no-journal              # s'en passer
 ```
+
+**Alertes** — le terminal sait attirer l'attention quand on ne le regarde
+pas : seuils de cours posés depuis le panneau ALERTES (le sens — au-dessus,
+au-dessous — est figé à la pose, avec hystérésis de réarmement), rafale de
+liquidations, financement extrême, news à fort score, écart d'arbitrage.
+Les règles sonnent sur le front montant, sous délai de garde — une condition
+qui dure ou qui clignote ne sonne pas en rafale. La cloche du bandeau compte
+la dernière heure ; le bip et les notifications navigateur (permission
+demandée d'un clic) retentissent même panneau replié ; chaque sonnerie part
+au journal et se relit avec la séance. Les seuils survivent au rechargement
+et réarment le moteur au chargement de la page.
 
 **Macro** — le panneau du bas confronte le cours à la masse monétaire M2 des
 États-Unis (série H.6 de la Fed, mensuelle). Le sélecteur `+1M` … `+3M` décale
@@ -238,6 +250,7 @@ python tests/test_grid_layout.py         # rangement configurable des panneaux
 python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node)
 python tests/test_push.py                # pousseur WebSocket, sans navigateur
 python tests/test_journal.py             # journal : événements, épisodes, rétention
+python tests/test_alerts.py              # alertes : seuils, fronts, cadences
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
@@ -270,8 +283,11 @@ entrée hostile, le rendu poussé suit la plateforme et l'agrandissement, et la
 sérialisation est stable à données constantes — l'hypothèse dont vivent les
 trames différentielles. Le neuvième déroule la vie d'un épisode d'arbitrage
 dans le journal au temps simulé — l'épisode ne s'écrit qu'une fois clos, et le
-test ne pouvait pas attendre 30 secondes de grâce en temps réel. Aucun des
-neuf ne touche au réseau.
+test ne pouvait pas attendre 30 secondes de grâce en temps réel. Le dixième
+fait de même pour les alertes — hystérésis d'un seuil de cours, front
+montant sous délai de garde, cadence des contrôles coûteux : rien de tout
+cela ne se constate en regardant l'écran au bon moment. Aucun des dix ne
+touche au réseau.
 
 `ui_smoke.py` est à part : il pilote Firefox pour contrôler ce qui ne se voit
 qu'à l'écran — cellules posées, bouton visible et sans recouvrement, bascule
@@ -280,7 +296,8 @@ prix tenant sur une ligne, échelle logarithmique atteignant l'axe, panneau macr
 traçant ses deux séries, changement d'onglet remplaçant un panneau par
 l'autre, rempli dès son apparition, rechargement de page restaurant onglets
 et sélecteurs mais pas le plein écran, canal push pris (badge « push »,
-carnet vivant l'horloge coupée, agrandissement acheminé par le WebSocket) —
+carnet vivant l'horloge coupée, agrandissement acheminé par le WebSocket),
+alertes comprises (cloche au bandeau, seuil posé et retiré par ses puces) —
 et le dialogue de disposition : un
 panneau déménagé arrive dans sa cellule, en repart au rangement d'origine, et
 le déménagement survit au rechargement. Il sait déposer des captures, suppose

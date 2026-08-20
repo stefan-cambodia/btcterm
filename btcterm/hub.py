@@ -20,6 +20,7 @@ from typing import Any, Callable, Optional
 import pandas as pd
 
 from . import sources
+from .alerts import AlertEngine
 from .arbitrage import ArbitrageEngine
 from .journal import Journal
 from .newsdb import NewsCollector
@@ -130,8 +131,13 @@ class MarketHub:
         self.journal: Optional[Journal] = Journal() if keep_journal else None
         if self.journal is not None:
             self.liquidations.on_event = self.journal.record_liquidation
-        self._journal_stop = threading.Event()
-        self._journal_thread: Optional[threading.Thread] = None
+
+        #: Moteur d'alertes : évalué par la boucle d'observation, réglé
+        #: par le panneau ALERTES, journalisé quand le journal est tenu.
+        self.alerts = AlertEngine(journal=self.journal)
+
+        self._observe_stop = threading.Event()
+        self._observe_thread: Optional[threading.Thread] = None
 
         # Le panneau news lisait une base que personne ne remplissait
         # dans le terminal ; le collecteur s'en charge en tâche de fond,
@@ -164,39 +170,44 @@ class MarketHub:
         if self.collect_news:
             self.news.start()
 
-        if self.journal is not None:
-            self._journal_thread = threading.Thread(
-                target=self._journal_loop, daemon=True, name="journal")
-            self._journal_thread.start()
+        self._observe_thread = threading.Thread(
+            target=self._observe_loop, daemon=True, name="observe")
+        self._observe_thread.start()
 
-    def _journal_loop(self) -> None:
-        """Observe l'arbitrage pour le journal, à cadence lente.
+    def _observe_loop(self) -> None:
+        """Observe le marché pour le journal et les alertes, à 1 s.
 
-        Les liquidations s'écrivent toutes seules (rappel du fil) ; les
-        épisodes d'arbitrage demandent un observateur, et aucun callback
-        d'interface ne peut l'être — il n'en tourne aucun sans
-        navigateur ouvert, et le journal doit couvrir la séance entière.
-        Un balayage par seconde suffit à border des épisodes dont la
-        tolérance est de 30 s ; c'est aussi ce qui fait avancer le
-        compteur « détectées » même terminal fermé.
+        Aucun callback d'interface ne peut tenir ce rôle — il n'en
+        tourne aucun sans navigateur ouvert, et le journal comme les
+        alertes doivent couvrir la séance entière. Un balayage par
+        seconde suffit à border des épisodes dont la tolérance est de
+        30 s ; c'est aussi ce qui fait avancer le compteur « détectées »
+        même terminal fermé.
         """
-        self.journal.purge()
-        while not self._journal_stop.wait(1.0):
+        if self.journal is not None:
+            self.journal.purge()
+        while not self._observe_stop.wait(1.0):
+            # Un tour raté — balayage, base verrouillée, disque — ne
+            # doit pas arrêter d'observer : le suivant retentera.
             try:
-                self.journal.observe(self.engine.scan())
+                opportunities = self.engine.scan()
+                if self.journal is not None:
+                    self.journal.observe(opportunities)
             except Exception:
-                # Un balayage raté (base verrouillée, disque) ne doit
-                # pas arrêter d'observer : le suivant retentera.
+                opportunities = None
+            try:
+                self.alerts.evaluate(self, opportunities)
+            except Exception:
                 pass
 
     def stop(self) -> None:
         for connector in self._connectors:
             connector.stop()
         self.news.stop()
-        self._journal_stop.set()
-        if self._journal_thread is not None:
-            self._journal_thread.join(timeout=3)
-            self._journal_thread = None
+        self._observe_stop.set()
+        if self._observe_thread is not None:
+            self._observe_thread.join(timeout=3)
+            self._observe_thread = None
         if self.journal is not None:
             # Les épisodes encore ouverts partent avec la séance.
             self.journal.flush()

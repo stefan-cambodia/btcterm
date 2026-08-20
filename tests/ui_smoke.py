@@ -295,6 +295,59 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("le fil dit son état", len(liq["badges"]) > 8, liq["badges"][:44])
         check("le tableau dit le sien", len(liq["table"]) > 4, liq["table"][:44])
 
+        print("\nOnglet alertes")
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-news .cell-tab'))
+                 .find(t => t.textContent === 'ALERTES').click();
+        """)
+        time.sleep(2.5)
+        check("cloche posée dans le bandeau", browser.js(
+            "return (document.getElementById('hdr-alerts') || {textContent:"
+            " ''}).textContent.includes('🔔');"))
+        check("réglages et liste posés", browser.js(
+            "return !!document.getElementById('alert-price-input')"
+            " && !!document.getElementById('alerts-list')"
+            " && document.getElementById('alerts-list').textContent.length > 4;"))
+        check("les seuils par défaut remplissent les champs", browser.js(
+            "return document.getElementById('alert-liq').value;") == "10")
+        # Poser un seuil : la valeur passe par le setter natif pour que
+        # React la voie, et Entrée la committe (debounce). Les
+        # événements synthétiques étant capricieux au premier essai,
+        # la pose retente une fois.
+        pose = False
+        for _ in range(2):
+            browser.js("""
+                const input = document.getElementById('alert-price-input');
+                const setter = Object.getOwnPropertyDescriptor(
+                    window.HTMLInputElement.prototype, 'value').set;
+                input.focus();
+                setter.call(input, '999999');
+                input.dispatchEvent(new Event('input', {bubbles: true}));
+                input.dispatchEvent(new KeyboardEvent('keydown',
+                    {key: 'Enter', bubbles: true}));
+                // Le blur committe la valeur (debounce) : un vrai clic
+                // sur « poser » le provoquerait de lui-même, le clic
+                // synthétique ne déplace pas le focus.
+                input.blur();
+            """)
+            time.sleep(1)
+            browser.js("document.getElementById('alert-price-add').click();")
+            pose = browser.wait_for(
+                "document.getElementById('alert-price-chips')"
+                ".textContent.includes('999,999')", timeout=5)
+            if pose:
+                break
+        check("poser un seuil crée sa puce", pose)
+        if pose:
+            browser.js("""
+                const chips = document.getElementById('alert-price-chips');
+                Array.from(chips.querySelectorAll('span span'))
+                     .find(s => s.textContent.trim() === '×').click();
+            """)
+            check("sa croix le retire", browser.wait_for(
+                "!document.getElementById('alert-price-chips')"
+                ".textContent.includes('999,999')", timeout=10))
+
         print("\nOnglet calendrier")
         browser.js("""
             Array.from(document.querySelectorAll('#cell-news .cell-tab'))
@@ -387,7 +440,7 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "return !document.getElementById('layout-overlay')"
             ".className.includes('layout-overlay-hidden');"))
         check("un rang par panneau", browser.js(
-            "return document.querySelectorAll('.layout-row').length;") == 12)
+            "return document.querySelectorAll('.layout-row').length;") == 13)
         browser.js("""
             const rang = Array.from(document.querySelectorAll('.layout-row'))
                 .find(r => r.querySelector('.layout-panel-name')

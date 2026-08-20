@@ -31,8 +31,9 @@ from dash import ALL, Input, Output, State, dcc, html
 from btcterm.hub import MarketHub
 
 from . import push
-from .panels import (PANELS, arbitrage, calendar, dominance, etf, liquidations,
-                     macro, news, onchain, orderbook, perp, price)
+from .panels import (PANELS, alerts, arbitrage, calendar, dominance, etf,
+                     liquidations, macro, news, onchain, orderbook, perp,
+                     price)
 from .theme import C, MONO
 
 REFRESH_FAST_MS = 250
@@ -93,7 +94,8 @@ CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
     "etf": (("etf", "FLUX ETF", etf.layout),
             ("perp", "PERPÉTUEL", perp.layout)),
     "news": (("news", "NEWS", news.layout),
-             ("cal", "CALENDRIER", calendar.layout)),
+             ("cal", "CALENDRIER", calendar.layout),
+             ("alerts", "ALERTES", alerts.layout)),
     "macro": (("macro", "MACRO", macro.layout),
               ("dominance", "DOMINANCE", dominance.layout),
               ("onchain", "ON-CHAIN", onchain.layout)),
@@ -236,6 +238,11 @@ def _header():
         html.Span(id="hdr-spread", style=_STAT),
         html.Button("⚙", id="layout-btn", className="layout-btn",
                     title="disposition de la grille"),
+        # La cloche : sonneries de la dernière heure. Tenue par le
+        # callback du panneau alertes — qui tourne toujours, le fil
+        # devant compter et sonner même panneau replié.
+        html.Span(id="hdr-alerts", title="alertes de la dernière heure",
+                  style={**_STAT, "color": C["muted"], "fontSize": "11px"}),
         html.Span("⛶ ou double-clic sur un panneau · Échap pour revenir",
                   style={**_STAT, "marginLeft": "12px", "color": C["muted"],
                          "fontSize": "10px"}),
@@ -343,6 +350,13 @@ def create_app(hub: MarketHub) -> dash.Dash:
         # callbacks clientside n'écrivent que pour avoir une sortie.
         dcc.Store(id="push-sink-expanded"),
         dcc.Store(id="push-sink-exchange"),
+        # Alertes : les réglages survivent au rechargement et réarment
+        # le moteur au chargement ; le fil et ses puits sont globaux —
+        # la sonnerie navigateur doit retentir même panneau replié.
+        dcc.Store(id="alert-config", storage_type="local"),
+        dcc.Store(id="alerts-feed"),
+        dcc.Store(id="alerts-feed-sink"),
+        dcc.Store(id="alert-config-sink"),
         _header(),
         html.Div([_cell(area) for area in AREAS], id="grid", style=_GRID),
         _layout_dialog(),

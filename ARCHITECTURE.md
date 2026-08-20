@@ -25,7 +25,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant douze panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant treize panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement doublés d'un canal push pour les panneaux rapides, un hub
   qui n'ouvre qu'une connexion par plateforme et un collecteur de news en
@@ -62,6 +62,8 @@ et la liste de ce qui manque encore sont en
 │   ├── newsdb.py                  base de news : schéma, scoring, collecte
 │   ├── journal.py                 journal des liquidations + épisodes
 │   │                              d'arbitrage (~/.btcterm/journal.db)
+│   ├── alerts.py                  moteur d'alertes : seuils, rafales,
+│   │                              financement, news, arbitrage
 │   └── hub.py                     connexions mutualisées + caches
 │
 ├── terminal/                  ← TERMINAL : l'application Dash
@@ -73,7 +75,8 @@ et la liste de ce qui manque encore sont en
 │   ├── assets/                    CSS et JS servis au navigateur
 │   └── panels/                    price · orderbook · arbitrage ·
 │                                   liquidations · etf · perp · news ·
-│                                   calendar · macro · dominance · onchain
+│                                   calendar · alerts · macro ·
+│                                   dominance · onchain
 │
 ├── tests/
 │   ├── test_indicators_parity.py  non-régression des indicateurs
@@ -85,6 +88,7 @@ et la liste de ce qui manque encore sont en
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
 │   ├── test_push.py               pousseur WebSocket, sans navigateur
 │   ├── test_journal.py            journal : événements, épisodes, rétention
+│   ├── test_alerts.py             alertes : seuils, fronts, cadences
 │   ├── marionette_client.py       pilotage minimal de Firefox
 │   └── ui_smoke.py                contrôle de l'interface à l'écran
 │
@@ -329,12 +333,61 @@ commande :
 python -m btcterm.journal --heures 6
 ```
 
+Le journal tient aussi la table des **alertes** (§2.8), une ligne par
+sonnerie : relire une séance, c'est aussi relire ce qui a sonné.
+
 `tests/test_journal.py` déroule la vie d'un épisode au temps simulé —
 ouverture, meilleur profit, flottement toléré, clôture après la grâce —
 et protège les frontières : panne du rappel sans effet sur le flux,
 aucun fichier créé sans écriture, rétention appliquée.
 
-### 2.8 Non-régression
+### 2.8 `alerts` — le terminal sait attirer l'attention
+
+Douze panneaux qu'il faut balayer des yeux couvraient la surveillance
+active ; la passive demande l'inverse — que le terminal prévienne.
+`AlertEngine` évalue cinq règles dans la boucle d'observation du hub
+(1 s), toutes nourries par ce que le hub tient déjà, sans aucune
+connexion nouvelle :
+
+- **seuils de cours** posés par l'utilisateur — le sens (au-dessus,
+  au-dessous) est figé à la pose par rapport au cours du moment, ou au
+  dernier connu : poser un seuil n'exige pas un flux vivant à l'instant
+  du clic. Un seuil qui sonne se désarme, et ne se réarme que quand le
+  cours s'en écarte de 0,2 % de l'autre côté — sans cette hystérésis,
+  un cours qui oscille sur le seuil sonnerait en rafale ;
+- **rafale de liquidations** — notionnel liquidé sur 5 minutes au-delà
+  du seuil ;
+- **financement extrême** — |taux par 8 h| au-delà du seuil ;
+- **news à fort score** — un article jamais vu atteint le seuil ; la
+  première lecture arme sans sonner, sans quoi chaque démarrage
+  rejouerait les gros titres de la veille ;
+- **écart d'arbitrage** — meilleur net du balayage au-delà du seuil.
+
+Les règles d'état sonnent sur le **front montant** et pas avant un
+délai de garde de 10 minutes : une condition qui dure ne sonne qu'une
+fois, une condition qui clignote ne sonne pas en rafale. Les contrôles
+qui coûtent (financement en cache REST, lecture SQLite des news) ne
+tournent qu'à la minute. Chaque sonnerie part au journal (§2.7) — la
+relecture d'une séance inclut ce qui a sonné.
+
+Le moteur ne connaît pas Dash : il reçoit le hub en paramètre, comme
+les fonctions de rendu des panneaux, et `tests/test_alerts.py` le
+déroule au temps simulé sur un hub factice — hystérésis, fronts,
+cadences, journalisation, et la normalisation des réglages venus du
+localStorage. Le test garde aussi la normalisation contre un bug
+réellement rencontré : une copie superficielle des défauts partageait
+la liste des seuils, et le premier seuil posé mutait les réglages par
+défaut de tout le processus.
+
+Côté interface, le panneau ALERTES (onglet de la cellule news) affiche
+les sonneries et les réglages, qui vivent dans un Store persisté et
+réarment le moteur au chargement ; la cloche du bandeau compte la
+dernière heure ; un bip et une notification navigateur (permission
+demandée d'un geste) partent d'un callback clientside sur le fil global
+— la sonnerie retentit même panneau replié, et un rechargement ne
+rejoue rien.
+
+### 2.9 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
@@ -394,6 +447,7 @@ terminal/
     ├── onchain.py       hashrate, difficulté, mempool
     ├── news.py          fil de news + Fear & Greed
     ├── calendar.py      échéances macro : FOMC, CPI, NFP, PCE
+    ├── alerts.py        sonneries et réglages du moteur d'alertes
     └── macro.py         cours contre masse monétaire M2
 ```
 
@@ -403,6 +457,7 @@ terminal/
 │         │                  ├─────────────────┤
 │  prix   │                  │                 │
 │         │                  │ NEWS  CALENDRIER│
+│         │                  │      ALERTES    │
 │         ├──────────────────┤                 │
 │         │ ETF   PERPÉTUEL  │                 │
 │         ├──────────────────┴─────────────────┤
@@ -1009,7 +1064,7 @@ panneaux ». Les étapes ci-dessous sont ordonnées : chacune réduit le coût d
 suivante.
 
 **Où en est-on.** Les cinq étapes sont faites — socle extrait, couche de rendu
-tranchée, données mutualisées, doublons supprimés, couverture complète : douze
+tranchée, données mutualisées, doublons supprimés, couverture complète : treize
 panneaux couvrent le prix, la liquidité, l'arbitrage, les liquidations, les
 flux ETF, le marché à terme, les news, le calendrier macro, la macro, la
 dominance et la chaîne. La piste de confort laissée ouverte à la pause
@@ -1023,7 +1078,7 @@ repli (§3.10). La feuille de route est soldée.
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.8) :
+scripts y sont ramenés, sans changement de comportement (§2.9) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -1174,11 +1229,11 @@ sentir, aucun ne conditionnant les autres.
 
 **Pour la surveillance :**
 
-- **Alertes** — le terminal montre tout mais ne prévient de rien : pas de
-  seuil de prix, pas de signal sur une rafale de liquidations, un financement
-  extrême ou une news à fort score. Or l'usage énoncé comprend la
-  surveillance passive : une station qui sait attirer l'attention quand on ne
-  la regarde pas ferait mieux que douze panneaux qu'il faut balayer des yeux.
+- ~~**Alertes**~~ — fait : `btcterm/alerts.py` (§2.8) évalue cinq règles
+  dans la boucle d'observation — seuils de cours posés par l'utilisateur,
+  rafale de liquidations, financement extrême, news à fort score, écart
+  d'arbitrage — et le panneau ALERTES les règle et les affiche ; cloche au
+  bandeau, bip et notification navigateur, sonneries journalisées.
 - ~~**Historique des données éphémères**~~ — fait : `btcterm/journal.py`
   (§2.7) écrit liquidations et épisodes d'arbitrage rentables dans
   `~/.btcterm/journal.db`, et `python -m btcterm.journal` relit la séance.
