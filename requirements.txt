@@ -15,6 +15,9 @@ dash>=2.14
 plotly>=5.18
 # canal push des panneaux rapides (WebSocket serveur → navigateur)
 flask-sock>=0.7
+# facultatif : le régime service — gunicorn sert le terminal en
+# continu sous systemd (terminal/wsgi.py)
+gunicorn>=23
 
 # ── Flux temps réel (carnets, arbitrage) ────────────────────
 websockets>=12.0

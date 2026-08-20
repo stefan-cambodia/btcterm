@@ -44,6 +44,11 @@ cli = [
     "rich>=13.0",
     "tabulate>=0.9",
 ]
+# Le régime service : gunicorn sert le terminal en continu, derrière
+# l'unité systemd décrite par terminal/systemd_service.conf.
+serve = [
+    "gunicorn>=23",
+]
 
 [project.scripts]
 btcterm = "terminal.app:main"

@@ -70,6 +70,7 @@ et la liste de ce qui manque encore sont en
 │   ├── app.py                     grille, horloges, bandeau, plein écran,
 │   │                              disposition configurable
 │   ├── push.py                    canal push des panneaux rapides (§3.10)
+│   ├── wsgi.py                    fabrique gunicorn du régime service (§3.11)
 │   ├── theme.py                   palette et styles
 │   ├── charts.py                  figures Plotly
 │   ├── assets/                    CSS et JS servis au navigateur
@@ -434,6 +435,7 @@ SSH, ce qui écartait à la fois une interface texte et une application Qt.
 terminal/
 ├── app.py           grille, disposition, horloges, bandeau, point d'entrée
 ├── push.py          canal push des panneaux rapides (§3.10)
+├── wsgi.py          fabrique gunicorn du régime service (§3.11)
 ├── theme.py         palette et styles partagés
 ├── charts.py        constructeurs de figures Plotly
 └── panels/          un module par panneau
@@ -820,6 +822,46 @@ l'écran, `ui_smoke.py` contrôle le canal dans un vrai Firefox : le badge passe
 — qui ne peut arriver que par le canal, le callback du carnet ne lisant
 `expanded` qu'en State — fait bien passer le carnet de 8 à 20 niveaux.
 
+### 3.11 Le régime service : gunicorn et systemd
+
+Le terminal a deux régimes de lancement. À la main, `btcterm` sert
+l'application sur le serveur de développement de Flask (Werkzeug) — le bon
+outil pour une session : un processus, Ctrl-C pour finir. Pour un terminal
+qui tourne en continu — toujours prêt derrière son tunnel SSH, journal et
+alertes couvrant la séance entière sans navigateur ouvert — Werkzeug n'est
+pas pensé pour des semaines de fonctionnement, et gunicorn prend le relais :
+
+```bash
+gunicorn --workers 1 --threads 32 --bind 127.0.0.1:8050 'terminal.wsgi:build()'
+```
+
+`terminal/wsgi.py` expose la fabrique. Elle lit sa configuration dans
+l'environnement — `BTCTERM_NO_NEWS`, `BTCTERM_NO_JOURNAL`,
+`CRYPTOPANIC_API_KEY`, les mêmes options que l'argv de la CLI, une unité
+systemd n'ayant pas d'argv commode —, démarre le hub dans le worker et
+confie son arrêt à `atexit` : le SIGTERM de systemd clôt le journal comme
+un Ctrl-C. Deux choix structurants :
+
+- **un seul worker, impérativement** — tout l'état du terminal vit en
+  mémoire dans le hub ; un deuxième worker ouvrirait sa propre grappe de
+  connexions aux plateformes et servirait les navigateurs depuis des états
+  divergents. La concurrence vient des threads du worker, pas des
+  processus ;
+- **des workers threadés, et non gunicorn + gevent** comme la feuille de
+  route l'envisageait : le monkey-patching de gevent transformerait les
+  threads du hub en greenlets et se disputerait la main avec la boucle
+  asyncio des connecteurs. flask-sock supporte les workers sync threadés ;
+  chaque WebSocket `/push` occupant un thread pour la durée de la
+  connexion, le compte est pris large (32).
+
+`terminal/systemd_service.conf` donne, en commentaires à adapter comme le
+gabarit de la collecte de news, l'unité utilisateur `btcterm.service` —
+`Restart=on-failure`, et `loginctl enable-linger` pour survivre à la
+déconnexion. gunicorn est l'extra `serve` du paquet
+(`pip install -e '.[serve]'`). `tests/test_wsgi.py` éprouve la fabrique
+sans réseau ni gunicorn : la traduction de l'environnement en arguments du
+hub, le démarrage, l'arrêt enregistré, la route `/push` posée.
+
 ## 4. Patrons transverses
 
 ### 4.1 Deux modèles d'acquisition de données
@@ -1022,7 +1064,7 @@ dépendance à une bibliothèque de rendu.
 
 | Emplacement | Contenu | Utilisé par |
 |---|---|---|
-| `venv/` (racine, Python 3.14) | l'ensemble de `requirements.txt` : pandas, numpy, requests, dash, plotly, websockets, rich, lxml, beautifulsoup4, tabulate, feedparser | le terminal et tous les outils |
+| `venv/` (racine, Python 3.14) | l'ensemble de `requirements.txt` : pandas, numpy, requests, dash, plotly, gunicorn, websockets, rich, lxml, beautifulsoup4, tabulate, feedparser | le terminal et tous les outils |
 | `news/.venv` (optionnel, créé par `setup.fish`) | feedparser, requests | usage isolé du tracker |
 
 Un `requirements.txt` à la racine déclare l'ensemble des dépendances, regroupées
@@ -1049,7 +1091,8 @@ Trois choix y sont commentés :
   inspectant la wheel ;
 - les dépendances du projet sont **celles du terminal** ; `rich` et
   `tabulate`, qui ne servent qu'aux outils en ligne de commande, sont dans
-  l'extra `cli` (`pip install -e '.[cli]'`).
+  l'extra `cli` (`pip install -e '.[cli]'`), et `gunicorn`, qui ne sert
+  qu'au régime service (§3.11), dans l'extra `serve`.
 
 Les scripts restent lançables sans installation : ils trouvent `btcterm/`
 parce que Python ajoute le répertoire du script au chemin d'import, et les
@@ -1246,14 +1289,15 @@ sentir, aucun ne conditionnant les autres.
   et liquidations injectées, et `test_terminal_wiring` vérifie la route
   `/push` et ses relais d'état (§3.10). Plus aucune pièce du terminal n'est
   sans test exécutable hors ligne.
-- **Serveur de développement** — le terminal tourne sur le serveur Werkzeug
-  de Flask, suffisant pour un poste personnel mais pas pensé pour des
-  semaines de fonctionnement continu. Si un usage long le justifie, un
-  serveur WSGI qui parle WebSocket (gunicorn + gevent) est le remplacement
-  propre — flask-sock les supporte tous deux.
-- **Service utilisateur** — la collecte de news a son gabarit de timer
-  systemd (`news/systemd_timer.conf`), le terminal lui-même n'a pas d'unité :
-  il se lance à la main à chaque session.
+- ~~**Serveur de développement**~~ — fait, avec le service utilisateur
+  ci-dessous qui constituait justement l'usage long attendu (§3.11) :
+  `terminal/wsgi.py` donne sa fabrique à gunicorn — un worker unique,
+  threadé plutôt que gevent, dont le monkey-patching se disputerait la
+  main avec la boucle asyncio des connecteurs — et l'extra `serve`
+  l'installe.
+- ~~**Service utilisateur**~~ — fait : `terminal/systemd_service.conf`
+  donne l'unité `btcterm.service` sur le modèle du gabarit de la collecte
+  de news, configurée par variables d'environnement (§3.11).
 
 **À trancher :**
 

@@ -22,6 +22,11 @@ btcterm                   # ou : python -m terminal.app
 ssh -L 8050:localhost:8050 <machine>
 ```
 
+En continu — un service utilisateur systemd qui sert le terminal par
+gunicorn, journal et alertes couvrant alors la séance entière sans
+navigateur ouvert : gabarit dans `terminal/systemd_service.conf`, fabrique
+dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
+
 ## Les panneaux
 
 | Panneau | Contenu | Rafraîchissement |
@@ -225,7 +230,8 @@ comprise.
 
 `pip install -e .` installe la commande **`btcterm`** avec les seules
 dépendances du terminal ; l'extra `cli` (`pip install -e '.[cli]'`) ajoute
-celles des outils en ligne de commande. `requirements.txt` reste la référence
+celles des outils en ligne de commande, l'extra `serve` celle du service
+continu — gunicorn, voir « Lancement ». `requirements.txt` reste la référence
 groupée par usage : pour n'installer qu'une partie, il suffit de reprendre le
 bloc concerné — le socle `btcterm/` ne demande que `pandas`, `numpy` et
 `requests`.
@@ -251,6 +257,7 @@ python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node
 python tests/test_push.py                # pousseur WebSocket, sans navigateur
 python tests/test_journal.py             # journal : événements, épisodes, rétention
 python tests/test_alerts.py              # alertes : seuils, fronts, cadences
+python tests/test_wsgi.py                # fabrique gunicorn du régime service
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
@@ -286,8 +293,11 @@ dans le journal au temps simulé — l'épisode ne s'écrit qu'une fois clos, et
 test ne pouvait pas attendre 30 secondes de grâce en temps réel. Le dixième
 fait de même pour les alertes — hystérésis d'un seuil de cours, front
 montant sous délai de garde, cadence des contrôles coûteux : rien de tout
-cela ne se constate en regardant l'écran au bon moment. Aucun des dix ne
-touche au réseau.
+cela ne se constate en regardant l'écran au bon moment. Le onzième éprouve
+la fabrique WSGI du régime service : l'environnement d'une unité systemd
+traduit en arguments du hub, le démarrage, l'arrêt confié à `atexit`, la
+route `/push` posée — une variable mal lue ne se verrait qu'en production.
+Aucun des onze ne touche au réseau.
 
 `ui_smoke.py` est à part : il pilote Firefox pour contrôler ce qui ne se voit
 qu'à l'écran — cellules posées, bouton visible et sans recouvrement, bascule
