@@ -463,6 +463,12 @@ def run(capture_dir: Path | None, url: str = URL, lwc: bool = False) -> int:
             if pose:
                 break
         check("poser un seuil crée sa puce", pose)
+        if pose and lwc:
+            # Le seuil posé gagne sa ligne sur le graphique prix — le
+            # relais alert-config → lwcPrice.alerts.
+            check("le seuil se trace sur le graphique prix", browser.wait_for(
+                "window.lwcPrice && window.lwcPrice.debug()"
+                " && window.lwcPrice.debug().alerts >= 1", timeout=6))
         if pose:
             browser.js("""
                 const chips = document.getElementById('alert-price-chips');
@@ -551,6 +557,14 @@ def run(capture_dir: Path | None, url: str = URL, lwc: bool = False) -> int:
         check("le carnet retrouve Kraken", browser.js(
             "return (document.querySelector('#book-exchange label.selected')"
             " || {}).textContent;") == "KRK")
+        if lwc:
+            # L'intervalle 4h choisi plus haut est persisté : le rendu
+            # LWC doit le restaurer et recharger sa série avec.
+            check("le panneau prix restaure son intervalle (4h)",
+                  browser.wait_for(
+                      "window.lwcPrice && !!window.lwcPrice.debug()"
+                      " && window.lwcPrice.debug().interval === '4h'"
+                      " && window.lwcPrice.debug().bars > 200", timeout=15))
 
         print("\nDisposition configurable")
         # Déménager le calendrier de la cellule news vers la rangée basse,

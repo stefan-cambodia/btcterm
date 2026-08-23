@@ -137,6 +137,7 @@ def _body():
                       data={"theme": C, "mono": MONO, "intervals": INTERVALS}),
             dcc.Store(id="lwc-sink"),
             dcc.Store(id="lwc-poll-sink"),
+            dcc.Store(id="lwc-alert-sink"),
         ], style={"flex": "1", "minHeight": "0", "display": "flex",
                   "flexDirection": "column"})
     return dcc.Graph(
@@ -238,4 +239,21 @@ def _register_lwc(app):
         """,
         Output("lwc-poll-sink", "data"),
         Input("tick-slow", "n_intervals"),
+    )
+
+    # Les seuils de cours du panneau ALERTES gagnent une ligne dédiée
+    # sur le graphique — le Store alert-config est global et persisté,
+    # les lignes suivent chaque pose et retrait, restauration comprise.
+    app.clientside_callback(
+        """
+        function (config) {
+            if (window.lwcPrice) {
+                window.lwcPrice.alerts(
+                    (config && config.price_levels) || []);
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("lwc-alert-sink", "data"),
+        Input("alert-config", "data"),
     )

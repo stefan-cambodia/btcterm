@@ -153,6 +153,43 @@ def test_pousseur_branche():
     print("  ✓ route /push posée, relais d'état branchés")
 
 
+def test_regime_lwc_cable():
+    """Sous BTCTERM_LWC=1, le panneau prix version Lightweight Charts
+    est posé, branché et servi — et le régime par défaut n'y perd rien.
+
+    Même classe d'erreur que le panneau oublié : un drapeau qui monte un
+    div sans ses callbacks, ou des routes d'API absentes, laisserait un
+    panneau prix éternellement vide sans rien signaler au démarrage.
+    """
+    import os
+
+    os.environ["BTCTERM_LWC"] = "1"
+    try:
+        app = create_app(MarketHub(collect_news=False, keep_journal=False))
+        ids = collect_ids(app.layout)
+    finally:
+        del os.environ["BTCTERM_LWC"]
+    keys = " ".join(app.callback_map)
+
+    assert "price-lwc" in ids, "div du rendu LWC absent"
+    assert "price-chart" not in ids, "le rendu Plotly ne doit plus être posé"
+    assert "lwc-config" in ids, "Store de configuration absent"
+    for sink in ("lwc-sink", "lwc-poll-sink", "lwc-alert-sink"):
+        assert sink in ids, f"{sink} absent de la page"
+        assert f"{sink}." in keys, f"{sink} sans callback clientside"
+
+    rules = {rule.rule for rule in app.server.url_map.iter_rules()}
+    for route in ("/api/klines", "/api/profile", "/push"):
+        assert route in rules, f"route {route} absente"
+
+    #: Et les routes d'API existent aussi dans le régime par défaut :
+    #: elles ne dépendent pas du drapeau, seul le rendu en dépend.
+    default_rules = {rule.rule for rule in APP.server.url_map.iter_rules()}
+    assert "/api/klines" in default_rules
+    assert "price-chart" in APP_IDS and "price-lwc" not in APP_IDS
+    print("  ✓ régime LWC : div posé, trois relais branchés, routes servies")
+
+
 def test_entete_branche():
     for component_id in ("hdr-price", "hdr-change", "hdr-spread", "hdr-status"):
         assert component_id in APP_IDS, f"{component_id} absent de l'en-tête"

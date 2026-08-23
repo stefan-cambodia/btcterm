@@ -202,6 +202,7 @@
         state.series = series;
         buildLegend(styles);
         buildBanner();
+        updateAlertLines();
 
         // Profil de volume : un canvas en surimpression à droite du
         // pane du cours, recalculé sur la plage visible (le VPVR de
@@ -352,6 +353,34 @@
         }
     }
 
+    // ── Seuils d'alerte ─────────────────────────────────────
+
+    // Les seuils de cours posés depuis le panneau ALERTES, tracés sur
+    // le graphique — cyan tireté long, distinct du POC jaune. Les
+    // niveaux sont en dollars ; la conversion suit la devise affichée.
+    function updateAlertLines() {
+        var series = state.series;
+        if (!series) { return; }
+        (state.alertLines || []).forEach(function (line) {
+            series.candles.removePriceLine(line);
+        });
+        state.alertLines = [];
+        var theme = state.conf.theme;
+        var rate = (state.cfg.currency === "EUR" && state.packet)
+            ? state.packet.eur_rate : 1;
+        var LS = LightweightCharts.LineStyle;
+        (state.alertLevels || []).forEach(function (item) {
+            state.alertLines.push(series.candles.createPriceLine({
+                price: item.level * rate,
+                color: theme.cyan,
+                lineWidth: 1,
+                lineStyle: LS.LargeDashed,
+                axisLabelVisible: true,
+                title: "⚠ " + (item.dir === "above" ? "≥" : "≤")
+            }));
+        });
+    }
+
     function buildBanner() {
         var theme = state.conf.theme;
         var div = document.createElement("div");
@@ -427,6 +456,9 @@
             drawProfile();
             scheduleProfile();
         }
+        // Les lignes portent des prix en unités de série : la bascule
+        // de devise les reprend au taux.
+        updateAlertLines();
     }
 
     // Traduit les signaux gradués du serveur (-2 à +2) en flèches :
@@ -558,6 +590,13 @@
         configure: function (cfg, conf) {
             var el = document.getElementById("price-lwc");
             if (!el || !window.LightweightCharts || !conf) { return; }
+
+            // Un localStorage d'avant un renommage peut restaurer un
+            // intervalle que le serveur ne connaît plus : retomber sur
+            // le quotidien plutôt que d'échouer en silence.
+            if (!(conf.intervals || {})[cfg.interval]) {
+                cfg.interval = "1d";
+            }
 
             var previous = state.cfg;
             var rebuilt = false;
@@ -716,6 +755,17 @@
             if (state.chart && state.packet) { refetch(false); }
         },
 
+        // Les seuils de cours du panneau ALERTES, relayés par le Store
+        // alert-config (panels/price.py) : retenus même sans graphique
+        // — ils seront tracés au prochain montage.
+        alerts: function (levels) {
+            state.alertLevels = (levels || []).filter(function (item) {
+                return item && typeof item.level === "number"
+                    && item.level > 0;
+            });
+            updateAlertLines();
+        },
+
         // Repli poll : appelé par tick-slow (panels/price.py) ; ne fait
         // rien tant que le canal push tient.
         poll: function () {
@@ -748,6 +798,7 @@
                 exhausted: state.exhausted,
                 panes: state.chart.panes().length,
                 signals: (state.packet.signals || []).length,
+                alerts: (state.alertLevels || []).length,
                 profile: state.profileData
                     ? {poc: state.profileData.poc,
                        vaLow: state.profileData.va_low,
