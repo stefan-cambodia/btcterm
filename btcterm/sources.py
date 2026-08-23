@@ -93,15 +93,24 @@ def fetch_klines(
     interval: str = "1d",
     limit: int = 350,
     index: bool = False,
+    end_time: Optional[int] = None,
 ) -> pd.DataFrame:
     """Chandeliers OHLCV depuis l'API publique Binance.
 
     `index=False` retourne une colonne `time` et un index entier ;
     `index=True` indexe le DataFrame par l'horodatage d'ouverture.
+
+    `end_time` (millisecondes epoch) borne la fin de la série : Binance
+    renvoie alors les `limit` dernières bougies ouvertes au plus tard à
+    cet instant — c'est la pagination vers le passé du panneau prix.
     """
+    params: dict[str, Any] = {"symbol": symbol, "interval": interval,
+                              "limit": limit}
+    if end_time is not None:
+        params["endTime"] = int(end_time)
     response = requests.get(
         f"{BINANCE_REST}/klines",
-        params={"symbol": symbol, "interval": interval, "limit": limit},
+        params=params,
         timeout=12,
     )
     response.raise_for_status()

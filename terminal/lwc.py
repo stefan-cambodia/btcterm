@@ -20,10 +20,15 @@ chaînes pour décider ce qui repart.
 from __future__ import annotations
 
 import pandas as pd
+from flask import jsonify, request
+
+from btcterm import sources
+
+from .charts import prepare_price_frame
 
 __all__ = ["OVERLAY_COLUMNS", "PANE_COLUMNS", "VOLUME_MA_COLUMN",
            "frame_to_bars", "frame_to_lines", "frame_to_volume",
-           "serialize_price_frame"]
+           "serialize_price_frame", "register_api"]
 
 #: Indicateurs tracés par-dessus le cours, dans l'ordre où le client les
 #: pose. Les noms sont les colonnes de `prepare_price_frame` — le client
@@ -129,3 +134,68 @@ def serialize_price_frame(df: pd.DataFrame) -> dict:
             VOLUME_MA_COLUMN, []),
         "demo": bool(df.attrs.get("demo", False)),
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# Route d'historique
+# ─────────────────────────────────────────────────────────────
+
+#: Marge de bougies chargées en amont d'une page d'historique : la MA 200
+#: — la plus longue fenêtre du panneau — est ainsi juste dès la première
+#: bougie servie, au lieu de mettre 200 bougies à converger sur chaque
+#: page. La marge est tronquée après calcul, jamais renvoyée.
+WARMUP_BARS = 200
+
+#: Bornes de la taille de page — Binance plafonne `/api/v3/klines` à 1000.
+PAGE_MAX = 1000
+PAGE_DEFAULT = 365
+
+
+def register_api(app, hub) -> None:
+    """Pose `GET /api/klines` sur le serveur Flask de Dash.
+
+        /api/klines?interval=1h&limit=350           les N dernières bougies
+        /api/klines?interval=1h&limit=350&before=T  la page antérieure à T
+
+    `before` est en secondes epoch UTC — le `time` des barres servies —
+    et la page rendue s'arrête strictement avant lui : c'est la clé du
+    chargement à la volée au pan. Sans `before`, la série passe par
+    `hub.klines()` et son repli de démonstration (champ `demo` du JSON) ;
+    avec, par le cache d'historique du hub, et une page injoignable ou
+    épuisée revient simplement vide.
+    """
+
+    @app.server.get("/api/klines")
+    def _klines():
+        interval = request.args.get("interval", default="1d")
+        if interval not in sources.KLINE_FREQ:
+            return jsonify({"error": f"intervalle inconnu : {interval}"}), 400
+        limit = request.args.get("limit", type=int) or PAGE_DEFAULT
+        limit = max(1, min(limit, PAGE_MAX))
+        before = request.args.get("before", type=int)
+
+        if before is None:
+            df = hub.klines(interval, limit=limit)
+        else:
+            # endTime est inclusif sur l'heure d'ouverture : la borne à
+            # `before - 1 ms` exclut la bougie que le client tient déjà.
+            df = hub.klines_history(interval, before * 1000 - 1,
+                                    limit + WARMUP_BARS)
+
+        if df.empty:
+            frame = pd.DataFrame(columns=["time"] + sources.OHLCV_COLUMNS)
+            payload = serialize_price_frame(prepare_price_frame(
+                frame.astype({c: float for c in sources.OHLCV_COLUMNS})))
+        else:
+            prepared = prepare_price_frame(df)
+            if before is not None:
+                cutoff = pd.Timestamp(before, unit="s")
+                prepared = (prepared[prepared["time"] < cutoff]
+                            .iloc[-limit:])
+            payload = serialize_price_frame(prepared)
+
+        payload["interval"] = interval
+        # Le taux voyage avec les données : basculer $/€ est une
+        # multiplication côté client, jamais un refetch.
+        payload["eur_rate"] = float(hub.eur_rate())
+        return jsonify(payload)

@@ -80,6 +80,10 @@ class MarketHub:
 
     #: Durées de vie des caches, en secondes.
     TTL_KLINES = 5
+    #: Une page d'historique antérieur est close : ses bougies ne
+    #: changeront plus jamais. Une heure de cache borne juste la mémoire
+    #: quand on remonte loin, sans coût de fraîcheur.
+    TTL_KLINES_HISTORY = 3600
     TTL_TICKER = 5
     TTL_EUR = 3600
     TTL_ETF = 1800
@@ -242,6 +246,28 @@ class MarketHub:
             )
         except Exception:
             return sources.generate_demo_ohlcv(limit, interval=interval, index=False)
+
+    def klines_history(
+        self, interval: str, end_ms: int, limit: int = 350
+    ) -> pd.DataFrame:
+        """Page d'historique antérieur : les `limit` bougies ouvertes au
+        plus tard à `end_ms` (millisecondes epoch).
+
+        C'est le lazy-loading du panneau prix qui appelle ici, au pan
+        vers le passé. Pas de repli de démonstration : une page qui
+        manque parce que la source est injoignable — ou parce que
+        l'historique est épuisé — revient vide, et le client cesse
+        simplement de demander plus ancien.
+        """
+        try:
+            return self._cache.get(
+                f"klines:{interval}:{limit}:{int(end_ms)}",
+                self.TTL_KLINES_HISTORY,
+                lambda: sources.fetch_klines(
+                    self.symbol, interval, limit, end_time=int(end_ms)),
+            )
+        except Exception:
+            return pd.DataFrame(columns=["time"] + sources.OHLCV_COLUMNS)
 
     def ticker(self) -> dict:
         return self._cache.get(

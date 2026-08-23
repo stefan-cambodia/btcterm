@@ -30,7 +30,7 @@ from dash import ALL, Input, Output, State, dcc, html
 
 from btcterm.hub import MarketHub
 
-from . import push
+from . import lwc, push
 from .panels import (PANELS, alerts, arbitrage, calendar, dominance, etf,
                      liquidations, macro, news, onchain, orderbook, perp,
                      price)
@@ -371,6 +371,7 @@ def create_app(hub: MarketHub) -> dash.Dash:
     _register_expanded(app)
     _register_layout_dialog(app)
     push.register(app, hub)
+    lwc.register_api(app, hub)
 
     @app.callback(
         Output("hdr-price", "children"),
