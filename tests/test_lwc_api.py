@@ -147,6 +147,64 @@ def test_historique_epuise_page_vide():
     print("  ✓ historique épuisé ou source en panne : page vide, statut 200")
 
 
+def test_profil_fenetre_sur_la_plage():
+    """`/api/profile` calcule sur la tranche demandée, pas sur la série :
+    deux fenêtres différentes donnent deux profils différents, chacun
+    borné aux prix réellement parcourus dans sa fenêtre."""
+    web = client()
+    epoch = DB["time"].astype("int64") // 10**9
+
+    def profil(i_debut, i_fin):
+        reponse = web.get("/api/profile", query_string={
+            "interval": "1h",
+            "from": int(epoch.iloc[i_debut]), "to": int(epoch.iloc[i_fin])})
+        assert reponse.status_code == 200
+        return reponse.get_json()
+
+    recent = profil(-200, -1)
+    ancien = profil(-1200, -1001)
+
+    for page, (i_debut, i_fin) in ((recent, (-200, -1)),
+                                   (ancien, (-1200, -1001))):
+        tranche = DB.iloc[i_debut:i_fin if i_fin != -1 else None]
+        assert len(page["centers"]) == len(page["volumes"])
+        assert tranche["low"].min() <= page["poc"] <= tranche["high"].max()
+        assert page["va_low"] <= page["poc"] <= page["va_high"]
+    assert recent["poc"] != ancien["poc"], "deux fenêtres, deux profils"
+    print("  ✓ profil borné à sa fenêtre, POC dans la Value Area, fenêtres distinctes")
+
+
+def test_profil_bornes_et_tranche_vide():
+    web = client()
+    #: Paramètres refusés : intervalle inconnu, bornes absentes ou inversées.
+    assert web.get("/api/profile?interval=7m&from=1&to=2").status_code == 400
+    assert web.get("/api/profile?interval=1h").status_code == 400
+    assert web.get("/api/profile?interval=1h&from=9&to=3").status_code == 400
+
+    #: Une plage sans aucune bougie — avant le début de la base — se dit
+    #: vide au lieu de lever.
+    debut = int(DB["time"].iloc[0].value // 10**9)
+    page = web.get("/api/profile", query_string={
+        "interval": "1h", "from": debut - 9_000, "to": debut - 3_600,
+    }).get_json()
+    assert page.get("empty") is True
+    print("  ✓ paramètres hostiles refusés, tranche vide dite vide")
+
+
+def test_profil_repli_demo():
+    """Hors ligne, le profil se rabat sur la dernière page du hub — la
+    série de démonstration — et le dit."""
+    web = client(fetch=panne_reseau)
+    serie = get(web, interval="1h")
+    page = web.get("/api/profile", query_string={
+        "interval": "1h",
+        "from": serie["bars"][0]["time"], "to": serie["bars"][-1]["time"],
+    }).get_json()
+    assert page["demo"] is True
+    assert page.get("centers"), "le repli doit quand même profiler"
+    print("  ✓ hors ligne : profil sur la série de démonstration, drapeau levé")
+
+
 def test_parametres_hostiles():
     web = client()
     assert web.get("/api/klines?interval=7m").status_code == 400

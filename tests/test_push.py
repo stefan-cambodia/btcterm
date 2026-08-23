@@ -124,7 +124,7 @@ def test_cible_prix_mutation_memoisee():
 
     #: Une mutation, pas une série : un seul bar, un point par indicateur.
     assert set(paquet) == {"interval", "bar", "volume", "overlays",
-                           "panes", "volume_ma", "demo"}
+                           "panes", "volume_ma", "signal", "demo"}
     assert paquet["interval"] == "1h"
     assert paquet["bar"]["time"] == int(
         db["time"].iloc[-1].value // 1_000_000_000)

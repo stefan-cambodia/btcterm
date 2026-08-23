@@ -222,6 +222,30 @@ def run(capture_dir: Path | None, url: str = URL, lwc: bool = False) -> int:
                       recharge and apres["exhausted"],
                       f"{apres['bars']} bougies, exhausted={apres['exhausted']}")
 
+            # Signaux et profil de volume fenêtré (case PROFIL cochée
+            # par défaut) : le profil suit la plage visible.
+            check("des signaux posés sur les chandeliers",
+                  apres["signals"] > 0, f"{apres['signals']} signaux")
+            check("le profil de la plage visible est calculé",
+                  browser.wait_for("!!window.lwcPrice.debug().profile",
+                                   timeout=10))
+            p1 = browser.js("return window.lwcPrice.debug().profile;")
+            fenetre = browser.js("return window.lwcPrice.debug().range;")
+            browser.js("window.lwcPrice.pan(%f, %f);"
+                       % (fenetre["to"] - 40, fenetre["to"]))
+            change = browser.wait_for(
+                "(function (p) {"
+                f" return p && (p.poc !== {p1['poc']}"
+                f" || p.vaLow !== {p1['vaLow']}"
+                f" || p.vaHigh !== {p1['vaHigh']}); }})"
+                "(window.lwcPrice.debug().profile)", timeout=10)
+            p2 = browser.js("return window.lwcPrice.debug().profile;")
+            check("le profil change avec la fenêtre visible", change,
+                  f"POC {p1['poc']} → {p2 and p2['poc']}")
+            browser.js("window.lwcPrice.pan(%f, %f);"
+                       % (fenetre["from"], fenetre["to"]))
+            time.sleep(1)
+
         print("\nBascule plein écran")
         if capture_dir:
             browser.screenshot(str(capture_dir / "grille.png"))

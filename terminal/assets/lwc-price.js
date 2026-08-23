@@ -194,9 +194,21 @@
             panes[i].setStretchFactor(70);
         }
 
+        // Signaux BUY/SELL : des flèches sur les chandeliers, taille
+        // selon la force du signal — le pendant natif des marqueurs
+        // Plotly.
+        series.markers = LWC.createSeriesMarkers(series.candles, []);
+
         state.series = series;
         buildLegend(styles);
         buildBanner();
+
+        // Profil de volume : un canvas en surimpression à droite du
+        // pane du cours, recalculé sur la plage visible (le VPVR de
+        // TradingView) — la case PROFIL de la barre de titre le tient.
+        if (extras.indexOf("profile") !== -1) {
+            buildProfile();
+        }
 
         // L'historique se charge au pan, comme sur tradingview.com :
         // approcher du début des données déclenche la page antérieure.
@@ -222,6 +234,124 @@
         state.legend = div;
     }
 
+    // ── Profil de volume ────────────────────────────────────
+
+    function buildProfile() {
+        var canvas = document.createElement("canvas");
+        canvas.className = "lwc-profile";
+        state.el.appendChild(canvas);
+        state.profileCanvas = canvas;
+        state.profileData = null;
+        state.profileTimer = null;
+
+        // La plage visible bouge : redessiner tout de suite avec le
+        // profil en main (le pan vertical déplace les prix à l'écran),
+        // et redemander le profil de la nouvelle plage après une pause
+        // — pas une requête par frame de pan.
+        state.chart.timeScale().subscribeVisibleTimeRangeChange(
+            function () {
+                drawProfile();
+                scheduleProfile();
+            });
+    }
+
+    function scheduleProfile() {
+        if (!state.profileCanvas) { return; }
+        if (state.profileTimer) { clearTimeout(state.profileTimer); }
+        state.profileTimer = setTimeout(fetchProfile, 300);
+    }
+
+    function fetchProfile() {
+        if (!state.chart || !state.packet || !state.profileCanvas) {
+            return;
+        }
+        var range = state.chart.timeScale().getVisibleRange();
+        if (!range) { return; }
+        var interval = state.cfg.interval;
+        var seq = state.seq;
+        fetch("/api/profile?interval=" + encodeURIComponent(interval)
+              + "&from=" + Math.floor(range.from)
+              + "&to=" + Math.ceil(range.to))
+            .then(function (r) { return r.json(); })
+            .then(function (profile) {
+                if (seq !== state.seq || !state.chart
+                        || !state.profileCanvas
+                        || profile.interval !== state.cfg.interval) {
+                    return;
+                }
+                state.profileData = profile.empty ? null : profile;
+                updateProfileLines();
+                drawProfile();
+            })
+            .catch(function () { /* le prochain mouvement retentera */ });
+    }
+
+    // POC et Value Area : des lignes de prix sur les chandeliers,
+    // étiquetées sur l'axe — elles suivent le profil visible.
+    function updateProfileLines() {
+        var series = state.series;
+        if (!series) { return; }
+        (state.profileLines || []).forEach(function (line) {
+            series.candles.removePriceLine(line);
+        });
+        state.profileLines = [];
+        var profile = state.profileData;
+        if (!profile) { return; }
+        var theme = state.conf.theme;
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var LS = LightweightCharts.LineStyle;
+        [[profile.poc, "POC", 2, LS.Dashed],
+         [profile.va_high, "VAH", 1, LS.Dotted],
+         [profile.va_low, "VAL", 1, LS.Dotted]]
+            .forEach(function (spec) {
+                state.profileLines.push(series.candles.createPriceLine({
+                    price: spec[0] * rate,
+                    color: theme.poc,
+                    lineWidth: spec[2],
+                    lineStyle: spec[3],
+                    axisLabelVisible: true,
+                    title: spec[1]
+                }));
+            });
+    }
+
+    function drawProfile() {
+        var canvas = state.profileCanvas;
+        if (!canvas || !state.chart || !state.series) { return; }
+        var profile = state.profileData;
+        var paneHeight = state.chart.panes()[0].getHeight();
+        var scaleWidth = state.chart.priceScale("right").width();
+        var paneWidth = state.el.clientWidth - scaleWidth;
+        canvas.width = paneWidth;
+        canvas.height = paneHeight;
+        var ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, paneWidth, paneHeight);
+        if (!profile) { return; }
+
+        var theme = state.conf.theme;
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var maxVol = Math.max.apply(null, profile.volumes);
+        if (!(maxVol > 0)) { return; }
+        var maxLen = Math.round(paneWidth * 0.16);
+        var barHeight = Math.max(
+            2, Math.floor(paneHeight / profile.centers.length) - 1);
+
+        for (var i = 0; i < profile.centers.length; i += 1) {
+            var center = profile.centers[i];
+            var y = state.series.candles.priceToCoordinate(center * rate);
+            if (y === null || y < 0 || y > paneHeight) { continue; }
+            var len = Math.max(1,
+                Math.round(profile.volumes[i] / maxVol * maxLen));
+            ctx.fillStyle =
+                Math.abs(center - profile.poc) < profile.poc * 0.004
+                    ? theme.poc
+                    : (profile.va_low <= center && center <= profile.va_high)
+                        ? "rgba(0,212,170,0.45)"
+                        : "rgba(100,116,139,0.35)";
+            ctx.fillRect(paneWidth - len, y - barHeight / 2, len, barHeight);
+        }
+    }
+
     function buildBanner() {
         var theme = state.conf.theme;
         var div = document.createElement("div");
@@ -242,6 +372,13 @@
         state.banner = null;
         state.loading = false;
         state.exhausted = false;
+        state.profileCanvas = null;
+        state.profileData = null;
+        state.profileLines = [];
+        if (state.profileTimer) {
+            clearTimeout(state.profileTimer);
+            state.profileTimer = null;
+        }
         if (state.el) { state.el.textContent = ""; }
     }
 
@@ -280,9 +417,34 @@
         }
         if (series.rsi) { series.rsi.setData(packet.panes.rsi || []); }
         if (series.crsi) { series.crsi.setData(packet.panes.crsi || []); }
+        series.markers.setMarkers(markersFrom(packet.signals || []));
 
         state.banner.style.display = packet.demo ? "block" : "none";
         applyLog();
+
+        if (state.profileCanvas) {
+            updateProfileLines();
+            drawProfile();
+            scheduleProfile();
+        }
+    }
+
+    // Traduit les signaux gradués du serveur (-2 à +2) en flèches :
+    // achat sous la bougie, vente au-dessus, grande taille pour les
+    // signaux forts — la grammaire du panneau Plotly.
+    function markersFrom(signals) {
+        var theme = state.conf.theme;
+        return signals.map(function (s) {
+            return {
+                time: s.time,
+                position: s.value > 0 ? "belowBar" : "aboveBar",
+                shape: s.value > 0 ? "arrowUp" : "arrowDown",
+                color: s.value === 2 ? theme.buy
+                    : s.value === 1 ? theme.green
+                        : s.value === -1 ? theme.red : theme.sell,
+                size: Math.abs(s.value) === 2 ? 2 : 1
+            };
+        });
     }
 
     function applyLog() {
@@ -525,7 +687,26 @@
             if (series.crsi && update.panes.crsi) {
                 series.crsi.update(update.panes.crsi);
             }
+
+            // Le signal de la bougie courante peut naître, changer de
+            // grade ou s'éteindre tant qu'elle vit : la liste locale
+            // suit, les flèches aussi.
+            var signals = packet.signals || (packet.signals = []);
+            var lastSignal = signals.length
+                ? signals[signals.length - 1] : null;
+            if (lastSignal && lastSignal.time === update.bar.time) {
+                if (update.signal) { lastSignal.value = update.signal; }
+                else { signals.pop(); }
+                series.markers.setMarkers(markersFrom(signals));
+            } else if (update.signal) {
+                signals.push({time: update.bar.time, value: update.signal});
+                series.markers.setMarkers(markersFrom(signals));
+            }
+
             state.banner.style.display = update.demo ? "block" : "none";
+            // Une bougie qui clôture déplace le volume : le profil de
+            // la plage visible suit, au débit du debounce.
+            if (delta > 0 && state.profileCanvas) { scheduleProfile(); }
         },
 
         // Recalage : reconnexion du canal, retour d'onglet — les
@@ -549,8 +730,13 @@
         debug: function () {
             if (!state.chart || !state.packet) { return null; }
             var n = state.packet.bars.length;
-            var last = n ? state.series.candles.dataByIndex(n - 1) : null;
+            // Par .data(), pas dataByIndex(n-1) : après un chargement
+            // d'historique, les bougies préfixées prennent des indices
+            // logiques négatifs — la dernière ne vit plus à n-1.
+            var data = state.series.candles.data();
+            var last = data.length ? data[data.length - 1] : null;
             return {
+                range: state.chart.timeScale().getVisibleLogicalRange(),
                 interval: state.cfg.interval,
                 bars: n,
                 demo: !!state.packet.demo,
@@ -560,7 +746,14 @@
                 lastClose: last ? last.close : null,
                 firstTime: n ? state.packet.bars[0].time : null,
                 exhausted: state.exhausted,
-                panes: state.chart.panes().length
+                panes: state.chart.panes().length,
+                signals: (state.packet.signals || []).length,
+                profile: state.profileData
+                    ? {poc: state.profileData.poc,
+                       vaLow: state.profileData.va_low,
+                       vaHigh: state.profileData.va_high,
+                       bins: state.profileData.centers.length}
+                    : null
             };
         },
 

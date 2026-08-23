@@ -22,9 +22,10 @@ from __future__ import annotations
 import pandas as pd
 from flask import jsonify, request
 
+from btcterm import indicators as ind
 from btcterm import sources
 
-from .charts import prepare_price_frame
+from .charts import VOL_BINS, prepare_price_frame
 
 __all__ = ["OVERLAY_COLUMNS", "PANE_COLUMNS", "VOLUME_MA_COLUMN",
            "TAIL_BARS", "frame_to_bars", "frame_to_lines", "frame_to_volume",
@@ -118,13 +119,29 @@ def frame_to_volume(df: pd.DataFrame) -> list[dict]:
     ]
 
 
+def frame_to_signals(df: pd.DataFrame) -> list[dict]:
+    """Les signaux gradués non nuls, en `{time, value}`.
+
+    `value` est le grade de `ind.graded_signals` (-2 à +2) ; le client
+    le traduit en flèche, taille selon la force. Les zéros — l'immense
+    majorité des bougies — ne voyagent pas.
+    """
+    if "signal" not in df.columns:
+        return []
+    frame = _with_epoch(df, ["signal"]).dropna()
+    frame = frame[frame["signal"] != 0]
+    return [{"time": int(t), "value": int(s)}
+            for t, s in frame.itertuples(index=False)]
+
+
 def serialize_price_frame(df: pd.DataFrame) -> dict:
     """Le panneau prix entier, prêt pour `/api/klines` et le canal push.
 
     `df` est la sortie de `prepare_price_frame` ; le résultat regroupe
-    les barres, le volume et toutes les séries d'indicateurs, plus le
-    drapeau `demo` que le hub pose sur sa série de repli hors ligne —
-    le client s'en sert pour afficher le bandeau d'avertissement.
+    les barres, le volume, toutes les séries d'indicateurs et les
+    signaux, plus le drapeau `demo` que le hub pose sur sa série de
+    repli hors ligne — le client s'en sert pour afficher le bandeau
+    d'avertissement.
     """
     return {
         "bars": frame_to_bars(df),
@@ -133,6 +150,7 @@ def serialize_price_frame(df: pd.DataFrame) -> dict:
         "panes": frame_to_lines(df, PANE_COLUMNS),
         "volume_ma": frame_to_lines(df, (VOLUME_MA_COLUMN,)).get(
             VOLUME_MA_COLUMN, []),
+        "signals": frame_to_signals(df),
         "demo": bool(df.attrs.get("demo", False)),
     }
 
@@ -179,6 +197,7 @@ def tail_points(df: pd.DataFrame, interval: str) -> dict:
         "panes": {name: points[0] for name, points in lines.items()
                   if name in PANE_COLUMNS and points},
         "volume_ma": volume_ma[0] if volume_ma else None,
+        "signal": int(prepared["signal"].iloc[-1]),
         "demo": bool(df.attrs.get("demo", False)),
     }
 
@@ -263,3 +282,50 @@ def register_api(app, hub) -> None:
         # multiplication côté client, jamais un refetch.
         payload["eur_rate"] = float(hub.eur_rate())
         return jsonify(payload)
+
+    @app.server.get("/api/profile")
+    def _profile():
+        """Profil de volume de la plage visible — le VPVR de TradingView.
+
+        `from` et `to` en secondes epoch, bornes d'ouverture des bougies
+        incluses. Le calcul revient à `ind.volume_profile` sur la seule
+        tranche demandée : c'est ce fenêtrage qui fait dire au profil où
+        s'est échangé le volume *de ce qu'on regarde*, pas de toute la
+        série chargée.
+        """
+        interval = request.args.get("interval", default="1d")
+        if interval not in sources.KLINE_FREQ:
+            return jsonify({"error": f"intervalle inconnu : {interval}"}), 400
+        t_from = request.args.get("from", type=int)
+        t_to = request.args.get("to", type=int)
+        if t_from is None or t_to is None or t_to <= t_from:
+            return jsonify({"error": "bornes from/to requises"}), 400
+
+        seconds = int(sources.KLINE_HOURS[interval] * 3600)
+        count = min(PAGE_MAX, (t_to - t_from) // seconds + 2)
+        df = hub.klines_history(interval, t_to * 1000, count)
+        if df.empty:
+            # Historique injoignable — hors ligne, notamment : le profil
+            # se rabat sur la dernière page du hub, démo comprise, pour
+            # rester cohérent avec ce que le graphique affiche.
+            df = hub.klines(interval, limit=PAGE_DEFAULT)
+        demo = bool(df.attrs.get("demo", False))
+
+        epoch = (pd.to_datetime(df["time"]).astype("datetime64[ns]")
+                 .astype("int64") // 1_000_000_000)
+        part = df[(epoch >= t_from) & (epoch <= t_to)]
+        if part.empty:
+            return jsonify({"empty": True, "demo": demo,
+                            "interval": interval})
+
+        centers, volumes, poc, va_low, va_high = ind.volume_profile(
+            part, VOL_BINS)
+        return jsonify({
+            "interval": interval,
+            "centers": [_val(c) for c in centers],
+            "volumes": [_val(v) for v in volumes],
+            "poc": _val(poc),
+            "va_low": _val(va_low),
+            "va_high": _val(va_high),
+            "demo": demo,
+        })

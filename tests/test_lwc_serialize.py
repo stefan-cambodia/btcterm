@@ -26,7 +26,7 @@ from btcterm.sources import generate_demo_ohlcv  # noqa: E402
 from terminal.charts import prepare_price_frame  # noqa: E402
 from terminal.lwc import (  # noqa: E402
     OVERLAY_COLUMNS, PANE_COLUMNS, frame_to_bars, frame_to_lines,
-    frame_to_volume, serialize_price_frame,
+    frame_to_signals, frame_to_volume, serialize_price_frame,
 )
 
 
@@ -125,7 +125,7 @@ def test_le_paquet_complet_porte_le_drapeau_demo():
     paquet = serialize_price_frame(df)
 
     assert set(paquet) == {"bars", "volume", "overlays", "panes",
-                           "volume_ma", "demo"}
+                           "volume_ma", "signals", "demo"}
     assert paquet["demo"] is True, "la série de démo doit se déclarer"
     assert set(paquet["overlays"]) == set(OVERLAY_COLUMNS)
     assert set(paquet["panes"]) == set(PANE_COLUMNS)
@@ -136,6 +136,23 @@ def test_le_paquet_complet_porte_le_drapeau_demo():
     vraie.attrs.pop("demo", None)
     assert serialize_price_frame(vraie)["demo"] is False
     print("  ✓ paquet complet, drapeau demo fidèle aux attrs du DataFrame")
+
+
+def test_signaux_non_nuls_seulement():
+    """Les signaux gradués voyagent en clairsemé : jamais de zéro — la
+    quasi-totalité des bougies — et le grade tel que le serveur l'a
+    calculé, borné à ±2."""
+    df = frame_de_demo()
+    signaux = frame_to_signals(df)
+
+    assert signaux, "la marche aléatoire produit forcément des croisements"
+    assert all(set(s) == {"time", "value"} for s in signaux)
+    assert all(s["value"] in (-2, -1, 1, 2) for s in signaux)
+
+    #: Fidèles à la colonne d'origine, position par position.
+    attendus = df[df["signal"] != 0]
+    assert len(signaux) == len(attendus)
+    print(f"  ✓ {len(signaux)} signaux, tous non nuls, grades de ±1 à ±2")
 
 
 def test_tous_les_intervalles_du_panneau():

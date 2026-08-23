@@ -313,3 +313,11 @@ body {
     font-size: 10px;
     pointer-events: none;
 }
+
+.lwc-profile {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 7;
+    pointer-events: none;
+}
