@@ -25,11 +25,23 @@
         cfg: null,     // {interval, currency, log, extras, maximized}
         conf: null,    // {theme, mono, intervals} — la définition du serveur
         seq: 0,        // jeton anti-course des fetchs
+        loading: false,    // une page d'historique en vol, une seule
+        exhausted: false,  // plus rien avant : la source l'a dit
         banner: null,
         legend: null
     };
 
     var INTRADAY = {"15m": 1, "30m": 1, "1h": 1, "4h": 1, "6h": 1, "12h": 1};
+
+    //: Historique chargé à la volée : dès que le bord gauche visible
+    //: approche à moins de ce nombre de bougies du début du tampon, la
+    //: page antérieure est demandée.
+    var BACKFILL_MARGIN = 50;
+
+    //: Plafond du tampon par intervalle : au-delà, on cesse de remonter
+    //: le passé — la mémoire reste bornée, et 5 000 bougies font déjà
+    //: sept mois d'horaire ou treize ans de quotidien.
+    var MAX_BARS = 5000;
 
     // ── Construction ────────────────────────────────────────
 
@@ -185,6 +197,11 @@
         state.series = series;
         buildLegend(styles);
         buildBanner();
+
+        // L'historique se charge au pan, comme sur tradingview.com :
+        // approcher du début des données déclenche la page antérieure.
+        state.chart.timeScale()
+            .subscribeVisibleLogicalRangeChange(maybeBackfill);
     }
 
     // Une légende statique : la bibliothèque n'en fournit pas, et sans
@@ -223,6 +240,8 @@
         state.series = null;
         state.legend = null;
         state.banner = null;
+        state.loading = false;
+        state.exhausted = false;
         if (state.el) { state.el.textContent = ""; }
     }
 
@@ -290,10 +309,68 @@
                 // temps — est simplement écartée.
                 if (seq !== state.seq || !state.chart) { return; }
                 state.packet = packet;
+                state.loading = false;
+                state.exhausted = false;
                 fillSeries();
                 if (fit) { state.chart.timeScale().fitContent(); }
             })
             .catch(function () { /* le prochain réglage retentera */ });
+    }
+
+    // Le bord gauche visible approche du début du tampon : demander la
+    // page antérieure. Verrou anti-rafale (une requête en vol à la
+    // fois) et mémoire du « plus ancien atteint » — une page vide dit
+    // que la source n'a plus rien avant, inutile de la marteler.
+    function maybeBackfill(range) {
+        if (!state.chart || !state.packet || state.loading
+                || state.exhausted || !range
+                || range.from > BACKFILL_MARGIN) {
+            return;
+        }
+        var bars = state.packet.bars;
+        if (!bars.length) { return; }
+        if (bars.length >= MAX_BARS) {
+            state.exhausted = true;
+            return;
+        }
+        var interval = state.cfg.interval;
+        var limit = (state.conf.intervals || {})[interval] || 365;
+        var seq = state.seq;
+        state.loading = true;
+        fetch("/api/klines?interval=" + encodeURIComponent(interval)
+              + "&limit=" + limit + "&before=" + bars[0].time)
+            .then(function (r) { return r.json(); })
+            .then(function (page) {
+                state.loading = false;
+                // Un refetch est passé entre temps : le tampon a changé
+                // de série, cette page ne le concerne plus.
+                if (seq !== state.seq || !state.chart) { return; }
+                if (!page.bars.length) {
+                    state.exhausted = true;
+                    return;
+                }
+                prepend(page);
+                // setData du concaténé : la bibliothèque préserve la
+                // fenêtre visible, le pan continue sans à-coup.
+                fillSeries();
+            })
+            .catch(function () { state.loading = false; });
+    }
+
+    function prepend(page) {
+        var packet = state.packet;
+        var name;
+        packet.bars = page.bars.concat(packet.bars);
+        packet.volume = page.volume.concat(packet.volume);
+        for (name in page.overlays) {
+            packet.overlays[name] = (page.overlays[name] || [])
+                .concat(packet.overlays[name] || []);
+        }
+        for (name in page.panes) {
+            packet.panes[name] = (page.panes[name] || [])
+                .concat(packet.panes[name] || []);
+        }
+        packet.volume_ma = (page.volume_ma || []).concat(packet.volume_ma);
     }
 
     // Ajoute ou remplace le dernier point d'une série du paquet local :
@@ -401,6 +478,12 @@
             if (delta > 0 && spacing > 0 && delta < spacing * 0.9) {
                 return;
             }
+            // Plus d'un intervalle d'écart : un trou (onglet longtemps
+            // gelé) — l'appliquer laisserait une brèche dans la série,
+            // le recalage du retour d'onglet fera propre.
+            if (delta > 0 && spacing > 0 && delta > spacing * 1.5) {
+                return;
+            }
 
             mergeTail(bars, update.bar);
             mergeTail(packet.volume, update.volume);
@@ -475,8 +558,20 @@
                 log: state.series.candles.priceScale().options().mode
                     === LightweightCharts.PriceScaleMode.Logarithmic,
                 lastClose: last ? last.close : null,
+                firstTime: n ? state.packet.bars[0].time : null,
+                exhausted: state.exhausted,
                 panes: state.chart.panes().length
             };
+        },
+
+        // Second point d'entrée du smoke : un pan programmatique — le
+        // même chemin que la souris, setVisibleLogicalRange déclenche
+        // subscribeVisibleLogicalRangeChange, donc le backfill.
+        pan: function (from, to) {
+            if (state.chart) {
+                state.chart.timeScale().setVisibleLogicalRange(
+                    {from: from, to: to});
+            }
         }
     };
 

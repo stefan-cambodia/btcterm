@@ -203,6 +203,25 @@ def run(capture_dir: Path | None, url: str = URL, lwc: bool = False) -> int:
             """)
             time.sleep(1)
 
+            # Historique infini : un pan appuyé vers la gauche déclenche
+            # la page antérieure. Hors ligne, la source n'a rien avant :
+            # le tampon ne grandit pas mais le « plus ancien atteint »
+            # est retenu — les deux issues prouvent l'aller-retour.
+            avant = browser.js("return window.lwcPrice.debug();")
+            browser.js("window.lwcPrice.pan(-30, 120);")
+            recharge = browser.wait_for(
+                f"window.lwcPrice.debug().bars > {avant['bars']}"
+                " || window.lwcPrice.debug().exhausted === true", timeout=15)
+            apres = browser.js("return window.lwcPrice.debug();")
+            if apres["bars"] > avant["bars"]:
+                check("le pan vers le passé charge des bougies antérieures",
+                      apres["firstTime"] < avant["firstTime"],
+                      f"{avant['bars']} → {apres['bars']} bougies")
+            else:
+                check("historique épuisé retenu (source sans passé)",
+                      recharge and apres["exhausted"],
+                      f"{apres['bars']} bougies, exhausted={apres['exhausted']}")
+
         print("\nBascule plein écran")
         if capture_dir:
             browser.screenshot(str(capture_dir / "grille.png"))
