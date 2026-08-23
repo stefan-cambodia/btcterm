@@ -44,11 +44,24 @@
                 }
             }
             if (changed) { announce(); }
+        },
+        // Le repli poll du panneau prix (lwc-price.js) s'abstient tant
+        // que le canal tient : c'est ici qu'il le demande.
+        connected: function () {
+            return !!(socket && socket.readyState === WebSocket.OPEN);
         }
     };
 
     function apply(frame) {
         for (var id in frame) {
+            // La cible du panneau prix n'est pas une prop Dash : c'est
+            // une mutation de série, appliquée par lwc-price.js.
+            if (id === "price-lwc") {
+                if (window.lwcPrice) {
+                    window.lwcPrice.push(frame[id].update);
+                }
+                continue;
+            }
             // Un panneau replié derrière un onglet n'est pas dans la
             // page : sa mise à jour est écartée. Au remontage, Dash
             // rejoue lui-même le callback du panneau — il se remplit
@@ -69,6 +82,10 @@
             // L'horloge n'est coupée qu'une fois le canal ouvert : pas
             // de fenêtre où plus rien ne rafraîchit.
             window.dash_clientside.set_props("tick-fast", {disabled: true});
+            // Recalage du panneau prix : le canal a pu tomber pendant
+            // des minutes, les mutations perdues ne reviendront pas —
+            // une page fraîche comble le trou.
+            if (window.lwcPrice) { window.lwcPrice.resync(); }
         };
         socket.onmessage = function (event) {
             apply(JSON.parse(event.data));

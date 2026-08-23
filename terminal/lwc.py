@@ -27,8 +27,9 @@ from btcterm import sources
 from .charts import prepare_price_frame
 
 __all__ = ["OVERLAY_COLUMNS", "PANE_COLUMNS", "VOLUME_MA_COLUMN",
-           "frame_to_bars", "frame_to_lines", "frame_to_volume",
-           "serialize_price_frame", "register_api"]
+           "TAIL_BARS", "frame_to_bars", "frame_to_lines", "frame_to_volume",
+           "serialize_price_frame", "tail_points", "push_payload",
+           "register_api"]
 
 #: Indicateurs tracés par-dessus le cours, dans l'ordre où le client les
 #: pose. Les noms sont les colonnes de `prepare_price_frame` — le client
@@ -134,6 +135,69 @@ def serialize_price_frame(df: pd.DataFrame) -> dict:
             VOLUME_MA_COLUMN, []),
         "demo": bool(df.attrs.get("demo", False)),
     }
+
+
+# ─────────────────────────────────────────────────────────────
+# Dernier point — le contrat du canal push
+# ─────────────────────────────────────────────────────────────
+
+#: Fenêtre de calcul du dernier point. La plus longue mémoire des séries
+#: envoyées au client est la MA 200, puis le rang centile du CRSI (100) ;
+#: 250 lignes les couvrent. Les lissages exponentiels (RSI, ATR) portent
+#: en théorie toute l'histoire, mais leur poids décroît en (1-α)^n : à
+#: 250 lignes l'écart avec le recalcul complet est de l'ordre de 1e-8 —
+#: le test de parité le borne.
+TAIL_BARS = 250
+
+#: Mémo du dernier point par intervalle : tant que le hub sert le même
+#: DataFrame (cache TTL), le calcul ne repart pas — c'est ce qui ramène
+#: le coût serveur du panneau prix à un point par rafraîchissement de
+#: la source, quelle que soit la cadence du pousseur.
+_push_memo: dict[str, tuple[object, dict]] = {}
+
+
+def tail_points(df: pd.DataFrame, interval: str) -> dict:
+    """La dernière bougie et les derniers points d'indicateurs.
+
+    Le calcul ne parcourt que les `TAIL_BARS` dernières lignes : c'est
+    la mutation que le canal push transmet à chaque tick, elle n'a pas
+    à payer le recalcul de la série entière. `interval` voyage dans le
+    paquet pour que le client écarte une mise à jour dépassée quand il
+    vient de changer d'échelle.
+    """
+    prepared = prepare_price_frame(df.iloc[-TAIL_BARS:].reset_index(drop=True))
+    last = prepared.iloc[[-1]]
+    lines = frame_to_lines(last, OVERLAY_COLUMNS + PANE_COLUMNS
+                           + (VOLUME_MA_COLUMN,))
+    volume_ma = lines.pop(VOLUME_MA_COLUMN, [])
+    return {
+        "interval": interval,
+        "bar": frame_to_bars(last)[0],
+        "volume": frame_to_volume(last)[0],
+        "overlays": {name: points[0] for name, points in lines.items()
+                     if name in OVERLAY_COLUMNS and points},
+        "panes": {name: points[0] for name, points in lines.items()
+                  if name in PANE_COLUMNS and points},
+        "volume_ma": volume_ma[0] if volume_ma else None,
+        "demo": bool(df.attrs.get("demo", False)),
+    }
+
+
+def push_payload(hub, interval: str, limit: int) -> dict:
+    """Le dernier point pour le pousseur, mémoïsé sur l'identité du cache.
+
+    Le hub sert le même objet DataFrame pendant toute la durée de vie de
+    son cache : tant qu'il n'a pas changé, le paquet précédent ressort
+    tel quel. Seule la série de démonstration — régénérée à chaque appel
+    en repli hors ligne — repaie le calcul, à la cadence du pousseur.
+    """
+    df = hub.klines(interval, limit=limit)
+    cached = _push_memo.get(interval)
+    if cached is not None and cached[0] is df:
+        return cached[1]
+    payload = tail_points(df, interval)
+    _push_memo[interval] = (df, payload)
+    return payload
 
 
 # ─────────────────────────────────────────────────────────────

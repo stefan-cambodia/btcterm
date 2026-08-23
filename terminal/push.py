@@ -20,6 +20,12 @@ Le contrat avec `assets/push.js` :
   applique par `dash_clientside.set_props` : le même chemin de mise à
   jour qu'une réponse de callback, sérialisé par le même encodeur —
   le navigateur ne voit pas la différence entre les deux canaux.
+- une cible fait exception : `price-lwc`, la mutation du panneau prix
+  en rendu Lightweight Charts. Elle n'existe que si le navigateur
+  annonce `price_interval` (le rendu Plotly ne l'annonce pas), ne porte
+  que la dernière bougie et les derniers points d'indicateurs, à sa
+  propre cadence — et push.js la route vers window.lwcPrice au lieu de
+  set_props.
 
 Une trame n'emporte que les panneaux dont le rendu a changé depuis la
 précédente : la cadence peut donc être plus serrée que l'horloge
@@ -36,16 +42,29 @@ from dash import Input, Output
 from flask_sock import ConnectionClosed, Sock
 from plotly.utils import PlotlyJSONEncoder
 
+from btcterm.sources import KLINE_FREQ
+
+from . import lwc
 from .panels import arbitrage, liquidations, orderbook
+from .panels.price import INTERVALS as PRICE_INTERVALS
 
 #: Cadence du pousseur, plus serrée que REFRESH_FAST_MS : c'est la
 #: raison d'être du canal — descendre sous 100 ms sans payer un
 #: aller-retour HTTP par tour.
 PUSH_INTERVAL = 0.1
 
+#: Cadence de la cible prix — celle de l'horloge lente qu'elle double :
+#: les chandeliers viennent d'un cache REST à quelques secondes de TTL,
+#: les pousser à 100 ms n'apprendrait rien. Le différentiel fait le
+#: reste : un point identique ne repart pas.
+PUSH_PRICE_INTERVAL = 2.0
+
 #: L'état que le navigateur annonce, et ses valeurs tant qu'il n'a rien
-#: dit — les mêmes défauts que la page au chargement.
-DEFAULT_STATE = {"exchange": "Binance", "expanded": None}
+#: dit — les mêmes défauts que la page au chargement. `price_interval`
+#: n'a pas de défaut : seul le rendu Lightweight Charts l'annonce, et
+#: sans lui le pousseur ne calcule rien pour le panneau prix.
+DEFAULT_STATE = {"exchange": "Binance", "expanded": None,
+                 "price_interval": None}
 
 
 def _frame(hub, state: dict) -> dict[str, dict]:
@@ -69,6 +88,19 @@ def _frame(hub, state: dict) -> dict[str, dict]:
     }
 
 
+def _price_target(hub, interval: str) -> dict:
+    """La cible du panneau prix : la dernière bougie et les derniers
+    points d'indicateurs, jamais la série entière.
+
+    Le rendu Lightweight Charts tient la série côté navigateur ; le
+    canal ne transporte que la mutation, que lwc-price.js applique par
+    `series.update` — zéro re-rendu. Le calcul est mémoïsé sur le cache
+    du hub (terminal/lwc.py) : la cadence du pousseur ne le paie pas.
+    """
+    return {"update": lwc.push_payload(
+        hub, interval, PRICE_INTERVALS.get(interval, 365))}
+
+
 def _merge(state: dict, raw: str | bytes) -> dict:
     """Applique un message d'état du navigateur, sans lui faire confiance.
 
@@ -88,6 +120,13 @@ def _merge(state: dict, raw: str | bytes) -> dict:
     expanded = message.get("expanded")
     if expanded is None or isinstance(expanded, str):
         merged["expanded"] = expanded
+    # L'intervalle du panneau prix : borné aux intervalles connus — une
+    # valeur inventée partirait en paramètre d'appel vers la source.
+    interval = message.get("price_interval")
+    if "price_interval" in message and (
+            interval is None
+            or (isinstance(interval, str) and interval in KLINE_FREQ)):
+        merged["price_interval"] = interval
     return merged
 
 
@@ -131,6 +170,10 @@ def register(app, hub) -> None:
         # d'arbres de composants, qui n'ont pas d'égalité utile.
         sent: dict[str, str] = {}
         next_send = time.monotonic()
+        # La cible prix a sa propre cadence, plus lente : ce jalon dit
+        # quand la recalculer. Zéro pour qu'elle parte dès la première
+        # trame — et reparte dès qu'un changement d'état l'exige.
+        price_due = 0.0
         try:
             while True:
                 # Entre deux trames, la boucle dort sur la réception :
@@ -149,11 +192,18 @@ def register(app, hub) -> None:
                         if state != previous:
                             sent.clear()
                             next_send = time.monotonic()
+                            price_due = 0.0
                     continue
 
+                frame = _frame(hub, state)
+                if (state["price_interval"]
+                        and time.monotonic() >= price_due):
+                    frame["price-lwc"] = _price_target(
+                        hub, state["price_interval"])
+                    price_due = time.monotonic() + PUSH_PRICE_INTERVAL
                 changed = {
                     target: blob
-                    for target, props in _frame(hub, state).items()
+                    for target, props in frame.items()
                     if sent.get(target)
                     != (blob := json.dumps(props, cls=PlotlyJSONEncoder))
                 }

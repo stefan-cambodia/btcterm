@@ -136,6 +136,7 @@ def _body():
             dcc.Store(id="lwc-config",
                       data={"theme": C, "mono": MONO, "intervals": INTERVALS}),
             dcc.Store(id="lwc-sink"),
+            dcc.Store(id="lwc-poll-sink"),
         ], style={"flex": "1", "minHeight": "0", "display": "flex",
                   "flexDirection": "column"})
     return dcc.Graph(
@@ -222,4 +223,19 @@ def _register_lwc(app):
         Input("price-extras", "value"),
         Input("maximized", "data"),
         State("lwc-config", "data"),
+    )
+
+    # Repli poll : au rythme de l'horloge lente — celui qu'avait le
+    # rendu Plotly — le client recharge la dernière page. lwc-price.js
+    # s'abstient tant que le WebSocket /push tient : c'est le badge
+    # « push / poll » du bandeau qui dit le canal réellement actif.
+    app.clientside_callback(
+        """
+        function (tick) {
+            if (window.lwcPrice) { window.lwcPrice.poll(); }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("lwc-poll-sink", "data"),
+        Input("tick-slow", "n_intervals"),
     )

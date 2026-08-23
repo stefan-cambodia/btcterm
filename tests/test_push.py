@@ -34,7 +34,8 @@ from plotly.utils import PlotlyJSONEncoder  # noqa: E402
 from btcterm.hub import MarketHub  # noqa: E402
 from terminal.panels.liquidations import ROWS_MAX  # noqa: E402
 from terminal.panels.orderbook import DEPTH, DEPTH_MAX  # noqa: E402
-from terminal.push import DEFAULT_STATE, _frame, _merge  # noqa: E402
+from terminal.push import (DEFAULT_STATE, _frame, _merge,  # noqa: E402
+                           _price_target)
 
 CIBLES = {"book-table", "depth-chart", "arb-table", "arb-count",
           "liq-table", "liq-badges"}
@@ -87,6 +88,63 @@ def test_merge_ne_fait_pas_confiance():
     _merge(etat, '{"exchange": "Kraken", "expanded": "book"}')
     assert etat == DEFAULT_STATE
     print("  ✓ messages légitimes appliqués, hostiles ignorés, état copié")
+
+
+def test_etat_prix_annonce_et_borne():
+    """`price_interval` suit le contrat : nul par défaut — le rendu
+    Plotly ne l'annonce jamais — accepté s'il est connu, sinon ignoré :
+    la valeur part en paramètre d'appel vers la source."""
+    etat = dict(DEFAULT_STATE)
+    assert DEFAULT_STATE["price_interval"] is None
+
+    assert _merge(etat, '{"price_interval": "1h"}')["price_interval"] == "1h"
+    assert _merge(etat, '{"price_interval": null}')["price_interval"] is None
+    for hostile in ('{"price_interval": "7m"}', '{"price_interval": 3}',
+                    '{"price_interval": []}'):
+        assert _merge(etat, hostile) == etat, hostile
+    print("  ✓ intervalle connu accepté, inventé ou mal typé ignoré")
+
+
+def test_cible_prix_mutation_memoisee():
+    """La cible prix ne porte que le dernier point, suit l'intervalle
+    annoncé, et ne recalcule rien tant que le cache du hub tient."""
+    from btcterm import sources
+    from terminal import lwc
+
+    db = sources.generate_demo_ohlcv(400, interval="1h", index=False)
+    db["time"] = db["time"].astype("datetime64[ns]")
+    db.attrs.clear()
+    sources.fetch_klines = (
+        lambda symbol="BTCUSDT", interval="1h", limit=350, index=False,
+        end_time=None: db.iloc[-limit:].reset_index(drop=True))
+
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    lwc._push_memo.clear()
+    paquet = _price_target(hub, "1h")["update"]
+
+    #: Une mutation, pas une série : un seul bar, un point par indicateur.
+    assert set(paquet) == {"interval", "bar", "volume", "overlays",
+                           "panes", "volume_ma", "demo"}
+    assert paquet["interval"] == "1h"
+    assert paquet["bar"]["time"] == int(
+        db["time"].iloc[-1].value // 1_000_000_000)
+    assert isinstance(paquet["overlays"]["ma200"], dict)
+    assert paquet["demo"] is False
+
+    #: Mémoïsation sur l'identité du cache : le même DataFrame ne se
+    #: recalcule pas — c'est ce qui rend la cadence du pousseur gratuite.
+    assert _price_target(hub, "1h")["update"] is paquet
+
+    #: Et sérialisation stable au recalcul forcé : le différentiel
+    #: compare des chaînes.
+    lwc._push_memo.clear()
+    refait = _price_target(hub, "1h")["update"]
+    assert json.dumps(refait, sort_keys=True) == json.dumps(
+        paquet, sort_keys=True), "le recalcul fluctue à données constantes"
+
+    #: L'intervalle annoncé choisit la série servie.
+    assert _price_target(hub, "15m")["update"]["interval"] == "15m"
+    print("  ✓ dernier point seul, intervalle suivi, mémo sur le cache du hub")
 
 
 def test_frame_vise_les_cibles_des_callbacks():

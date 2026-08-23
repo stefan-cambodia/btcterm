@@ -274,7 +274,11 @@
         });
     }
 
-    function refetch() {
+    // `fit` recadre la fenêtre sur la série : vrai au premier chargement
+    // et au changement d'intervalle, jamais pour un recalage silencieux
+    // (reconnexion, retour d'onglet, repli poll) — le zoom de l'analyse
+    // en cours doit y survivre.
+    function refetch(fit) {
         var interval = state.cfg.interval;
         var limit = (state.conf.intervals || {})[interval] || 365;
         var seq = ++state.seq;
@@ -287,9 +291,22 @@
                 if (seq !== state.seq || !state.chart) { return; }
                 state.packet = packet;
                 fillSeries();
-                state.chart.timeScale().fitContent();
+                if (fit) { state.chart.timeScale().fitContent(); }
             })
             .catch(function () { /* le prochain réglage retentera */ });
+    }
+
+    // Ajoute ou remplace le dernier point d'une série du paquet local :
+    // le paquet reste le miroir USD de ce que les séries affichent,
+    // c'est lui qui rejoue la bascule $/€ sans réseau.
+    function mergeTail(points, point) {
+        if (!point) { return; }
+        var last = points.length ? points[points.length - 1] : null;
+        if (last && last.time === point.time) {
+            points[points.length - 1] = point;
+        } else if (!last || point.time > last.time) {
+            points.push(point);
+        }
     }
 
     // ── Point d'entrée ──────────────────────────────────────
@@ -321,6 +338,13 @@
             state.cfg = cfg;
             state.conf = conf;
 
+            // Le pousseur suit l'intervalle affiché : il n'envoie la
+            // mutation du panneau prix qu'aux navigateurs qui
+            // l'annoncent (contrat de terminal/push.py).
+            if (window.btcPush) {
+                window.btcPush.state({price_interval: cfg.interval});
+            }
+
             if (!state.packet || !previous
                     || previous.interval !== cfg.interval) {
                 if (previous && previous.interval !== cfg.interval) {
@@ -328,7 +352,7 @@
                         timeVisible: !!INTRADAY[cfg.interval]
                     });
                 }
-                refetch();
+                refetch(true);
                 return;
             }
             if (rebuilt || previous.currency !== cfg.currency) {
@@ -351,6 +375,91 @@
             }
         },
 
+        // La mutation du canal push : une bougie, les derniers points
+        // d'indicateurs — series.update, zéro re-rendu. Une bougie qui
+        // clôture arrive comme un update à time nouveau : la
+        // bibliothèque l'ajoute d'elle-même.
+        push: function (update) {
+            if (!state.chart || !state.packet || !update) { return; }
+            // Dépassé — l'utilisateur vient de changer d'échelle, la
+            // trame suivante suivra le nouvel intervalle.
+            if (update.interval !== state.cfg.interval) { return; }
+            var packet = state.packet;
+            var bars = packet.bars;
+            var lastTime = bars.length ? bars[bars.length - 1].time : 0;
+            // Plus vieux que la série : un reliquat d'avant recalage.
+            if (update.bar.time < lastTime) { return; }
+            // Un ajout n'est accepté qu'au pas de la série : la bougie
+            // qui clôture arrive exactement un intervalle plus loin.
+            // Tout autre décalage — la série de démonstration hors
+            // ligne, réancrée sur l'horloge à chaque régénération — ne
+            // doit pas semer de bougies parasites.
+            var spacing = bars.length > 1
+                ? bars[bars.length - 1].time - bars[bars.length - 2].time
+                : 0;
+            var delta = update.bar.time - lastTime;
+            if (delta > 0 && spacing > 0 && delta < spacing * 0.9) {
+                return;
+            }
+
+            mergeTail(bars, update.bar);
+            mergeTail(packet.volume, update.volume);
+            var name;
+            for (name in update.overlays) {
+                mergeTail(packet.overlays[name]
+                          || (packet.overlays[name] = []),
+                          update.overlays[name]);
+            }
+            for (name in update.panes) {
+                mergeTail(packet.panes[name] || (packet.panes[name] = []),
+                          update.panes[name]);
+            }
+            mergeTail(packet.volume_ma, update.volume_ma);
+            packet.demo = update.demo;
+
+            var series = state.series;
+            var theme = state.conf.theme;
+            var rate = state.cfg.currency === "EUR" ? packet.eur_rate : 1;
+            series.candles.update(scaled([update.bar], rate)[0]);
+            for (name in update.overlays) {
+                if (series.lines[name]) {
+                    series.lines[name].update(
+                        scaled([update.overlays[name]], rate)[0]);
+                }
+            }
+            if (series.volume && update.volume) {
+                series.volume.update({
+                    time: update.volume.time, value: update.volume.value,
+                    color: update.volume.up ? theme.green : theme.red
+                });
+                if (update.volume_ma) {
+                    series.volMa.update(update.volume_ma);
+                }
+            }
+            if (series.rsi && update.panes.rsi) {
+                series.rsi.update(update.panes.rsi);
+            }
+            if (series.crsi && update.panes.crsi) {
+                series.crsi.update(update.panes.crsi);
+            }
+            state.banner.style.display = update.demo ? "block" : "none";
+        },
+
+        // Recalage : reconnexion du canal, retour d'onglet — les
+        // mutations perdues ne reviendront pas, une page fraîche comble
+        // le trou sans toucher au zoom.
+        resync: function () {
+            if (state.chart && state.packet) { refetch(false); }
+        },
+
+        // Repli poll : appelé par tick-slow (panels/price.py) ; ne fait
+        // rien tant que le canal push tient.
+        poll: function () {
+            if (!state.chart || !state.packet) { return; }
+            if (window.btcPush && window.btcPush.connected()) { return; }
+            refetch(false);
+        },
+
         // Sonde du smoke test (tests/ui_smoke.py --lwc) : l'état
         // *effectif* du graphique — données posées dans les séries,
         // mode réel de l'échelle — pas la configuration demandée.
@@ -370,4 +479,12 @@
             };
         }
     };
+
+    // Retour d'onglet : le navigateur a pu geler les timers et le
+    // WebSocket pendant l'absence — recalage silencieux.
+    document.addEventListener("visibilitychange", function () {
+        if (!document.hidden && state.chart && state.packet) {
+            refetch(false);
+        }
+    });
 }());
