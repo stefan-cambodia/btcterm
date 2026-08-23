@@ -287,3 +287,29 @@ body {
 ::-webkit-scrollbar-thumb:hover {
     background: #4b5563;
 }
+
+/* ── Panneau prix, rendu Lightweight Charts (BTCTERM_LWC=1) ─*/
+/* Les couleurs viennent du thème via lwc-price.js ; ici, seulement la
+   géométrie des éléments posés par-dessus le canvas. */
+
+.lwc-legend {
+    position: absolute;
+    top: 4px;
+    left: 8px;
+    z-index: 8;
+    display: flex;
+    gap: 10px;
+    font-size: 10px;
+    pointer-events: none;
+}
+
+.lwc-demo-banner {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    z-index: 9;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    pointer-events: none;
+}

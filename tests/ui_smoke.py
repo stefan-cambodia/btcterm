@@ -13,6 +13,11 @@ Il pilote Firefox par Marionette et **suppose le terminal déjà lancé** :
     python -m terminal.app &
     python tests/ui_smoke.py [--capture dossier/]
 
+Contre un terminal lancé avec `--lwc`, passer aussi `--lwc` ici : les
+contrôles propres au panneau prix suivent alors le rendu Lightweight
+Charts (canvas, sonde `window.lwcPrice.debug()`) au lieu de la figure
+Plotly — tout le reste de la suite est identique.
+
 Ignoré si Firefox est absent.
 """
 
@@ -27,21 +32,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 URL = "http://127.0.0.1:8050/"
 
 
-def run(capture_dir: Path | None, url: str = URL) -> int:
+def run(capture_dir: Path | None, url: str = URL, lwc: bool = False) -> int:
     from marionette_client import Firefox
 
     browser = Firefox()
     failures = 0
 
-    #: Le domaine de l'axe des prix n'existe qu'une fois la figure posée
-    #: par Plotly. L'attendre plutôt que dormir : au premier passage après
-    #: un démarrage du serveur, deux secondes ne suffisent pas toujours.
-    PRIX_PRET = ("((document.getElementById('price-chart') || {})"
-                 ".querySelector('.js-plotly-plot') || {}).layout"
-                 " && !!document.getElementById('price-chart')"
-                 ".querySelector('.js-plotly-plot').layout.yaxis"
-                 " && !!document.getElementById('price-chart')"
-                 ".querySelector('.js-plotly-plot').layout.yaxis.domain")
+    #: Le panneau prix est prêt quand son moteur de rendu a réellement
+    #: posé la série — figure Plotly avec son axe, ou données dans les
+    #: séries Lightweight Charts selon le régime. L'attendre plutôt que
+    #: dormir : au premier passage après un démarrage du serveur, deux
+    #: secondes ne suffisent pas toujours.
+    if lwc:
+        PRIX_PRET = ("window.lwcPrice && !!window.lwcPrice.debug()"
+                     " && window.lwcPrice.debug().bars > 0")
+    else:
+        PRIX_PRET = ("((document.getElementById('price-chart') || {})"
+                     ".querySelector('.js-plotly-plot') || {}).layout"
+                     " && !!document.getElementById('price-chart')"
+                     ".querySelector('.js-plotly-plot').layout.yaxis"
+                     " && !!document.getElementById('price-chart')"
+                     ".querySelector('.js-plotly-plot').layout.yaxis.domain")
 
     def check(label, condition, detail=""):
         nonlocal failures
@@ -51,8 +62,15 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
 
     try:
         browser.get(url)
-        if not browser.wait_for("document.querySelectorAll('.js-plotly-plot').length >= 3"):
+        # Sous --lwc le panneau prix n'est plus une figure Plotly : il
+        # reste les graphiques ETF et macro pour attester le rendu.
+        if not browser.wait_for("document.querySelectorAll('.js-plotly-plot')"
+                                f".length >= {2 if lwc else 3}"):
             print("  ✗ les graphiques ne se sont pas rendus — le terminal tourne-t-il ?")
+            return 1
+        if lwc and not browser.wait_for(PRIX_PRET, timeout=15):
+            print("  ✗ le panneau prix Lightweight Charts ne s'est pas rempli"
+                  " — le terminal est-il lancé avec --lwc ?")
             return 1
         time.sleep(2.5)
 
@@ -140,6 +158,51 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         rows = browser.js("return document.querySelectorAll('#book-table tr').length;")
         check("le retour à la grille aussi", rows <= 20, f"{rows} lignes")
 
+        if lwc:
+            print("\nPanneau prix Lightweight Charts")
+            check("le canvas est posé", browser.js(
+                "return document.querySelectorAll('#price-lwc canvas')"
+                ".length;") >= 2)
+            etat = browser.js("return window.lwcPrice.debug();")
+            check("la série initiale est chargée", etat["bars"] > 200,
+                  f"{etat['bars']} bougies")
+            # Le bandeau de démonstration dit exactement ce que le paquet
+            # dit — visible en repli hors ligne, absent sur données réelles.
+            banniere = browser.js(
+                "return getComputedStyle(document.querySelector("
+                "'.lwc-demo-banner')).display === 'block';")
+            check("le bandeau démo suit le paquet", banniere == etat["demo"],
+                  f"paquet {etat['demo']}, bandeau {banniere}")
+
+            # Changement d'intervalle : un refetch, une nouvelle série.
+            browser.js("""
+                Array.from(document.querySelectorAll('#price-interval label'))
+                     .find(l => l.textContent.trim() === '4h').click();
+            """)
+            check("l'intervalle 4h recharge sa série", browser.wait_for(
+                "window.lwcPrice.debug().interval === '4h'"
+                " && window.lwcPrice.debug().bars > 200", timeout=15))
+
+            # Bascule € : les chandeliers changent d'échelle sur place,
+            # au taux voyageant avec les données — aucun refetch.
+            avant = browser.js("return window.lwcPrice.debug();")
+            browser.js("""
+                Array.from(document.querySelectorAll('#price-currency label'))
+                     .find(l => l.textContent.trim() === '€').click();
+            """)
+            time.sleep(1.2)
+            apres = browser.js("return window.lwcPrice.debug();")
+            check("la bascule € met les bougies au taux",
+                  apres["lastClose"] and abs(
+                      apres["lastClose"] / avant["lastClose"]
+                      - avant["eur_rate"]) < 1e-6,
+                  f"{avant['lastClose']} → {apres['lastClose']}")
+            browser.js("""
+                Array.from(document.querySelectorAll('#price-currency label'))
+                     .find(l => l.textContent.trim() === '$').click();
+            """)
+            time.sleep(1)
+
         print("\nBascule plein écran")
         if capture_dir:
             browser.screenshot(str(capture_dir / "grille.png"))
@@ -149,12 +212,12 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         geometry = browser.js("""
             const el = document.getElementById('cell-price');
             const r = el.getBoundingClientRect();
-            const g = el.querySelector('.js-plotly-plot');
+            const g = el.querySelector('%s');
             return {classe: el.className,
                     couvre: r.width / window.innerWidth,
                     graphe: g ? Math.round(g.getBoundingClientRect().width) : 0,
                     autres: document.querySelectorAll('.cell-hidden').length};
-        """)
+        """ % ("#price-lwc canvas" if lwc else ".js-plotly-plot"))
         check("panneau agrandi", "cell-max" in geometry["classe"])
         check("couvre la fenêtre", geometry["couvre"] > 0.95,
               f"{geometry['couvre']*100:.0f} %")
@@ -165,27 +228,41 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             browser.screenshot(str(capture_dir / "plein-ecran.png"))
 
         print("\nPart du cours")
-        share = browser.js("""
-            const gd = document.getElementById('price-chart')
-                .querySelector('.js-plotly-plot');
-            const d = gd.layout.yaxis.domain;
-            return Math.round((d[1] - d[0]) * 100);
-        """)
-        check("le cours domine en plein écran", share >= 75, f"{share} %")
+        if lwc:
+            # Le partage de hauteur est affaire de panes : RSI en a un,
+            # tout décocher n'en laisse qu'un seul — celui du cours.
+            check("le RSI vit dans son pane",
+                  browser.js("return window.lwcPrice.debug().panes;") == 2)
+            for value in ("rsi", "volume", "profile"):
+                browser.js(
+                    "document.querySelectorAll('#price-extras input')"
+                    f"[{('rsi', 'crsi', 'volume', 'profile').index(value)}].click();")
+                time.sleep(2.2)
+            browser.wait_for(PRIX_PRET)
+            check("tout décoché : le cours occupe tout",
+                  browser.js("return window.lwcPrice.debug().panes;") == 1)
+        else:
+            share = browser.js("""
+                const gd = document.getElementById('price-chart')
+                    .querySelector('.js-plotly-plot');
+                const d = gd.layout.yaxis.domain;
+                return Math.round((d[1] - d[0]) * 100);
+            """)
+            check("le cours domine en plein écran", share >= 75, f"{share} %")
 
-        for value in ("rsi", "volume", "profile"):
-            browser.js(
-                "document.querySelectorAll('#price-extras input')"
-                f"[{('rsi', 'crsi', 'volume', 'profile').index(value)}].click();")
-            time.sleep(2.2)
-        browser.wait_for(PRIX_PRET)
-        share = browser.js("""
-            const gd = document.getElementById('price-chart')
-                .querySelector('.js-plotly-plot');
-            const d = gd.layout.yaxis.domain;
-            return Math.round((d[1] - d[0]) * 100);
-        """)
-        check("tout décoché : le cours occupe tout", share == 100, f"{share} %")
+            for value in ("rsi", "volume", "profile"):
+                browser.js(
+                    "document.querySelectorAll('#price-extras input')"
+                    f"[{('rsi', 'crsi', 'volume', 'profile').index(value)}].click();")
+                time.sleep(2.2)
+            browser.wait_for(PRIX_PRET)
+            share = browser.js("""
+                const gd = document.getElementById('price-chart')
+                    .querySelector('.js-plotly-plot');
+                const d = gd.layout.yaxis.domain;
+                return Math.round((d[1] - d[0]) * 100);
+            """)
+            check("tout décoché : le cours occupe tout", share == 100, f"{share} %")
         if capture_dir:
             browser.screenshot(str(capture_dir / "cours-seul.png"))
 
@@ -198,11 +275,16 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         print("\nÉchelle logarithmique")
         browser.js("document.querySelector('#price-scale input').click();")
         time.sleep(2.2)
-        check("LOG passe l'axe des prix en logarithmique", browser.js("""
-            const gd = document.getElementById('price-chart')
-                .querySelector('.js-plotly-plot');
-            return gd.layout.yaxis.type;
-        """) == "log")
+        if lwc:
+            # La sonde lit le mode *effectif* de l'échelle, pas la case.
+            check("LOG passe l'axe des prix en logarithmique",
+                  browser.js("return window.lwcPrice.debug().log;") is True)
+        else:
+            check("LOG passe l'axe des prix en logarithmique", browser.js("""
+                const gd = document.getElementById('price-chart')
+                    .querySelector('.js-plotly-plot');
+                return gd.layout.yaxis.type;
+            """) == "log")
         browser.js("document.querySelector('#price-scale input').click();")
         time.sleep(2.2)
 
@@ -512,6 +594,10 @@ if __name__ == "__main__":
     parser.add_argument("--url", default=URL,
                         help="adresse du terminal à contrôler (défaut : "
                              f"{URL} — utile pour un port d'essai)")
+    parser.add_argument("--lwc", action="store_true",
+                        help="le terminal contrôlé tourne avec --lwc : "
+                             "contrôler le rendu Lightweight Charts du "
+                             "panneau prix")
     args = parser.parse_args()
 
     if not shutil.which("firefox"):
@@ -520,8 +606,9 @@ if __name__ == "__main__":
     if args.capture:
         args.capture.mkdir(parents=True, exist_ok=True)
 
-    print("\nContrôle de l'interface — " + args.url + "\n" + "─" * 60)
-    failures = run(args.capture, args.url)
+    print("\nContrôle de l'interface — " + args.url
+          + (" (rendu LWC)" if args.lwc else "") + "\n" + "─" * 60)
+    failures = run(args.capture, args.url, lwc=args.lwc)
     print("\n" + "─" * 60)
     print("Interface conforme.\n" if not failures else f"{failures} contrôle(s) en échec.\n")
     sys.exit(1 if failures else 0)

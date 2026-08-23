@@ -1,8 +1,23 @@
-"""Panneau prix : chandeliers, indicateurs, profil de volume."""
+"""Panneau prix : chandeliers, indicateurs, profil de volume.
+
+Deux rendus cohabitent le temps de la bascule (feuille de route, voie A) :
+
+- Plotly, l'historique : figure recalculée côté serveur à chaque tour
+  d'horloge ;
+- Lightweight Charts, sous drapeau `BTCTERM_LWC=1` (ou `--lwc`) : le
+  serveur ne sert que des données (`/api/klines`, terminal/lwc.py), le
+  navigateur dessine — crosshair natif, ligne de dernier prix, canvas.
+
+La barre de titre et ses réglages persistés sont les mêmes dans les deux
+régimes ; seul le corps du panneau et le canal de rafraîchissement
+changent.
+"""
 
 from __future__ import annotations
 
-from dash import Input, Output, dcc, html
+import os
+
+from dash import Input, Output, State, dcc, html
 
 from ..charts import build_price_chart, prepare_price_frame
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
@@ -34,6 +49,19 @@ _BTN = {
     "padding": "2px 9px", "cursor": "pointer", "fontSize": "10px",
     "fontFamily": MONO, "marginLeft": "3px",
 }
+
+#: Valeurs d'environnement tenues pour « vrai » — les mêmes que wsgi.py.
+_TRUE = {"1", "true", "yes", "oui", "on"}
+
+
+def lwc_enabled() -> bool:
+    """Le rendu Lightweight Charts est-il demandé ?
+
+    Lu à chaque appel plutôt que figé à l'import : le drapeau `--lwc`
+    de la ligne de commande pose la variable avant `create_app`, et les
+    tests doivent pouvoir basculer sans recharger le module.
+    """
+    return os.environ.get("BTCTERM_LWC", "").strip().lower() in _TRUE
 
 
 def layout(title=None):
@@ -87,19 +115,45 @@ def layout(title=None):
             ], style={"display": "flex", "alignItems": "center",
                       "whiteSpace": "nowrap"}),
         ], style=TITLE_STYLE),
-        dcc.Graph(
-            id="price-chart",
-            style={"flex": "1", "minHeight": "0"},
-            config={
-                "scrollZoom": True,
-                "displaylogo": False,
-                "modeBarButtonsToRemove": ["select2d", "lasso2d"],
-            },
-        ),
+        _body(),
     ], style=PANEL_STYLE)
 
 
+def _body():
+    """Le corps du panneau selon le régime de rendu.
+
+    Version Lightweight Charts : un simple div — le graphique est créé
+    dedans par assets/lwc-price.js — accompagné de deux Stores : la
+    configuration que le serveur veut transmettre au client (thème et
+    profondeurs d'historique, une seule définition, ici), et le puits
+    qu'exige le callback clientside.
+    """
+    if lwc_enabled():
+        return html.Div([
+            html.Div(id="price-lwc",
+                     style={"flex": "1", "minHeight": "0",
+                            "position": "relative"}),
+            dcc.Store(id="lwc-config",
+                      data={"theme": C, "mono": MONO, "intervals": INTERVALS}),
+            dcc.Store(id="lwc-sink"),
+        ], style={"flex": "1", "minHeight": "0", "display": "flex",
+                  "flexDirection": "column"})
+    return dcc.Graph(
+        id="price-chart",
+        style={"flex": "1", "minHeight": "0"},
+        config={
+            "scrollZoom": True,
+            "displaylogo": False,
+            "modeBarButtonsToRemove": ["select2d", "lasso2d"],
+        },
+    )
+
+
 def register(app, hub):
+    if lwc_enabled():
+        _register_lwc(app)
+        return
+
     @app.callback(
         Output("price-chart", "figure"),
         Input("tick-slow", "n_intervals"),
@@ -131,3 +185,41 @@ def register(app, hub):
             maximized=(maximized == "price"),
             log_scale=log_scale,
         )
+
+
+def _register_lwc(app):
+    """Relie les réglages de la barre de titre au rendu Lightweight Charts.
+
+    Un seul callback clientside : il relaie l'état des sélecteurs à
+    `window.lwcPrice` (assets/lwc-price.js), qui décide seul de ce qui
+    en découle — refetch de `/api/klines` au changement d'intervalle,
+    simple bascule locale pour la devise ou l'échelle. Aucun aller-retour
+    serveur pour un réglage d'affichage : c'est le principe du régime.
+
+    Le callback refait aussi surface quand le panneau est re-rendu — un
+    déménagement de cellule remonte les sélecteurs — et lwc-price.js y
+    reconstruit son graphique dans le div neuf.
+    """
+    app.clientside_callback(
+        """
+        function (interval, currency, scale, extras, maximized, config) {
+            if (window.lwcPrice) {
+                window.lwcPrice.configure({
+                    interval: interval,
+                    currency: currency,
+                    log: (scale || []).includes('log'),
+                    extras: extras || [],
+                    maximized: maximized === 'price',
+                }, config);
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("lwc-sink", "data"),
+        Input("price-interval", "value"),
+        Input("price-currency", "value"),
+        Input("price-scale", "value"),
+        Input("price-extras", "value"),
+        Input("maximized", "data"),
+        State("lwc-config", "data"),
+    )
