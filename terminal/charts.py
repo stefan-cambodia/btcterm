@@ -3,11 +3,11 @@ Constructeurs de figures Plotly du terminal.
 
 C'est la couche de rendu graphique : elle prend un DataFrame déjà enrichi
 et produit une figure. Aucun appel réseau, aucun calcul d'indicateur —
-ceux-ci viennent de `btcterm`. Le panneau prix n'est plus construit ici :
-il dessine en Lightweight Charts côté navigateur (terminal/lwc.py et
-assets/lwc-price.js) — ne restent que `prepare_price_frame`, l'étape
-d'enrichissement que ce rendu consomme, et les figures des autres
-panneaux.
+ceux-ci viennent de `btcterm`. Les panneaux prix et perpétuel ne sont
+plus construits ici : ils dessinent en Lightweight Charts côté navigateur
+(terminal/lwc.py, assets/lwc-price.js et lwc-perp.js) — ne restent que
+`prepare_price_frame`, l'étape d'enrichissement que le rendu du prix
+consomme, et les figures des autres panneaux.
 
 Le paramètre `uirevision` des figures est ce qui rend l'analyse possible
 pendant que les données coulent : sans lui, chaque rafraîchissement
@@ -28,7 +28,7 @@ from .theme import C, MONO
 
 __all__ = ["VOL_BINS", "prepare_price_frame",
            "build_depth_chart", "prepare_macro_frame", "macro_stats",
-           "build_macro_chart", "build_perp_chart", "build_dominance_chart",
+           "build_macro_chart", "build_dominance_chart",
            "build_chain_chart"]
 
 VOL_BINS = 60
@@ -224,65 +224,6 @@ def build_macro_chart(
 # ─────────────────────────────────────────────────────────────
 # Perpétuels : financement et open interest
 # ─────────────────────────────────────────────────────────────
-
-def build_perp_chart(
-    funding: pd.DataFrame,
-    open_interest: pd.DataFrame,
-    uirevision: str = "perp",
-    maximized: bool = False,
-) -> go.Figure:
-    """Financement en barres, open interest en ligne, sur deux axes.
-
-    Les deux se lisent ensemble : un financement qui grimpe pendant que
-    l'open interest gonfle signale un marché à terme qui s'endette d'un
-    seul côté — la configuration d'où sortent les liquidations en
-    cascade. Le signe colore les barres : positif, les longs paient les
-    shorts.
-    """
-    fig = go.Figure()
-
-    if not funding.empty:
-        rates = funding["rate"] * 100
-        fig.add_trace(go.Bar(
-            x=funding["time"], y=rates, name="financement",
-            marker_color=[C["green"] if r >= 0 else C["red"] for r in rates],
-            hovertemplate="%{y:.4f} %<extra></extra>",
-        ))
-
-    if not open_interest.empty:
-        fig.add_trace(go.Scatter(
-            x=open_interest["time"], y=open_interest["oi_usd"] / 1e9,
-            name="open interest", yaxis="y2", mode="lines",
-            line=dict(color=C["cyan"], width=1.8),
-            hovertemplate="OI %{y:.2f} Md$<extra></extra>",
-        ))
-
-    axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["border"],
-                       tickfont=dict(size=9, color=C["muted"]))
-    fig.update_layout(
-        paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
-        font=dict(family=MONO, color=C["text"], size=10),
-        margin=dict(l=8, r=8, t=18 if maximized else 4, b=4),
-        hovermode="x unified",
-        hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
-                        font_color=C["text"], font_size=10),
-        legend=dict(orientation="h", y=1.02, x=0, yanchor="bottom",
-                    font=dict(size=9), bgcolor="rgba(0,0,0,0)"),
-        bargap=0.2,
-        xaxis=dict(**axis_common),
-        yaxis=dict(title_text="financement (%)", **axis_common),
-        yaxis2=dict(title_text="OI (Md$)", overlaying="y", side="right",
-                    showgrid=False, tickfont=dict(size=9, color=C["cyan"])),
-        uirevision=uirevision,
-    )
-    if funding.empty and open_interest.empty:
-        fig.add_annotation(
-            text="marché à terme indisponible", xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False,
-            font=dict(family=MONO, size=11, color=C["muted"]),
-        )
-    return fig
-
 
 # ─────────────────────────────────────────────────────────────
 # Dominance : parts de capitalisation
