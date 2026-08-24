@@ -540,7 +540,7 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "!document.getElementById('layout-overlay')"
             ".className.includes('layout-overlay-hidden')", timeout=8))
         check("un rang par panneau", browser.js(
-            "return document.querySelectorAll('.layout-row').length;") == 13)
+            "return document.querySelectorAll('.layout-row').length;") == 14)
         browser.js("""
             const rang = Array.from(document.querySelectorAll('.layout-row'))
                 .find(r => r.querySelector('.layout-panel-name')

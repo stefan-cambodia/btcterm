@@ -278,6 +278,52 @@ def test_cablage_du_hub():
     print("  ✓ journal branché par défaut, débrayable, jamais créé à vide")
 
 
+def _textes(node, found=None):
+    """Tous les fragments de texte d'un arbre de composants Dash."""
+    found = found if found is not None else []
+    if isinstance(node, str):
+        found.append(node)
+    elif isinstance(node, (list, tuple)):
+        for child in node:
+            _textes(child, found)
+    elif hasattr(node, "children"):
+        _textes(node.children, found)
+    return found
+
+
+def test_panneau_journal_rend_la_seance():
+    """Le panneau JOURNAL relit ce que la CLI relit — alertes, épisodes,
+    bilan des liquidations, profondeur des instantanés — et dit son
+    absence quand le terminal tourne sans journal."""
+    from types import SimpleNamespace
+
+    from terminal.panels.journal import render
+
+    with tempfile.TemporaryDirectory() as tmp:
+        journal = Journal(Path(tmp) / "journal.db")
+        now = time.time()
+        journal.record_alert(type("A", (), {
+            "time": now - 60, "kind": "trend", "message": "cours étiré"})())
+        journal.observe([opportunity(net=0.4)], now - 30)
+        journal.flush()
+        feed = LiquidationFeed()
+        feed.on_event = journal.record_liquidation
+        feed._handle(message(side="SELL", price="64000", qty="0.5"))
+        journal.record_market_snapshot(now - 7 * 86_400, btc_dominance=58.0)
+
+        view, badges = render(SimpleNamespace(journal=journal), False)
+        texte = " ".join(_textes(view)) + " " + " ".join(_textes(badges))
+        assert "cours étiré" in texte, "l'alerte devait se relire"
+        assert "Kraken → Binance" in texte, "l'épisode devait se relire"
+        assert "32 k$" in texte, "le bilan des liquidations devait chiffrer"
+        assert "instantanés depuis le" in texte, \
+            "la profondeur de l'historique devait se dire"
+
+        vide, _ = render(SimpleNamespace(journal=None), False)
+        assert "no-journal" in " ".join(_textes(vide))
+    print("  ✓ le panneau relit alertes, épisodes, bilan — et dit l'absence")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nJournal des données éphémères — {len(tests)} vérifications\n"

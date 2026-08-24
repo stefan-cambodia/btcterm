@@ -32,8 +32,8 @@ from btcterm.hub import MarketHub
 
 from . import lwc, push
 from .panels import (PANELS, alerts, arbitrage, calendar, dominance, etf,
-                     liquidations, macro, news, onchain, orderbook, perp,
-                     price)
+                     journal, liquidations, macro, news, onchain, orderbook,
+                     perp, price)
 from .theme import C, MONO
 
 REFRESH_FAST_MS = 250
@@ -90,7 +90,8 @@ CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
     "book": (("book", "CARNET", orderbook.layout),
              ("depth", "PROFONDEUR", orderbook.depth_layout)),
     "arb": (("arb", "ARBITRAGE", arbitrage.layout),
-            ("liq", "LIQUIDATIONS", liquidations.layout)),
+            ("liq", "LIQUIDATIONS", liquidations.layout),
+            ("journal", "JOURNAL", journal.layout)),
     "etf": (("etf", "FLUX ETF", etf.layout),
             ("perp", "PERPÉTUEL", perp.layout)),
     "news": (("news", "NEWS", news.layout),

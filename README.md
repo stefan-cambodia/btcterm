@@ -36,6 +36,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Liquidations** | positions fermées de force, toutes paires, totaux de l'heure (onglet de l'arbitrage) | 250 ms |
+| **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
 | **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed | 2 s en lecture, collecte toutes les 15 min |
@@ -61,7 +62,7 @@ les liquidations en cascade.
 onglets posés à la place du titre. Par défaut, cinq cellules en portent :
 carnet et profondeur, flux ETF et perpétuel, news avec calendrier et
 alertes, macro et dominance et on-chain — plus l'arbitrage, qui partage sa
-place avec les liquidations. Un panneau caché n'est pas dans la page — il ne coûte rien, et il
+place avec les liquidations et le journal. Un panneau caché n'est pas dans la page — il ne coûte rien, et il
 se remplit dès qu'on l'affiche.
 
 **Push** — les panneaux à 250 ms ont deux canaux : quand le navigateur tient
@@ -150,7 +151,8 @@ avec le meilleur profit observé. S'y ajoutent, toutes les cinq minutes, les
 leurs API refusent de servir en série ; leur rétention est de 400 jours, et
 leur accumulation donne au panneau dominance sa tendance et au perpétuel un
 open interest qui remonte au-delà des trente jours de Binance. La séance se
-relit après coup :
+relit après coup — dans le terminal même (panneau JOURNAL, onglet de
+l'arbitrage) ou à la ligne de commande :
 
 ```bash
 python -m btcterm.journal --heures 6             # relire la séance

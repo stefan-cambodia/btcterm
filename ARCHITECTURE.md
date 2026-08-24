@@ -25,7 +25,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant treize panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant quatorze panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement doublés d'un canal push pour les panneaux rapides, un hub
   qui n'ouvre qu'une connexion par plateforme et un collecteur de news en
@@ -343,6 +343,13 @@ python -m btcterm.journal --heures 6
 
 Le journal tient aussi la table des **alertes** (§2.8), une ligne par
 sonnerie : relire une séance, c'est aussi relire ce qui a sonné.
+
+La relecture a deux fenêtres : la CLI ci-dessous, et le **panneau
+JOURNAL** (onglet de la cellule d'arbitrage) — alertes sonnées,
+épisodes rentables et bilan des liquidations des dernières vingt-quatre
+heures, la profondeur de l'historique d'instantanés dans la barre de
+titre. C'était le dernier usage qui obligeait à quitter le terminal
+pour une ligne de commande.
 
 S'y ajoutent les **instantanés de marché** — dominance, parts de
 capitalisation, open interest —, la seule table qui ne relit pas la
@@ -1170,10 +1177,10 @@ panneaux ». Les étapes ci-dessous sont ordonnées : chacune réduit le coût d
 suivante.
 
 **Où en est-on.** Les cinq étapes sont faites — socle extrait, couche de rendu
-tranchée, données mutualisées, doublons supprimés, couverture complète : treize
-panneaux couvrent le prix, la liquidité, l'arbitrage, les liquidations, les
-flux ETF, le marché à terme, les news, le calendrier macro, la macro, la
-dominance et la chaîne. La piste de confort laissée ouverte à la pause
+tranchée, données mutualisées, doublons supprimés, couverture complète :
+quatorze panneaux couvrent le prix, la liquidité, l'arbitrage, les
+liquidations, les flux ETF, le marché à terme, les news, le calendrier macro,
+la macro, la dominance, la chaîne et la relecture de séance. La piste de confort laissée ouverte à la pause
 précédente — une disposition de grille configurable — est faite (§3.6) :
 chaque panneau se range dans la cellule de son choix, et le rangement
 survit au rechargement. Le dernier chantier, resté conditionnel depuis
@@ -1205,6 +1212,13 @@ limites que la clôture assumait :
    open interest en ligne sur la série que le chantier 1 allonge, poll à
    l'horloge rare sans canal push. La décision d'étape 2 est révisée
    pour ce seul panneau.
+
+Un quatrième les a suivis, dans le même esprit de convergence :
+
+4. ~~**Le panneau JOURNAL**~~ — fait : la relecture de séance entre dans
+   le terminal (§2.7), en onglet de la cellule d'arbitrage — la CLI
+   `python -m btcterm.journal` reste, mais plus rien n'oblige à sortir
+   du terminal pour relire ce qui a sonné, rapporté ou liquidé.
 
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 

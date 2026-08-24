@@ -14,12 +14,12 @@ brancher. Un panneau déclaré et oublié n'est donc plus possible — c'est
 exactement l'erreur qui a laissé le panneau ETF muet à sa création.
 """
 
-from . import (alerts, arbitrage, calendar, dominance, etf, liquidations,
-               macro, news, onchain, orderbook, perp, price)
+from . import (alerts, arbitrage, calendar, dominance, etf, journal,
+               liquidations, macro, news, onchain, orderbook, perp, price)
 
-PANELS = (price, orderbook, arbitrage, liquidations, etf, perp, news, calendar,
-          alerts, macro, dominance, onchain)
+PANELS = (price, orderbook, arbitrage, liquidations, journal, etf, perp, news,
+          calendar, alerts, macro, dominance, onchain)
 
-__all__ = ["PANELS", "price", "orderbook", "arbitrage", "liquidations", "etf",
-           "perp", "news", "calendar", "alerts", "macro", "dominance",
-           "onchain"]
+__all__ = ["PANELS", "price", "orderbook", "arbitrage", "liquidations",
+           "journal", "etf", "perp", "news", "calendar", "alerts", "macro",
+           "dominance", "onchain"]
