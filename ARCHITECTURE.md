@@ -99,6 +99,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_lwc_serialize.py      contrat de série du rendu du prix
 │   ├── test_lwc_api.py            /api/klines : pagination, repli démo
 │   ├── test_indicators_incremental.py  dernier point : borné = complet
+│   ├── test_prepare_price_frame.py  enrichissement du prix : le contrat
 │   ├── marionette_client.py       pilotage minimal de Firefox
 │   └── ui_smoke.py                contrôle de l'interface à l'écran
 │

@@ -272,6 +272,7 @@ python tests/test_wsgi.py                # fabrique gunicorn du régime service
 python tests/test_lwc_serialize.py       # contrat de série du rendu du prix
 python tests/test_lwc_api.py             # /api/klines : pagination, repli démo
 python tests/test_indicators_incremental.py  # dernier point : borné = complet
+python tests/test_prepare_price_frame.py # enrichissement du prix : colonnes, bornes
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
