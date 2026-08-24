@@ -533,10 +533,12 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "return document.getElementById('layout-overlay')"
             ".className.includes('layout-overlay-hidden');"))
         browser.js("document.getElementById('layout-btn').click();")
-        time.sleep(1.5)
-        check("⚙ ouvre le dialogue", browser.js(
-            "return !document.getElementById('layout-overlay')"
-            ".className.includes('layout-overlay-hidden');"))
+        # L'ouverture comme l'application passent par un aller-retour
+        # serveur : attendre la condition, pas un délai — la durée varie
+        # avec la charge et les ticks d'horloge qui tombent en même temps.
+        check("⚙ ouvre le dialogue", browser.wait_for(
+            "!document.getElementById('layout-overlay')"
+            ".className.includes('layout-overlay-hidden')", timeout=8))
         check("un rang par panneau", browser.js(
             "return document.querySelectorAll('.layout-row').length;") == 13)
         browser.js("""
@@ -548,14 +550,13 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         """)
         time.sleep(0.5)
         browser.js("document.getElementById('layout-apply').click();")
-        time.sleep(2.5)
-        check("Appliquer ferme le dialogue", browser.js(
-            "return document.getElementById('layout-overlay')"
-            ".className.includes('layout-overlay-hidden');"))
-        check("le calendrier a rejoint la rangée basse", browser.js("""
-            return Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
-                .some(t => t.textContent === 'CALENDRIER');
-        """))
+        check("Appliquer ferme le dialogue", browser.wait_for(
+            "document.getElementById('layout-overlay')"
+            ".className.includes('layout-overlay-hidden')", timeout=10))
+        check("le calendrier a rejoint la rangée basse", browser.wait_for("""
+            Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
+                .some(t => t.textContent === 'CALENDRIER')
+        """, timeout=10))
         check("et a quitté la cellule news", browser.js("""
             return !Array.from(document.querySelectorAll('#cell-news .cell-tab'))
                 .some(t => t.textContent === 'CALENDRIER');
@@ -577,26 +578,32 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                 .some(t => t.textContent === 'CALENDRIER');
         """))
         # Rangement d'origine : Par défaut ne fait que remplir le
-        # formulaire, c'est Appliquer qui écrit.
+        # formulaire, c'est Appliquer qui écrit. Les vérifications
+        # attendent leur condition plutôt qu'un délai fixe : le re-rendu
+        # de la grille remonte tous les panneaux, et sa durée varie avec
+        # ce que les montages coûtent — un tick d'horloge rare qui tombe
+        # au même moment suffit à dépasser un sommeil de 2,5 s.
         browser.js("document.getElementById('layout-btn').click();")
-        time.sleep(1.5)
+        browser.wait_for("!document.getElementById('layout-overlay')"
+                         ".className.includes('layout-overlay-hidden')",
+                         timeout=8)
         browser.js("document.getElementById('layout-reset').click();")
         time.sleep(1)
         browser.js("document.getElementById('layout-apply').click();")
-        time.sleep(2.5)
         check("Par défaut + Appliquer rendent le calendrier aux news",
-              browser.js("""
-                  return Array.from(document.querySelectorAll('#cell-news .cell-tab'))
-                      .some(t => t.textContent === 'CALENDRIER');
-              """))
+              browser.wait_for("""
+                  Array.from(document.querySelectorAll('#cell-news .cell-tab'))
+                      .some(t => t.textContent === 'CALENDRIER')
+              """, timeout=10))
         browser.js("document.getElementById('layout-btn').click();")
-        time.sleep(1.5)
+        browser.wait_for("!document.getElementById('layout-overlay')"
+                         ".className.includes('layout-overlay-hidden')",
+                         timeout=8)
         browser.js("document.dispatchEvent(new KeyboardEvent('keydown',"
                    " {key: 'Escape', bubbles: true}));")
-        time.sleep(1)
-        check("Échap ferme le dialogue rouvert", browser.js(
-            "return document.getElementById('layout-overlay')"
-            ".className.includes('layout-overlay-hidden');"))
+        check("Échap ferme le dialogue rouvert", browser.wait_for(
+            "document.getElementById('layout-overlay')"
+            ".className.includes('layout-overlay-hidden')", timeout=8))
     finally:
         browser.close()
 
