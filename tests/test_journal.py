@@ -198,15 +198,16 @@ def test_hub_ecrit_et_relit_les_instantanes():
         hub.journal = Journal(Path(tmp) / "journal.db")
 
         now = time.time()
-        # Hors ligne : les deux accès rendent leur valeur vide.
+        # Hors ligne : les trois accès rendent leur valeur vide.
         hub.market_global = lambda: {}
         hub.open_interest = lambda **kw: pd.DataFrame(
             columns=["time", "oi", "oi_usd"])
+        hub.perp_snapshot = lambda: {}
         hub.record_market_snapshot(now=now)
         assert not hub.journal.path.exists(), "le vide a créé la base"
         assert hub.market_snapshots().empty
 
-        # Les deux sources répondent : l'instantané se compose.
+        # Les sources répondent : l'instantané se compose.
         hub.market_global = lambda: {
             "total_cap_usd": 2.4e12, "total_volume_usd": 9.1e10,
             "shares": {"BTC": 56.2, "ETH": 12.1, "USDT": 5.5, "USDC": 1.5},
@@ -214,6 +215,7 @@ def test_hub_ecrit_et_relit_les_instantanes():
         hub.open_interest = lambda **kw: pd.DataFrame(
             {"time": [pd.Timestamp("2026-08-24")],
              "oi": [80_000.0], "oi_usd": [1.2e10]})
+        hub.perp_snapshot = lambda: {"funding_rate": 0.0003}
         hub.record_market_snapshot(now=now)
 
         df = hub.market_snapshots()
@@ -221,7 +223,8 @@ def test_hub_ecrit_et_relit_les_instantanes():
         assert df["btc_dominance"].iloc[0] == 56.2
         assert df["stable_share"].iloc[0] == 7.0, "USDT + USDC"
         assert df["oi_usd"].iloc[0] == 1.2e10
-    print("  ✓ instantané composé des deux sources, muet hors ligne")
+        assert df["funding_rate"].iloc[0] == 0.0003
+    print("  ✓ instantané composé des trois sources, muet hors ligne")
 
 
 def test_open_interest_prolonge_par_le_journal():
@@ -263,6 +266,73 @@ def test_open_interest_prolonge_par_le_journal():
         hub.journal = Journal(Path(tmp) / "vide.db")
         assert hub.open_interest_extended() is base
     print("  ✓ open interest prolongé et rééchantillonné, couture triée")
+
+
+def test_migration_d_une_base_anterieure():
+    """Une base créée avant la colonne funding_rate s'élargit à
+    l'ouverture — ALTER TABLE, l'historique accumulé jamais perdu."""
+    import sqlite3
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "journal.db"
+        vieille = sqlite3.connect(path)
+        vieille.execute("""
+            CREATE TABLE market_snapshots (
+                ts REAL NOT NULL, btc_dominance REAL, stable_share REAL,
+                total_cap_usd REAL, total_volume_usd REAL, oi_usd REAL)""")
+        vieille.execute("INSERT INTO market_snapshots VALUES "
+                        "(1000.0, 58.0, 9.5, 2.4e12, 9e10, 1.1e10)")
+        vieille.commit()
+        vieille.close()
+
+        journal = Journal(path)
+        journal.record_market_snapshot(2000.0, btc_dominance=59.0,
+                                       funding_rate=0.0001)
+        rows = journal.snapshots_between(0, 3000)
+        assert len(rows) == 2
+        assert rows[0]["btc_dominance"] == 58.0, "l'ancienne ligne a survécu"
+        assert rows[0]["funding_rate"] is None, "colonne neuve à NULL"
+        assert rows[1]["funding_rate"] == 0.0001
+    print("  ✓ base antérieure élargie, anciennes lignes intactes")
+
+
+def test_financement_prolonge_par_le_journal():
+    """Comme l'open interest : la fenêtre Binance continue vers le passé
+    sur les instantanés, rééchantillonnés sur la grille des règlements
+    (8 h, étiquette à droite) — le dernier relevé avant l'échéance."""
+    import pandas as pd
+
+    with tempfile.TemporaryDirectory() as tmp:
+        hub = MarketHub(collect_news=False)
+        hub.journal = Journal(Path(tmp) / "journal.db")
+
+        base_start = time.time() - 30 * 86_400
+        # Six jours de relevés horaires antérieurs à la fenêtre Binance.
+        for k in range(6 * 24):
+            hub.journal.record_market_snapshot(
+                base_start - (k + 1) * 3600, funding_rate=0.0001)
+
+        base = pd.DataFrame({
+            "time": pd.to_datetime(
+                [base_start + k * 8 * 3600 for k in range(90)], unit="s"),
+            "rate": [0.0002] * 90,
+        })
+        hub.funding_history = lambda limit=90: base
+
+        merged = hub.funding_history_extended()
+        assert len(merged) > len(base), "le journal devait prolonger"
+        assert merged["time"].is_monotonic_increasing
+        assert merged["time"].iloc[0] < base["time"].iloc[0]
+        #: Rééchantillonné : ~18 règlements reconstitués pour 144 relevés.
+        assert len(merged) - len(base) <= 19
+        assert merged["rate"].notna().all()
+        assert (merged["time"] < base["time"].iloc[0]).sum() \
+            == len(merged) - len(base), "recouvrement à la couture"
+
+        # Sans historique local, la série Binance ressort telle quelle.
+        hub.journal = Journal(Path(tmp) / "vide.db")
+        assert hub.funding_history_extended() is base
+    print("  ✓ financement prolongé sur la grille des règlements, sans couture")
 
 
 def test_cablage_du_hub():

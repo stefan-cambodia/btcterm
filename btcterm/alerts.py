@@ -8,7 +8,7 @@ d'observation du hub, 1 s) et publie des alertes — affichées par le
 panneau ALERTES, comptées dans le bandeau, notifiées par le navigateur,
 et journalisées (§ journal) pour être relues avec la séance.
 
-Huit règles, toutes nourries par ce que le hub tient déjà — aucune
+Neuf règles, toutes nourries par ce que le hub tient déjà — aucune
 connexion nouvelle :
 
 - **seuils de prix**, posés par l'utilisateur : le sens (au-dessus,
@@ -41,6 +41,14 @@ Ces trois règles se taisent sur la série de démonstration : hors ligne,
 des signaux calculés sur une marche aléatoire seraient du bruit déguisé
 en information.
 
+Une neuvième s'assoit sur l'historique que le journal accumule (§2.7) :
+
+- **glissement de dominance** : la part du BTC dans la capitalisation
+  s'est déplacée de plus du seuil (en points) sur vingt-quatre heures —
+  une rotation du marché, invisible d'un instantané seul. La règle se
+  tait tant que l'historique local ne couvre pas la fenêtre : elle est
+  la première à ne pouvoir exister qu'à l'usage.
+
 Les règles d'état (tout sauf les news et le signal) sonnent sur le
 **front montant** et pas avant un délai de garde : une condition qui
 dure ne sonne qu'une fois, une condition qui clignote ne sonne pas en
@@ -58,6 +66,8 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from typing import Callable, Optional
+
+import pandas as pd
 
 from . import indicators as ind
 from . import newsdb
@@ -85,6 +95,8 @@ DEFAULT_CONFIG: dict = {
     "rsi_oversold": 20.0,
     #: sonner sur les signaux gradués forts (±2) de la bougie close.
     "signal_strong": True,
+    #: glissement de la dominance BTC sur 24 h, en points de part.
+    "dominance_shift_pts": 1.5,
     #: bip sonore côté navigateur — le moteur l'ignore, le client le lit.
     "sound": True,
 }
@@ -113,7 +125,8 @@ class Alert:
     """Une sonnerie : quand, quelle règle, quel message."""
 
     time: float
-    kind: str      #: price | liq | funding | news | arb | trend | rsi | signal
+    kind: str      #: price | liq | funding | news | arb
+                   #:   | trend | rsi | signal | dominance
     message: str
 
 
@@ -132,7 +145,8 @@ def normalize_config(data) -> dict:
     if not isinstance(data, dict):
         return config
     for key in ("liq_burst_musd", "funding_pct", "news_score", "arb_net_pct",
-                "ma200_gap_pct", "rsi_overbought", "rsi_oversold"):
+                "ma200_gap_pct", "rsi_overbought", "rsi_oversold",
+                "dominance_shift_pts"):
         value = data.get(key)
         if isinstance(value, (int, float)) and value > 0:
             config[key] = float(value)
@@ -220,7 +234,7 @@ class AlertEngine:
         if now >= self._next_slow:
             self._next_slow = now + SLOW_EVERY
             for rule in (self._check_funding, self._check_news,
-                         self._check_technical):
+                         self._check_technical, self._check_dominance):
                 try:
                     rule(hub, opportunities, config, now)
                 except Exception:
@@ -351,6 +365,37 @@ class AlertEngine:
                 self._fire("signal",
                            f"signal {sens} sur la bougie 1 h close "
                            f"({close:,.0f} $)", now)
+
+    def _check_dominance(self, hub, _opps, config, now) -> None:
+        """Glissement de la dominance BTC sur vingt-quatre heures.
+
+        La référence est l'instantané journalisé le plus proche de la
+        fenêtre — au moins 23 h d'âge : tant que l'historique local ne
+        couvre pas la fenêtre, la règle se tait plutôt que de comparer
+        à un passé trop proche, où tout écart semblerait un glissement.
+        """
+        history = hub.market_snapshots(days=2)
+        if history.empty:
+            return
+        serie = history.dropna(subset=["btc_dominance"])
+        if serie.empty:
+            return
+        # Le passage explicite par la nanoseconde rend la conversion en
+        # secondes indépendante de la résolution du DataFrame — le même
+        # piège que la sérialisation LWC a déjà contourné (§ lwc).
+        epoch = (pd.to_datetime(serie["time"]).astype("datetime64[ns]")
+                 .astype("int64") // 1_000_000_000)
+        latest = float(serie["btc_dominance"].iloc[-1])
+        anciens = serie[epoch <= now - 23 * 3600]
+        if anciens.empty:
+            return
+        reference = float(anciens["btc_dominance"].iloc[-1])
+        delta = latest - reference
+        if self._edge("dominance",
+                      abs(delta) >= config["dominance_shift_pts"], now):
+            self._fire("dominance",
+                       f"dominance BTC {delta:+.1f} pt en 24 h "
+                       f"({latest:.1f} %)", now)
 
     def _check_news(self, hub, _opps, config, now) -> None:
         rows = self._fetch_news()

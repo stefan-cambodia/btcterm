@@ -103,7 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_episodes_ts ON arbitrage_episodes (first_seen);
 CREATE TABLE IF NOT EXISTS alerts (
     ts      REAL NOT NULL,
     kind    TEXT NOT NULL,       -- price | liq | funding | news | arb
-                                 --   | trend | rsi | signal
+                                 --   | trend | rsi | signal | dominance
     message TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts (ts);
@@ -114,14 +114,25 @@ CREATE TABLE IF NOT EXISTS market_snapshots (
     stable_share     REAL,           -- part des stablecoins, %
     total_cap_usd    REAL,
     total_volume_usd REAL,
-    oi_usd           REAL            -- open interest du perpétuel, $
+    oi_usd           REAL,           -- open interest du perpétuel, $
+    funding_rate     REAL            -- taux de la période en cours (fraction)
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON market_snapshots (ts);
 """
 
 #: Colonnes de `market_snapshots` hors horodatage — l'ordre du schéma.
+#: Toute colonne ajoutée ici doit aussi l'être dans `_MIGRATIONS` :
+#: CREATE TABLE IF NOT EXISTS n'élargit pas une table existante.
 SNAPSHOT_FIELDS = ("btc_dominance", "stable_share",
-                   "total_cap_usd", "total_volume_usd", "oi_usd")
+                   "total_cap_usd", "total_volume_usd", "oi_usd",
+                   "funding_rate")
+
+#: Colonnes apparues après la création de `market_snapshots` : ajoutées
+#: par ALTER TABLE à l'ouverture d'une base antérieure, NULL sur les
+#: lignes déjà écrites — l'historique accumulé n'est jamais perdu.
+_MIGRATIONS = {
+    "market_snapshots": ("funding_rate REAL",),
+}
 
 
 class Journal:
@@ -144,6 +155,17 @@ class Journal:
             self._db = sqlite3.connect(self.path, check_same_thread=False)
             self._db.row_factory = sqlite3.Row
             self._db.executescript(_SCHEMA)
+            # Élargir les tables d'une base antérieure : CREATE TABLE IF
+            # NOT EXISTS n'ajoute pas de colonne, ALTER TABLE si — les
+            # lignes déjà écrites restent, la colonne neuve à NULL.
+            for table, additions in _MIGRATIONS.items():
+                present = {row["name"] for row in self._db.execute(
+                    f"PRAGMA table_info({table})")}
+                for declaration in additions:
+                    if declaration.split()[0] not in present:
+                        self._db.execute(
+                            f"ALTER TABLE {table} ADD COLUMN {declaration}")
+            self._db.commit()
         return self._db
 
     def close(self) -> None:
@@ -181,9 +203,10 @@ class Journal:
         instantané partiel vaut mieux que pas d'instantané.
         """
         values = [fields.get(name) for name in SNAPSHOT_FIELDS]
+        marks = ", ".join("?" * (1 + len(SNAPSHOT_FIELDS)))
         with self._lock:
             self._connection().execute(
-                "INSERT INTO market_snapshots VALUES (?, ?, ?, ?, ?, ?)",
+                f"INSERT INTO market_snapshots VALUES ({marks})",
                 (ts, *values),
             )
             self._db.commit()

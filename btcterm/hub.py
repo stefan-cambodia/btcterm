@@ -342,6 +342,7 @@ class MarketHub:
             return
         agregats = self.market_global()
         oi = self.open_interest()
+        perp = self.perp_snapshot()
 
         shares = agregats.get("shares") or {}
         fields = {
@@ -352,6 +353,11 @@ class MarketHub:
             "total_cap_usd": agregats.get("total_cap_usd"),
             "total_volume_usd": agregats.get("total_volume_usd"),
             "oi_usd": float(oi["oi_usd"].iloc[-1]) if not oi.empty else None,
+            #: Le taux de la période en cours — celui que la prochaine
+            #: échéance réglera : rééchantillonné par tranches de 8 h,
+            #: il reconstitue l'historique des règlements (§ funding_
+            #: history_extended).
+            "funding_rate": perp.get("funding_rate"),
         }
         if all(value is None for value in fields.values()):
             return
@@ -366,7 +372,8 @@ class MarketHub:
         l'accumulation locale, et commence donc vide.
         """
         columns = ["time", "btc_dominance", "stable_share",
-                   "total_cap_usd", "total_volume_usd", "oi_usd"]
+                   "total_cap_usd", "total_volume_usd", "oi_usd",
+                   "funding_rate"]
         if self.journal is None:
             return pd.DataFrame(columns=columns)
         end = time.time()
@@ -442,6 +449,37 @@ class MarketHub:
             return base
         resampled = (history.set_index("time")["oi_usd"]
                      .resample("4h").last().dropna().reset_index())
+        return pd.concat([resampled, base], ignore_index=True)
+
+    def funding_history_extended(self, limit: int = 90) -> pd.DataFrame:
+        """Financement prolongé vers le passé par le journal local.
+
+        Binance sert `limit` règlements (90 × 8 h = trente jours) ;
+        au-delà, la série continue sur les instantanés journalisés, où
+        voyage le taux de la période *en cours*. Rééchantillonnés par
+        tranches de 8 h étiquetées à leur borne droite — la grille des
+        règlements (00 h, 08 h, 16 h UTC) —, le dernier relevé de chaque
+        tranche est l'estimation immédiatement antérieure au règlement :
+        une reconstitution, pas le règlement exact, mais à la précision
+        d'un relevé de cinq minutes l'écart est négligeable.
+        """
+        base = self.funding_history(limit=limit)
+        history = self.market_snapshots()
+        if history.empty:
+            return base
+        history = history.dropna(subset=["funding_rate"])[
+            ["time", "funding_rate"]]
+        if not base.empty:
+            history = history[history["time"] < base["time"].iloc[0]]
+        if history.empty:
+            return base
+        resampled = (history.set_index("time")["funding_rate"]
+                     .resample("8h", label="right", closed="left")
+                     .last().dropna().rename("rate").reset_index())
+        if not base.empty:
+            # L'étiquette droite peut retomber sur le premier règlement
+            # de Binance : le règlement réel gagne.
+            resampled = resampled[resampled["time"] < base["time"].iloc[0]]
         return pd.concat([resampled, base], ignore_index=True)
 
     def perp_snapshot(self) -> dict:

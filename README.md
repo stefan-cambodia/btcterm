@@ -41,7 +41,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed | 2 s en lecture, collecte toutes les 15 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
-| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort (onglet des news) | 2 s |
+| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, glissement de dominance (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
 | **Dominance** | parts de capitalisation et leur tendance journalisée, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
@@ -147,10 +147,11 @@ journalisées dans `~/.btcterm/journal.db` (30 jours de rétention) : chaque
 liquidation, et chaque épisode d'arbitrage rentable — ouvert quand une paire
 devient rentable, clos quand elle a cessé de l'être, une ligne par épisode
 avec le meilleur profit observé. S'y ajoutent, toutes les cinq minutes, les
-**instantanés de marché** (dominance, capitalisation, open interest) que
-leurs API refusent de servir en série ; leur rétention est de 400 jours, et
+**instantanés de marché** (dominance, capitalisation, open interest,
+financement) que leurs API refusent de servir en série ; leur rétention est de 400 jours, et
 leur accumulation donne au panneau dominance sa tendance et au perpétuel un
-open interest qui remonte au-delà des trente jours de Binance. La séance se
+financement et un open interest qui remontent au-delà des trente jours de
+Binance. La séance se
 relit après coup — dans le terminal même (panneau JOURNAL, onglet de
 l'arbitrage) ou à la ligne de commande :
 
@@ -165,7 +166,9 @@ au-dessous — est figé à la pose, avec hystérésis de réarmement), rafale d
 liquidations, financement extrême, news à fort score, écart d'arbitrage —
 plus trois règles relatives lues sur la bougie horaire close : écart du
 cours à sa MA 200, RSI hors bornes, signal gradué fort (±2), muettes sur la
-série de démonstration hors ligne.
+série de démonstration hors ligne — et une neuvième assise sur l'historique
+journalisé : le glissement de la dominance BTC sur 24 h, qui ne peut sonner
+qu'une fois l'historique accumulé.
 Les règles sonnent sur le front montant, sous délai de garde — une condition
 qui dure ou qui clignote ne sonne pas en rafale. La cloche du bandeau compte
 la dernière heure ; le bip et les notifications navigateur (permission

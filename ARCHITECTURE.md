@@ -352,8 +352,8 @@ titre. C'était le dernier usage qui obligeait à quitter le terminal
 pour une ligne de commande.
 
 S'y ajoutent les **instantanés de marché** — dominance, parts de
-capitalisation, open interest —, la seule table qui ne relit pas la
-séance mais construit un historique : CoinGecko réserve ces séries à
+capitalisation, open interest, financement —, la seule table qui ne
+relit pas la séance mais construit un historique : CoinGecko réserve ces séries à
 son offre payante et Binance ne garde que trente jours d'open interest,
 alors la boucle d'observation en journalise un toutes les cinq minutes
 (`SNAPSHOT_EVERY`), composé de ses deux sources qui échouent
@@ -361,11 +361,15 @@ indépendamment — un instantané partiel s'écrit, colonnes manquantes à
 NULL ; hors ligne, rien ne s'écrit. Leur rétention est longue à dessein
 (`SNAPSHOT_RETENTION_DAYS`, 400 jours contre 30) : purger ces lignes au
 rythme de la séance détruirait ce que leur accumulation devait bâtir.
-Deux lecteurs côté hub : `market_snapshots()` rend l'historique en
+Trois lecteurs côté hub : `market_snapshots()` rend l'historique en
 DataFrame — la tendance du panneau dominance —, et
-`open_interest_extended()` prolonge la série Binance vers le passé sur
-les instantanés, rééchantillonnés au pas de 4 h pour une couture
-invisible.
+`open_interest_extended()` comme `funding_history_extended()`
+prolongent les séries Binance vers le passé sur les instantanés,
+rééchantillonnés au pas de leur source (4 h ; 8 h sur la grille des
+règlements, étiquette à droite — le dernier relevé avant l'échéance
+reconstitue le taux réglé) pour une couture invisible. Une base
+antérieure à une colonne s'élargit par ALTER TABLE à l'ouverture :
+l'historique accumulé n'est jamais perdu.
 
 `tests/test_journal.py` déroule la vie d'un épisode au temps simulé —
 ouverture, meilleur profit, flottement toléré, clôture après la grâce —
@@ -378,7 +382,7 @@ de l'open interest compris.
 
 Douze panneaux qu'il faut balayer des yeux couvraient la surveillance
 active ; la passive demande l'inverse — que le terminal prévienne.
-`AlertEngine` évalue huit règles dans la boucle d'observation du hub
+`AlertEngine` évalue neuf règles dans la boucle d'observation du hub
 (1 s), toutes nourries par ce que le hub tient déjà, sans aucune
 connexion nouvelle :
 
@@ -413,6 +417,14 @@ sur le flottement de la bougie courante :
 Ces trois règles se taisent sur la série de démonstration : hors
 ligne, des extrêmes calculés sur une marche aléatoire seraient du
 bruit déguisé en information.
+
+Une neuvième s'assoit sur l'historique que le journal accumule (§2.7) :
+
+- **glissement de dominance** — la part du BTC s'est déplacée de plus
+  du seuil (en points) sur vingt-quatre heures, une rotation du marché
+  invisible d'un instantané seul. La règle se tait tant que
+  l'historique local ne couvre pas la fenêtre : c'est la première à ne
+  pouvoir exister qu'à l'usage.
 
 Les règles d'état sonnent sur le **front montant** et pas avant un
 délai de garde de 10 minutes : une condition qui dure ne sonne qu'une
@@ -1219,6 +1231,16 @@ Un quatrième les a suivis, dans le même esprit de convergence :
    le terminal (§2.7), en onglet de la cellule d'arbitrage — la CLI
    `python -m btcterm.journal` reste, mais plus rien n'oblige à sortir
    du terminal pour relire ce qui a sonné, rapporté ou liquidé.
+
+Puis deux prolongements des chantiers 1 et 2 :
+
+5. ~~**Le financement dans les instantanés**~~ — fait : la colonne
+   `funding_rate` rejoint `market_snapshots` (ALTER TABLE sur les bases
+   antérieures), et `funding_history_extended()` prolonge l'histogramme
+   du perpétuel comme l'open interest l'était déjà (§2.7).
+6. ~~**Alerte sur la dominance**~~ — fait : neuvième règle du moteur
+   (§2.8), assise sur l'historique journalisé — un glissement de la
+   dominance BTC au-delà du seuil en points sur vingt-quatre heures.
 
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 

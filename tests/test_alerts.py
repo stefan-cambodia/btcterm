@@ -62,6 +62,9 @@ class FakeHub:
         #: Chandeliers plats par défaut : écart nul, RSI muet (NaN),
         #: aucun signal — les règles relatives se taisent.
         self.frame = klines_frame([100_000.0] * KLINE_LIMIT)
+        #: Historique d'instantanés vide par défaut : la règle de
+        #: dominance se tait tant que le journal n'a rien accumulé.
+        self.snapshots = pd.DataFrame(columns=["time", "btc_dominance"])
 
     def reference_price(self):
         return self.price
@@ -71,6 +74,9 @@ class FakeHub:
 
     def klines(self, interval="1h", limit=KLINE_LIMIT):
         return self.frame
+
+    def market_snapshots(self, days=400):
+        return self.snapshots
 
 
 def engine(news=(), **config):
@@ -306,6 +312,52 @@ def test_signal_fort_une_fois_par_bougie():
     e.evaluate(hub, now=T0 + 2 * (SLOW_EVERY + 1))
     assert len([a for a in e.alerts if a.kind == "signal"]) == 1
     print("  ✓ signal fort : une sonnerie par bougie, débrayable")
+
+
+def dominance_series(now, heures: float, debut: float, fin: float):
+    """Un historique d'instantanés au pas de l'heure, dominance glissant
+    linéairement de `debut` à `fin` sur `heures` heures."""
+    points = int(heures) + 1
+    return pd.DataFrame({
+        "time": pd.to_datetime(
+            [now - (points - 1 - k) * 3600 for k in range(points)], unit="s"),
+        "btc_dominance": [debut + (fin - debut) * k / (points - 1)
+                          for k in range(points)],
+    })
+
+
+def test_glissement_de_dominance():
+    """La rotation du marché sonne au front montant — et la règle se
+    tait tant que l'historique ne couvre pas la fenêtre."""
+    hub = FakeHub()
+    e = engine(dominance_shift_pts=1.5)
+
+    # Deux heures d'historique seulement : silence, quel que soit l'écart.
+    hub.snapshots = dominance_series(T0, 2, 55.0, 60.0)
+    e.evaluate(hub, now=T0)
+    assert not e.alerts, "un historique trop court a fait sonner"
+
+    # Vingt-cinq heures, +2 pt sur la série entière : une sonnerie, pas
+    # deux. La référence est le point le plus proche de la fenêtre —
+    # 23 h d'âge, d'où +1,8 pt affiché, pas les +2 de bout en bout.
+    hub.snapshots = dominance_series(T0, 25, 57.0, 59.0)
+    e.evaluate(hub, now=T0 + SLOW_EVERY + 1)
+    e.evaluate(hub, now=T0 + 2 * (SLOW_EVERY + 1))
+    sonneries = [a for a in e.alerts if a.kind == "dominance"]
+    assert len(sonneries) == 1, sonneries
+    assert "+1.8 pt" in sonneries[0].message, sonneries[0].message
+    assert "59.0 %" in sonneries[0].message
+    print("  ✓ glissement de dominance : fenêtre exigée, front montant")
+
+
+def test_glissement_de_dominance_sous_le_seuil():
+    hub = FakeHub()
+    e = engine(dominance_shift_pts=1.5)
+    hub.snapshots = dominance_series(T0, 25, 58.0, 59.0)  # +1 pt
+    e.evaluate(hub, now=T0)
+    assert not [a for a in e.alerts if a.kind == "dominance"], \
+        "un point de glissement est sous le seuil de 1,5"
+    print("  ✓ sous le seuil : silence")
 
 
 def test_sonneries_au_journal():

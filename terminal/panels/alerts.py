@@ -40,7 +40,8 @@ ROWS = 30
 #: Couleur d'étiquette par règle — celles des panneaux correspondants.
 KIND_COLORS = {"price": C["yellow"], "liq": C["red"],
                "funding": C["orange"], "news": C["blue"], "arb": C["green"],
-               "trend": C["purple"], "rsi": C["cyan"], "signal": C["green"]}
+               "trend": C["purple"], "rsi": C["cyan"], "signal": C["green"],
+               "dominance": C["yellow"]}
 
 _INPUT = {
     "width": "52px", "background": C["card"], "color": C["text"],
@@ -108,6 +109,10 @@ def layout(title=None):
                 _field("⩽", dcc.Input(
                     id="alert-rsi-lo", type="number", min=1, max=100,
                     debounce=True, value=config["rsi_oversold"],
+                    style=_INPUT)),
+                _field("dominance 24 h (pts)", dcc.Input(
+                    id="alert-dominance", type="number", min=0.1,
+                    debounce=True, value=config["dominance_shift_pts"],
                     style=_INPUT)),
                 dcc.Checklist(
                     id="alert-signal",
@@ -218,6 +223,7 @@ def register(app, hub):
         Input("alert-ma200", "value"),
         Input("alert-rsi-hi", "value"),
         Input("alert-rsi-lo", "value"),
+        Input("alert-dominance", "value"),
         Input("alert-signal", "value"),
         Input("alert-sound", "value"),
         State("alert-price-input", "value"),
@@ -225,7 +231,7 @@ def register(app, hub):
         prevent_initial_call=True,
     )
     def _edit(_add, _dels, liq, funding, news_score, arb,
-              ma200, rsi_hi, rsi_lo, signal, sound, level, stored):
+              ma200, rsi_hi, rsi_lo, dominance, signal, sound, level, stored):
         trigger = dash.ctx.triggered_id
         # Un composant qui vient d'être monté déclenche aussi ce
         # callback (n_clicks 0, valeurs du Store) : sans valeur de
@@ -262,7 +268,9 @@ def register(app, hub):
                       "liq_burst_musd": liq, "funding_pct": funding,
                       "news_score": news_score, "arb_net_pct": arb,
                       "ma200_gap_pct": ma200, "rsi_overbought": rsi_hi,
-                      "rsi_oversold": rsi_lo, "signal_strong": bool(signal),
+                      "rsi_oversold": rsi_lo,
+                      "dominance_shift_pts": dominance,
+                      "signal_strong": bool(signal),
                       "sound": bool(sound)}
             config = normalize_config(merged)
 

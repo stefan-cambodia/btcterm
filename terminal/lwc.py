@@ -315,13 +315,13 @@ def register_api(app, hub) -> None:
     def _perp():
         """Financement et open interest du perpétuel, en séries LWC.
 
-        L'open interest passe par `open_interest_extended` : la série
-        Binance (trente jours) prolongée vers le passé sur les
+        Les deux séries passent par leurs lecteurs prolongés : la
+        fenêtre Binance (trente jours) continue vers le passé sur les
         instantanés journalisés (§ hub). Hors ligne, les deux listes
         reviennent vides — le panneau l'écrit, le terminal vit.
         """
         return jsonify(serialize_perp(
-            hub.funding_history(limit=FUNDING_POINTS),
+            hub.funding_history_extended(limit=FUNDING_POINTS),
             hub.open_interest_extended(),
         ))
 
