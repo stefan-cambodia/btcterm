@@ -8,7 +8,7 @@ d'observation du hub, 1 s) et publie des alertes — affichées par le
 panneau ALERTES, comptées dans le bandeau, notifiées par le navigateur,
 et journalisées (§ journal) pour être relues avec la séance.
 
-Cinq règles, toutes nourries par ce que le hub tient déjà — aucune
+Huit règles, toutes nourries par ce que le hub tient déjà — aucune
 connexion nouvelle :
 
 - **seuils de prix**, posés par l'utilisateur : le sens (au-dessus,
@@ -24,9 +24,27 @@ connexion nouvelle :
   rejouerait les gros titres de la veille ;
 - **écart d'arbitrage** : le meilleur net du balayage dépasse le seuil.
 
-Les règles d'état (tout sauf les news) sonnent sur le **front montant**
-et pas avant un délai de garde : une condition qui dure ne sonne qu'une
-fois, une condition qui clignote ne sonne pas en rafale.
+S'y ajoutent trois règles **relatives**, assises sur les indicateurs
+que le panneau prix calcule déjà — mêmes chandeliers, mêmes formules
+(§ indicators), lues sur la dernière bougie horaire *close* pour ne pas
+sonner sur le flottement de la bougie courante :
+
+- **écart à la MA 200** : le cours s'étire au-delà du seuil (en %) de
+  sa moyenne à 200 heures — l'élastique tendu, dans un sens ou l'autre ;
+- **RSI extrême** : le RSI horaire sort des bornes posées (surachat,
+  survente) ;
+- **signal gradué fort** : un ±2 de `graded_signals` apparaît —
+  croisement confirmé par la tendance ou sortie de zone extrême. Une
+  sonnerie par bougie au plus : c'est un événement daté, pas un état.
+
+Ces trois règles se taisent sur la série de démonstration : hors ligne,
+des signaux calculés sur une marche aléatoire seraient du bruit déguisé
+en information.
+
+Les règles d'état (tout sauf les news et le signal) sonnent sur le
+**front montant** et pas avant un délai de garde : une condition qui
+dure ne sonne qu'une fois, une condition qui clignote ne sonne pas en
+rafale.
 
 Le moteur ne connaît pas Dash : il reçoit le hub en paramètre, comme
 les fonctions de rendu des panneaux, et se teste sans réseau avec un
@@ -41,6 +59,7 @@ from collections import deque
 from dataclasses import dataclass
 from typing import Callable, Optional
 
+from . import indicators as ind
 from . import newsdb
 
 __all__ = ["Alert", "AlertEngine", "DEFAULT_CONFIG",
@@ -59,6 +78,13 @@ DEFAULT_CONFIG: dict = {
     "news_score": 80,
     #: arbitrage : profit net minimal en %.
     "arb_net_pct": 0.5,
+    #: écart du cours à sa MA 200 horaire, en % — l'élastique tendu.
+    "ma200_gap_pct": 10.0,
+    #: bornes du RSI horaire : surachat au-dessus, survente au-dessous.
+    "rsi_overbought": 80.0,
+    "rsi_oversold": 20.0,
+    #: sonner sur les signaux gradués forts (±2) de la bougie close.
+    "signal_strong": True,
     #: bip sonore côté navigateur — le moteur l'ignore, le client le lit.
     "sound": True,
 }
@@ -71,8 +97,15 @@ COOLDOWN = 600.0
 HYSTERESIS_PCT = 0.2
 
 #: Cadence des contrôles qui coûtent (REST en cache, lecture SQLite) :
-#: financement et news ne sont regardés qu'à ce rythme.
+#: financement, news et lecture technique ne sont regardés qu'à ce rythme.
 SLOW_EVERY = 60.0
+
+#: Chandeliers des règles relatives : l'heure est leur pas — assez lent
+#: pour que MA 200 et RSI veuillent dire quelque chose, assez vif pour
+#: prévenir dans la séance. 400 bougies nourrissent la MA 200 avec la
+#: marge de chauffe des lissages.
+KLINE_INTERVAL = "1h"
+KLINE_LIMIT = 400
 
 
 @dataclass
@@ -80,7 +113,7 @@ class Alert:
     """Une sonnerie : quand, quelle règle, quel message."""
 
     time: float
-    kind: str      #: price | liq | funding | news | arb
+    kind: str      #: price | liq | funding | news | arb | trend | rsi | signal
     message: str
 
 
@@ -98,12 +131,21 @@ def normalize_config(data) -> dict:
     config["price_levels"] = []
     if not isinstance(data, dict):
         return config
-    for key in ("liq_burst_musd", "funding_pct", "news_score", "arb_net_pct"):
+    for key in ("liq_burst_musd", "funding_pct", "news_score", "arb_net_pct",
+                "ma200_gap_pct", "rsi_overbought", "rsi_oversold"):
         value = data.get(key)
         if isinstance(value, (int, float)) and value > 0:
             config[key] = float(value)
-    if isinstance(data.get("sound"), bool):
-        config["sound"] = data["sound"]
+    # Un couple RSI incohérent — survente au-dessus du surachat, borne
+    # hors de [0, 100] — ferait sonner les deux règles en permanence :
+    # il retombe entier sur les défauts.
+    if not (0 < config["rsi_oversold"]
+            < config["rsi_overbought"] <= 100):
+        config["rsi_overbought"] = DEFAULT_CONFIG["rsi_overbought"]
+        config["rsi_oversold"] = DEFAULT_CONFIG["rsi_oversold"]
+    for key in ("sound", "signal_strong"):
+        if isinstance(data.get(key), bool):
+            config[key] = data[key]
     levels = []
     for item in (data.get("price_levels") or []):
         if (isinstance(item, dict)
@@ -134,6 +176,9 @@ class AlertEngine:
         #: Titres déjà vus ; la première lecture arme sans sonner.
         self._seen_titles: set[str] = set()
         self._news_primed = False
+        #: Bougie du dernier signal fort sonné : un ±2 est un événement
+        #: daté, il ne sonne qu'une fois par bougie.
+        self._last_signal_candle = None
         self._next_slow = 0.0
 
     # ── Réglages et lecture ─────────────────────────────────
@@ -174,7 +219,8 @@ class AlertEngine:
                 pass
         if now >= self._next_slow:
             self._next_slow = now + SLOW_EVERY
-            for rule in (self._check_funding, self._check_news):
+            for rule in (self._check_funding, self._check_news,
+                         self._check_technical):
                 try:
                     rule(hub, opportunities, config, now)
                 except Exception:
@@ -257,6 +303,54 @@ class AlertEngine:
         if self._edge("funding", abs(pct) >= config["funding_pct"], now):
             self._fire("funding",
                        f"financement extrême : {pct:+.4f} % / 8 h", now)
+
+    def _check_technical(self, hub, _opps, config, now) -> None:
+        """Les trois règles relatives, sur la dernière bougie horaire close.
+
+        Une seule lecture des chandeliers pour les trois : mêmes données,
+        mêmes formules que le panneau prix (§ indicators). La bougie
+        *courante* est ignorée — elle flotte, et une règle qui sonne sur
+        du provisoire sonne pour rien. La série de démonstration se tait :
+        des extrêmes calculés sur une marche aléatoire seraient du bruit.
+        """
+        df = hub.klines(KLINE_INTERVAL, limit=KLINE_LIMIT)
+        if df.attrs.get("demo", False) or len(df) < 210:
+            return
+        work = df.copy()
+        work["ma9"] = ind.sma(work["close"], 9)
+        work["ma26"] = ind.sma(work["close"], 26)
+        work["ma200"] = ind.sma(work["close"], 200)
+        work["rsi"] = ind.rsi(work["close"], 14)
+
+        closed = work.iloc[-2]  # la dernière bougie close
+        close, ma200, rsi = (closed["close"], closed["ma200"], closed["rsi"])
+
+        # Écart à la MA 200 : l'élastique tendu, dans un sens ou l'autre.
+        if ma200 == ma200:  # NaN si l'historique est court
+            gap = (close / ma200 - 1) * 100
+            if self._edge("ma200", abs(gap) >= config["ma200_gap_pct"], now):
+                self._fire("trend",
+                           f"cours à {gap:+.1f} % de la MA 200 h "
+                           f"({close:,.0f} $)", now)
+
+        # RSI extrême : chaque borne a son front et son délai de garde.
+        if rsi == rsi:
+            if self._edge("rsi_hi", rsi >= config["rsi_overbought"], now):
+                self._fire("rsi", f"RSI 1 h en surachat : {rsi:.0f}", now)
+            if self._edge("rsi_lo", rsi <= config["rsi_oversold"], now):
+                self._fire("rsi", f"RSI 1 h en survente : {rsi:.0f}", now)
+
+        # Signal gradué fort : un événement daté — sa bougie —, jamais
+        # resonné tant que la même bougie reste la dernière close.
+        if config["signal_strong"]:
+            grade = int(ind.graded_signals(work).iloc[-2])
+            candle = closed["time"]
+            if abs(grade) == 2 and candle != self._last_signal_candle:
+                self._last_signal_candle = candle
+                sens = "achat fort" if grade > 0 else "vente forte"
+                self._fire("signal",
+                           f"signal {sens} sur la bougie 1 h close "
+                           f"({close:,.0f} $)", now)
 
     def _check_news(self, hub, _opps, config, now) -> None:
         rows = self._fetch_news()

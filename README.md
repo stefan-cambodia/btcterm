@@ -40,7 +40,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Perpétuel** | financement, open interest et part des comptes longs (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed | 2 s en lecture, collecte toutes les 15 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
-| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage (onglet des news) | 2 s |
+| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
 | **Dominance** | parts de capitalisation et leur tendance journalisée, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
@@ -158,7 +158,10 @@ python -m terminal.app --no-journal              # s'en passer
 **Alertes** — le terminal sait attirer l'attention quand on ne le regarde
 pas : seuils de cours posés depuis le panneau ALERTES (le sens — au-dessus,
 au-dessous — est figé à la pose, avec hystérésis de réarmement), rafale de
-liquidations, financement extrême, news à fort score, écart d'arbitrage.
+liquidations, financement extrême, news à fort score, écart d'arbitrage —
+plus trois règles relatives lues sur la bougie horaire close : écart du
+cours à sa MA 200, RSI hors bornes, signal gradué fort (±2), muettes sur la
+série de démonstration hors ligne.
 Les règles sonnent sur le front montant, sous délai de garde — une condition
 qui dure ou qui clignote ne sonne pas en rafale. La cloche du bandeau compte
 la dernière heure ; le bip et les notifications navigateur (permission

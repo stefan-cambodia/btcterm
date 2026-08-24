@@ -39,7 +39,8 @@ ROWS = 30
 
 #: Couleur d'étiquette par règle — celles des panneaux correspondants.
 KIND_COLORS = {"price": C["yellow"], "liq": C["red"],
-               "funding": C["orange"], "news": C["blue"], "arb": C["green"]}
+               "funding": C["orange"], "news": C["blue"], "arb": C["green"],
+               "trend": C["purple"], "rsi": C["cyan"], "signal": C["green"]}
 
 _INPUT = {
     "width": "52px", "background": C["card"], "color": C["text"],
@@ -97,6 +98,23 @@ def layout(title=None):
                 _field("arb. net (%)", dcc.Input(
                     id="alert-arb", type="number", min=0.01, debounce=True,
                     value=config["arb_net_pct"], style=_INPUT)),
+                _field("écart MA200 (%)", dcc.Input(
+                    id="alert-ma200", type="number", min=0.1, debounce=True,
+                    value=config["ma200_gap_pct"], style=_INPUT)),
+                _field("RSI ⩾", dcc.Input(
+                    id="alert-rsi-hi", type="number", min=1, max=100,
+                    debounce=True, value=config["rsi_overbought"],
+                    style=_INPUT)),
+                _field("⩽", dcc.Input(
+                    id="alert-rsi-lo", type="number", min=1, max=100,
+                    debounce=True, value=config["rsi_oversold"],
+                    style=_INPUT)),
+                dcc.Checklist(
+                    id="alert-signal",
+                    options=[{"label": "signaux ±2", "value": "on"}],
+                    value=["on"] if config["signal_strong"] else [],
+                    inline=True, className="tf-check",
+                    style={"fontSize": "9px", "display": "inline-block"}),
                 dcc.Checklist(
                     id="alert-sound", options=[{"label": "son", "value": "on"}],
                     value=["on"] if config["sound"] else [],
@@ -197,12 +215,17 @@ def register(app, hub):
         Input("alert-funding", "value"),
         Input("alert-news", "value"),
         Input("alert-arb", "value"),
+        Input("alert-ma200", "value"),
+        Input("alert-rsi-hi", "value"),
+        Input("alert-rsi-lo", "value"),
+        Input("alert-signal", "value"),
         Input("alert-sound", "value"),
         State("alert-price-input", "value"),
         State("alert-config", "data"),
         prevent_initial_call=True,
     )
-    def _edit(_add, _dels, liq, funding, news_score, arb, sound, level, stored):
+    def _edit(_add, _dels, liq, funding, news_score, arb,
+              ma200, rsi_hi, rsi_lo, signal, sound, level, stored):
         trigger = dash.ctx.triggered_id
         # Un composant qui vient d'être monté déclenche aussi ce
         # callback (n_clicks 0, valeurs du Store) : sans valeur de
@@ -238,6 +261,8 @@ def register(app, hub):
             merged = {**config,
                       "liq_burst_musd": liq, "funding_pct": funding,
                       "news_score": news_score, "arb_net_pct": arb,
+                      "ma200_gap_pct": ma200, "rsi_overbought": rsi_hi,
+                      "rsi_oversold": rsi_lo, "signal_strong": bool(signal),
                       "sound": bool(sound)}
             config = normalize_config(merged)
 

@@ -103,6 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_episodes_ts ON arbitrage_episodes (first_seen);
 CREATE TABLE IF NOT EXISTS alerts (
     ts      REAL NOT NULL,
     kind    TEXT NOT NULL,       -- price | liq | funding | news | arb
+                                 --   | trend | rsi | signal
     message TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts (ts);

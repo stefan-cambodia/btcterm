@@ -370,7 +370,7 @@ de l'open interest compris.
 
 Douze panneaux qu'il faut balayer des yeux couvraient la surveillance
 active ; la passive demande l'inverse — que le terminal prévienne.
-`AlertEngine` évalue cinq règles dans la boucle d'observation du hub
+`AlertEngine` évalue huit règles dans la boucle d'observation du hub
 (1 s), toutes nourries par ce que le hub tient déjà, sans aucune
 connexion nouvelle :
 
@@ -388,12 +388,31 @@ connexion nouvelle :
   rejouerait les gros titres de la veille ;
 - **écart d'arbitrage** — meilleur net du balayage au-delà du seuil.
 
+S'y ajoutent trois règles **relatives**, assises sur les indicateurs
+que le panneau prix calcule déjà — mêmes chandeliers horaires, mêmes
+formules (§2.1), lues sur la dernière bougie *close* pour ne pas sonner
+sur le flottement de la bougie courante :
+
+- **écart à la MA 200** — le cours s'étire au-delà du seuil (en %) de
+  sa moyenne à 200 heures, dans un sens ou l'autre ;
+- **RSI extrême** — le RSI horaire sort des bornes posées, chaque borne
+  avec son front ; un couple incohérent venu du localStorage (survente
+  au-dessus du surachat) retombe entier sur les défauts ;
+- **signal gradué fort** — un ±2 de `graded_signals` apparaît sur la
+  bougie close : une sonnerie par bougie au plus, c'est un événement
+  daté, pas un état. Débrayable d'une case.
+
+Ces trois règles se taisent sur la série de démonstration : hors
+ligne, des extrêmes calculés sur une marche aléatoire seraient du
+bruit déguisé en information.
+
 Les règles d'état sonnent sur le **front montant** et pas avant un
 délai de garde de 10 minutes : une condition qui dure ne sonne qu'une
 fois, une condition qui clignote ne sonne pas en rafale. Les contrôles
-qui coûtent (financement en cache REST, lecture SQLite des news) ne
-tournent qu'à la minute. Chaque sonnerie part au journal (§2.7) — la
-relecture d'une séance inclut ce qui a sonné.
+qui coûtent (financement en cache REST, lecture SQLite des news,
+lecture technique des chandeliers) ne tournent qu'à la minute. Chaque
+sonnerie part au journal (§2.7) — la relecture d'une séance inclut ce
+qui a sonné.
 
 Le moteur ne connaît pas Dash : il reçoit le hub en paramètre, comme
 les fonctions de rendu des panneaux, et `tests/test_alerts.py` le
@@ -1160,9 +1179,10 @@ limites que la clôture assumait :
    accumule un instantané de marché toutes les cinq minutes (§2.7), le
    panneau dominance trace la tendance ainsi construite et l'open
    interest du perpétuel remonte au-delà des trente jours de Binance.
-2. **Enrichir les alertes** — des règles relatives assises sur les
-   indicateurs déjà calculés : écart à la MA 200, RSI extrême, signal
-   gradué fort.
+2. ~~**Enrichir les alertes**~~ — fait : trois règles relatives lues sur
+   la bougie horaire close (§2.8) — écart à la MA 200, RSI hors bornes,
+   signal gradué fort —, réglées du panneau ALERTES et muettes sur la
+   série de démonstration.
 3. **Étendre le rendu LWC au panneau perpétuel** — la décision d'étape 2
    (les autres panneaux restent Plotly) est révisée pour ce panneau,
    dont la série s'allonge précisément grâce au chantier 1.
