@@ -234,8 +234,9 @@ class MarketHub:
         injoignable et qu'aucune valeur n'a encore été mise en cache —
         typiquement un démarrage hors ligne. Le terminal s'ouvre alors
         quand même, et le graphique le dit : le DataFrame de démo porte
-        `attrs["demo"]`, sur lequel `build_price_chart` pose un bandeau
-        d'avertissement. Sans ce repli, un panneau prix vide et une trace
+        `attrs["demo"]`, que `/api/klines` relaie au navigateur où
+        lwc-price.js pose un bandeau d'avertissement. Sans ce repli, un
+        panneau prix vide et une trace
         dans la console seraient tout ce que l'utilisateur obtiendrait.
         """
         try:

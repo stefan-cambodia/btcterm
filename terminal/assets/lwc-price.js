@@ -12,8 +12,8 @@
 // la devise et l'échelle log se règlent sur place — le paquet est gardé
 // en USD, le taux € voyage avec lui.
 //
-// Actif seulement sous BTCTERM_LWC=1 : sans le drapeau, le div
-// #price-lwc n'existe pas et ce fichier ne fait rien.
+// C'est le seul rendu du panneau prix depuis la bascule de la voie A :
+// l'ancienne figure Plotly recalculée côté serveur a été déposée.
 (function () {
     "use strict";
 

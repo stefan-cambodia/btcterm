@@ -27,10 +27,12 @@ document.addEventListener("click", function (event) {
 });
 
 // Double-clic sur un panneau : même effet que le bouton. Les graphiques
-// sont exclus — Plotly y réserve le double-clic pour réinitialiser les
-// axes, et le lui prendre casserait la navigation dans le graphique.
+// sont exclus — Plotly comme Lightweight Charts y réservent le
+// double-clic à la réinitialisation des axes, et le leur prendre
+// casserait la navigation dans le graphique.
 document.addEventListener("dblclick", function (event) {
-    if (event.target.closest(".js-plotly-plot")) {
+    if (event.target.closest(".js-plotly-plot") ||
+            event.target.closest("#price-lwc")) {
         return;
     }
     const cell = event.target.closest(".cell");

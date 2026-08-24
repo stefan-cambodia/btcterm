@@ -30,7 +30,6 @@ ligne de commande (`btcterm --help`) :
 
     BTCTERM_NO_NEWS=1       ne pas alimenter la base de news
     BTCTERM_NO_JOURNAL=1    ne pas tenir le journal de séance
-    BTCTERM_LWC=1           rendu Lightweight Charts du panneau prix (--lwc)
     CRYPTOPANIC_API_KEY=…   clé CryptoPanic pour la collecte de news
 
 `terminal/systemd_service.conf` contient le gabarit d'unité `--user`

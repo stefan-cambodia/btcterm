@@ -622,19 +622,7 @@ def main() -> None:
         help="clé CryptoPanic pour la collecte de news (défaut : variable "
              "d'environnement CRYPTOPANIC_API_KEY)",
     )
-    parser.add_argument(
-        "--lwc", action="store_true",
-        help="rendu Lightweight Charts du panneau prix (équivaut à "
-             "BTCTERM_LWC=1) — drapeau de transition de la voie A, "
-             "appelé à devenir le défaut",
-    )
     args = parser.parse_args()
-
-    if args.lwc:
-        # Posé dans l'environnement plutôt que passé en paramètre : c'est
-        # la même source que lit le régime service (wsgi), et le panneau
-        # prix la consulte au rendu.
-        os.environ["BTCTERM_LWC"] = "1"
 
     hub = MarketHub(
         collect_news=not args.no_news,

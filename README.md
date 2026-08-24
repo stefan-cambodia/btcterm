@@ -31,7 +31,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
-| **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels | 2 s |
+| **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels, historique chargé au pan | bougie en temps réel (push), repli 2 s |
 | **Carnet** | 8 niveaux de chaque côté, spread, âge du flux, choix de la plateforme | 250 ms |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
@@ -82,16 +82,17 @@ rechargement, comme le reste des réglages.
 **Plein écran** — trois façons d'agrandir un panneau :
 
 - le **⛶** en haut à droite du panneau,
-- un **double-clic** n'importe où dessus (sauf sur un graphique, où Plotly
-  garde le double-clic pour réinitialiser les axes),
+- un **double-clic** n'importe où dessus (sauf sur un graphique, qui garde
+  le double-clic pour réinitialiser ses axes),
 - puis `Échap` ou un second clic pour revenir à la grille.
 
 Cliquer le ⛶ d'un autre panneau bascule directement de l'un à l'autre.
 
 Les panneaux s'adaptent à la place disponible :
 
-- le **cours** occupe 69 % de la hauteur du graphique dans la grille, 77 % en
-  plein écran, et **100 %** si l'on décoche tout ;
+- le **cours** domine le graphique : les oscillateurs cochés vivent dans
+  leurs propres panes, en bas, et tout ce qu'on décoche rend sa hauteur au
+  cours — jusqu'à **100 %** si l'on décoche tout ;
 - le **carnet** affiche 8 niveaux de chaque côté dans la grille, 20 en plein
   écran.
 
@@ -114,6 +115,15 @@ réglages, eux, survivent au rechargement de la page : intervalle, devise,
 l'onglet actif de chaque cellule et la disposition de la grille sont conservés
 dans le navigateur (localStorage). Seul le plein écran ne revient pas :
 recharger rend la grille.
+
+**Rendu du prix** — le panneau prix dessine sur canvas dans le navigateur,
+en [Lightweight Charts](https://tradingview.github.io/lightweight-charts/)
+(vendoré, aucun CDN) : crosshair aimanté, ligne du dernier prix, bougie
+courante mise à jour en temps réel par le canal push, historique antérieur
+chargé à la volée quand on remonte le graphique, profil de volume recalculé
+sur la plage visible. Le serveur ne sert que des données (`/api/klines`,
+`/api/profile`) et reste la seule source de vérité des indicateurs ; les
+autres panneaux sont des figures Plotly.
 
 **Hors ligne** — si Binance est injoignable au démarrage, le panneau prix sert
 une série de démonstration générée localement plutôt qu'un cadre vide, et le
@@ -173,7 +183,8 @@ s'épuise — un calendrier qui se tait parce qu'il est périmé doit se voir.
 - **`btcterm/`** — le socle : indicateurs, carnets et connecteurs WebSocket,
   moteur d'arbitrage, collecteurs REST, base de news partagée avec le tracker,
   et le hub qui n'ouvre qu'une connexion par plateforme pour tous les panneaux.
-- **`terminal/`** — l'application Dash : grille, thème, figures, panneaux.
+- **`terminal/`** — l'application Dash : grille, thème, figures, panneaux,
+  rendu Lightweight Charts du prix (`lwc.py`, `assets/lwc-price.js`).
 
 Détail complet dans [`ARCHITECTURE.md`](ARCHITECTURE.md), feuille de route en
 [§7](ARCHITECTURE.md#7-feuille-de-route-vers-le-terminal).
@@ -258,6 +269,9 @@ python tests/test_push.py                # pousseur WebSocket, sans navigateur
 python tests/test_journal.py             # journal : événements, épisodes, rétention
 python tests/test_alerts.py              # alertes : seuils, fronts, cadences
 python tests/test_wsgi.py                # fabrique gunicorn du régime service
+python tests/test_lwc_serialize.py       # contrat de série du rendu du prix
+python tests/test_lwc_api.py             # /api/klines : pagination, repli démo
+python tests/test_indicators_incremental.py  # dernier point : borné = complet
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
@@ -297,7 +311,11 @@ cela ne se constate en regardant l'écran au bon moment. Le onzième éprouve
 la fabrique WSGI du régime service : l'environnement d'une unité systemd
 traduit en arguments du hub, le démarrage, l'arrêt confié à `atexit`, la
 route `/push` posée — une variable mal lue ne se verrait qu'en production.
-Aucun des onze ne touche au réseau.
+Les trois derniers gardent le rendu du prix : le contrat de série que le
+navigateur consomme (triée, dédoublonnée, sans NaN), la pagination de
+`/api/klines` — sans trou, repli de démonstration avoué par son drapeau —
+et la parité du calcul borné des indicateurs, celui qui suit la bougie
+courante, avec le recalcul complet. Aucun de ces tests ne touche au réseau.
 
 `ui_smoke.py` est à part : il pilote Firefox pour contrôler ce qui ne se voit
 qu'à l'écran — cellules posées, bouton visible et sans recouvrement, bascule

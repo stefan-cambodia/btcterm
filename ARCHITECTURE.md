@@ -71,10 +71,14 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── app.py                     grille, horloges, bandeau, plein écran,
 │   │                              disposition configurable
 │   ├── push.py                    canal push des panneaux rapides (§3.10)
+│   ├── lwc.py                     données du rendu du prix : /api/klines
+│   │                              et /api/profile (§3.2)
 │   ├── wsgi.py                    fabrique gunicorn du régime service (§3.11)
 │   ├── theme.py                   palette et styles
-│   ├── charts.py                  figures Plotly
-│   ├── assets/                    CSS et JS servis au navigateur
+│   ├── charts.py                  figures Plotly des panneaux hors prix
+│   ├── assets/                    CSS et JS servis au navigateur — dont
+│   │                              lwc-price.js, le dessin du panneau prix,
+│   │                              et vendor/ (Lightweight Charts, sans CDN)
 │   └── panels/                    price · orderbook · arbitrage ·
 │                                   liquidations · etf · perp · news ·
 │                                   calendar · alerts · macro ·
@@ -91,6 +95,10 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_push.py               pousseur WebSocket, sans navigateur
 │   ├── test_journal.py            journal : événements, épisodes, rétention
 │   ├── test_alerts.py             alertes : seuils, fronts, cadences
+│   ├── test_wsgi.py               fabrique gunicorn du régime service
+│   ├── test_lwc_serialize.py      contrat de série du rendu du prix
+│   ├── test_lwc_api.py            /api/klines : pagination, repli démo
+│   ├── test_indicators_incremental.py  dernier point : borné = complet
 │   ├── marionette_client.py       pilotage minimal de Firefox
 │   └── ui_smoke.py                contrôle de l'interface à l'écran
 │
@@ -432,9 +440,12 @@ SSH, ce qui écartait à la fois une interface texte et une application Qt.
 terminal/
 ├── app.py           grille, disposition, horloges, bandeau, point d'entrée
 ├── push.py          canal push des panneaux rapides (§3.10)
+├── lwc.py           données du rendu du prix : /api/klines, /api/profile (§3.2)
 ├── wsgi.py          fabrique gunicorn du régime service (§3.11)
 ├── theme.py         palette et styles partagés
-├── charts.py        constructeurs de figures Plotly
+├── charts.py        constructeurs de figures Plotly (panneaux hors prix)
+├── assets/          CSS et JS — lwc-price.js dessine le panneau prix,
+│                    vendor/ porte Lightweight Charts (aucun CDN)
 └── panels/          un module par panneau
     ├── price.py         chandeliers, indicateurs, profil de volume
     ├── orderbook.py     carnet + profondeur comparée
@@ -487,7 +498,7 @@ un carnet d'ordres.
 | Horloge | Période | Panneaux | Coût mesuré par tour |
 |---|---|---|---|
 | `tick-fast` | 250 ms | carnet, profondeur, arbitrage, liquidations | 8–33 ms, 6–25 Ko |
-| `tick-slow` | 2 s | prix, bandeau, fil de news | 0,3–1,3 s, 162 Ko |
+| `tick-slow` | 2 s | prix (repli poll, §3.2), bandeau, fil de news | 0,3–1,3 s, 162 Ko à l'époque Plotly — le prix ne recharge plus qu'une page de données |
 | `tick-rare` | 5 min | flux ETF, perpétuel, macro, dominance, on-chain, calendrier | 0,3–0,5 s, 8–10 Ko |
 
 Les panneaux rapides ne touchent jamais le réseau : ils lisent les carnets que
@@ -508,8 +519,11 @@ se voir.
 
 L'horloge rapide a depuis gagné un second canal : quand le navigateur tient un
 WebSocket ouvert, le serveur pousse le rendu et `tick-fast` est coupé (§3.10).
-Le tableau ci-dessus reste le régime de repli — et le seul mode des horloges
-lente et rare, que rien ne presse.
+La bougie courante du panneau prix passe par le même canal (§3.2), et
+lwc-price.js s'abstient alors de solliciter l'horloge lente — le badge
+« push / poll » du bandeau dit le canal réellement actif. Le tableau
+ci-dessus reste le régime de repli — et le seul mode des horloges lente et
+rare pour les autres panneaux, que rien ne presse.
 
 Une conséquence pratique : `update_title=None` désactive le « Updating… » que
 Dash affiche par défaut dans l'onglet, sans quoi il clignoterait en permanence
@@ -517,24 +531,42 @@ au rythme de l'horloge rapide.
 
 ### 3.2 Le cours d'abord
 
-Le panneau prix est un `make_subplots` dont la **structure est construite à la
-demande** : `build_price_chart` reçoit la liste des sous-graphiques voulus
-(`rsi`, `crsi`, `volume`) et un drapeau pour le profil de volume, puis compose
-la grille en conséquence.
+Le panneau prix ne passe plus par Plotly : il dessine sur canvas dans le
+navigateur, en **Lightweight Charts** (TradingView, v5.2.1, vendoré dans
+`assets/vendor/` — aucun CDN). C'est l'aboutissement de la « voie A »
+(§7, étape 2) : pour la lecture fine en séance d'analyse, la figure
+recalculée côté serveur à chaque tour d'horloge atteignait ses limites —
+chaque rafraîchissement rejouait un graphique entier là où seule la
+dernière bougie changeait, et l'historique était borné à la page chargée.
 
-La hauteur laissée au cours dépend de deux choses — combien de sous-graphiques
-l'accompagnent, et si le panneau est agrandi :
+Le partage des rôles est strict. Le **serveur reste la seule source de
+vérité des indicateurs** : `terminal/lwc.py` sérialise le DataFrame
+enrichi par `prepare_price_frame` — chandeliers, MA 9/26/200, Bollinger,
+volume, RSI, CRSI, signaux — et le sert par `/api/klines`, paginé pour
+remonter le passé, et `/api/profile`, le profil de volume d'une plage à la
+demande. La bougie courante arrive par le canal `/push` (§3.10), les
+derniers points d'indicateurs recalculés de façon bornée —
+`test_indicators_incremental` prouve la parité avec le recalcul complet.
+Le **navigateur dessine** : `assets/lwc-price.js` pose chandeliers et
+moyennes, RSI et CRSI dans leurs panes, crosshair aimanté et ligne du
+dernier prix — comportements natifs de la bibliothèque — plus ce qu'elle
+n'offre pas : le profil de volume de la plage visible (POC et Value Area,
+recalculés quand la fenêtre bouge), les signaux, les seuils d'alerte
+(§2.8) et le bandeau de démonstration (§4.3).
 
-| Sous-graphiques | Dans la grille | En plein écran |
-|---|---|---|
-| 3 | 66 % | 75 % |
-| 2 (défaut) | 72 % | 80 % |
-| 1 | 80 % | 86 % |
-| 0 | 100 % | 100 % |
+Les réglages de la barre de titre passent par un unique callback
+clientside qui relaie l'état des sélecteurs à `window.lwcPrice` : un
+refetch seulement quand l'intervalle change ; la devise et l'échelle log
+se règlent sur place, le paquet étant gardé en USD et le taux € voyageant
+avec lui. Aucun aller-retour serveur pour un réglage d'affichage.
+L'historique se charge à la volée : un pan vers le passé demande la page
+antérieure de `/api/klines`, jusqu'à ce que la source avoue ne plus rien
+avoir.
 
 C'est le cours qu'on vient lire en séance d'analyse ; les oscillateurs
-l'accompagnent, ils ne le concurrencent pas. Un partage fixe à 54 % — celui de
-l'ancien dashboard — le rendait illisible dès que le panneau rétrécissait.
+l'accompagnent, ils ne le concurrencent pas. Son pane porte un facteur
+d'étirement de 300 contre 70 par oscillateur coché, et tout ce qu'on
+décoche lui rend sa hauteur — jusqu'au panneau entier.
 
 **Neuf échelles de temps**, de la bougie de quinze minutes à la mensuelle,
 libellées à la casse Binance (`30m` les minutes, `1M` le mois — la barre de
@@ -559,17 +591,19 @@ que la barre tient sur une ligne et ne déborde pas de la largeur du panneau.
 
 ### 3.3 Préserver l'état d'analyse
 
-Toutes les figures portent un `uirevision`. Sans lui, chaque rafraîchissement
-réinitialiserait le zoom, le pan et la sélection de légende : impossible
-d'examiner une zone de prix pendant que les données coulent, ce qui viderait de
-son sens l'usage en séance d'analyse.
+Toutes les figures Plotly portent un `uirevision`. Sans lui, chaque
+rafraîchissement réinitialiserait le zoom, le pan et la sélection de légende :
+impossible d'examiner une zone pendant que les données coulent, ce qui viderait
+de son sens l'usage en séance d'analyse.
 
-La valeur encode la série affichée et la structure du graphique
-(`"1d:USD:lin:profile,rsi,volume"`). Elle reste stable d'un rafraîchissement à
-l'autre **et au passage en plein écran** — le zoom en cours survit donc à
-l'agrandissement, ce qui est précisément le geste qu'on fait pour examiner une
-zone de plus près. Elle change en revanche quand on change d'intervalle, de
-devise, d'échelle ou de sous-graphiques : le recadrage est alors ce qu'on veut.
+La valeur encode ce qui est affiché (`"1M:0"` pour la fenêtre et le décalage
+du panneau macro) : stable d'un rafraîchissement à l'autre **et au passage en
+plein écran** — le zoom en cours survit donc à l'agrandissement, précisément
+le geste qu'on fait pour examiner une zone de plus près — elle change quand le
+contenu change, et le recadrage est alors ce qu'on veut. Le panneau prix n'a
+pas besoin de l'artifice : son graphique vit dans le navigateur, seules les
+données y sont mutées, et l'état de navigation survit de lui-même — le
+recadrage au changement d'intervalle vient du refetch, qui repose la série.
 
 L'état survit aussi **au rechargement de la page** : tous les sélecteurs —
 intervalle, devise, échelle, sous-graphiques, plateforme du carnet, fenêtre et
@@ -605,6 +639,9 @@ passe en `position: fixed` sous le bandeau, les autres en `display: none`.
 Un détail qui n'est pas optionnel : la fonction émet un événement `resize` sur
 la fenêtre après la bascule. Plotly ne redimensionne ses figures qu'à cet
 événement — sans lui, le graphique agrandi garderait la taille de sa vignette.
+Le panneau prix, lui, suit tout seul (`autoSize` de Lightweight Charts), mais
+lwc-price.js recadre sa plage visible au changement d'agrandissement : la
+série resterait sinon tassée contre le bord droit du panneau élargi.
 
 La bascule s'ouvre par le bouton ⛶ — **toujours visible**, une première version
 qui ne l'affichait qu'au survol s'étant révélée introuvable — ou par un
@@ -734,7 +771,12 @@ son apparition — et qu'un rechargement restaure onglets et sélecteurs mais pa
 le plein écran (§3.3), en rechargeant réellement la page, seule façon d'éprouver
 ce que le localStorage garde et ce qu'il écrase. Le canal push (§3.10) y a sa
 section : badge à « push », carnet vivant l'horloge coupée, agrandissement
-acheminé par le WebSocket. Le dialogue de
+acheminé par le WebSocket. Le rendu Lightweight Charts du prix (§3.2) a la
+sienne, par la sonde `window.lwcPrice.debug()` : canvas rempli, bandeau démo
+fidèle au paquet, refetch au changement d'intervalle, bascule € sur place,
+historique remonté au pan, profil suivant la fenêtre visible, panes rendus au
+cours quand on décoche tout, seuil d'alerte tracé, intervalle restauré au
+rechargement. Le dialogue de
 disposition (§3.6) passe par le même contrôle : un panneau déménagé
 arrive dans sa cellule rempli dès l'ouverture de son onglet, le
 déménagement survit au rechargement, et « Par défaut » suivi
@@ -777,7 +819,11 @@ complet : sur un tunnel SSH lointain, la latence s'ajoute à la période et le
 carnet prend du retard. Le chantier laissé conditionnel à l'étape 2 est
 désormais fait : `terminal/push.py` pose une route WebSocket `/push` sur le serveur Flask qui porte Dash (flask-sock), et
 pousse le rendu des six cibles rapides — carnet, profondeur, arbitrage et son
-compteur, liquidations et leurs badges — à une cadence de 100 ms.
+compteur, liquidations et leurs badges — à une cadence de 100 ms. Une septième
+cible s'y est jointe avec la voie A, à la cadence de l'horloge lente qu'elle
+double : la bougie courante du panneau prix et ses derniers points
+d'indicateurs, jamais la série entière — le navigateur tient la série, le
+canal ne transporte que la mutation (§3.2).
 
 Trois décisions structurent le canal :
 
@@ -906,8 +952,9 @@ Chaque source distante a une stratégie de repli explicite :
 
 Le repli sur données de démonstration mérite une précaution : un graphique
 synthétique qu'on ne distingue pas d'un vrai est pire que pas de graphique du
-tout. `generate_demo_ohlcv` marque donc sa sortie d'un `attrs["demo"]`, sur
-lequel `build_price_chart` pose un bandeau orange. La série est une marche
+tout. `generate_demo_ohlcv` marque donc sa sortie d'un `attrs["demo"]`, que
+`/api/klines` relaie en champ du paquet et sur lequel lwc-price.js pose un
+bandeau orange. La série est une marche
 aléatoire log-normale paramétrée en annualisé (55 % de volatilité, 40 % de
 dérive), ramenée à la durée d'une bougie en racine du temps et recalée pour
 finir sur un prix plausible — sans quoi une longue série mensuelle dériverait
@@ -1080,6 +1127,13 @@ l'étape 2, est fait à son tour : le serveur pousse les panneaux rapides par
 WebSocket quand le navigateur peut l'entendre, l'interrogation restant le
 repli (§3.10). La feuille de route est soldée.
 
+Un chantier de plus a été mené depuis cette clôture, et soldé : la
+**voie A**, migration du panneau prix vers un rendu Lightweight Charts
+côté navigateur (§3.2) — sept phases, du vendoring de la bibliothèque et
+du contrat de série jusqu'à la dépose du rendu Plotly du prix et du
+drapeau de transition `BTCTERM_LWC`. Le serveur ne sert plus que des
+données au panneau prix ; les autres panneaux restent des figures Plotly.
+
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
@@ -1124,6 +1178,12 @@ différé parce qu'un tour d'horloge rapide coûte 8 à 33 ms pour 6 à 25 Ko �
 qui passe sans peine en interrogation à 250 ms sur une boucle locale —, est
 désormais en place (§3.10) : cadence de 100 ms, trames différentielles, et
 l'interrogation en repli dès que le canal manque.
+
+La décision d'étape a depuis été affinée sans être défaite : Dash reste la
+charpente — grille, panneaux, callbacks — mais le panneau prix, celui des
+séances d'analyse, dessine désormais en Lightweight Charts sur canvas
+(§3.2, la « voie A »). Le rendu serveur convenait aux panneaux qu'on
+regarde ; il plafonnait pour le graphique qu'on manipule.
 
 ### Étape 3 — Mutualiser la couche de données ✅ *faite*
 
