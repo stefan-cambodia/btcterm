@@ -71,14 +71,15 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── app.py                     grille, horloges, bandeau, plein écran,
 │   │                              disposition configurable
 │   ├── push.py                    canal push des panneaux rapides (§3.10)
-│   ├── lwc.py                     données du rendu du prix : /api/klines
-│   │                              et /api/profile (§3.2)
+│   ├── lwc.py                     données des rendus LWC : /api/klines,
+│   │                              /api/profile et /api/perp (§3.2)
 │   ├── wsgi.py                    fabrique gunicorn du régime service (§3.11)
 │   ├── theme.py                   palette et styles
-│   ├── charts.py                  figures Plotly des panneaux hors prix
+│   ├── charts.py                  figures Plotly des autres panneaux
 │   ├── assets/                    CSS et JS servis au navigateur — dont
-│   │                              lwc-price.js, le dessin du panneau prix,
-│   │                              et vendor/ (Lightweight Charts, sans CDN)
+│   │                              lwc-price.js et lwc-perp.js, les dessins
+│   │                              des panneaux prix et perpétuel, et
+│   │                              vendor/ (Lightweight Charts, sans CDN)
 │   └── panels/                    price · orderbook · arbitrage ·
 │                                   liquidations · etf · perp · news ·
 │                                   calendar · alerts · macro ·
@@ -478,12 +479,14 @@ SSH, ce qui écartait à la fois une interface texte et une application Qt.
 terminal/
 ├── app.py           grille, disposition, horloges, bandeau, point d'entrée
 ├── push.py          canal push des panneaux rapides (§3.10)
-├── lwc.py           données du rendu du prix : /api/klines, /api/profile (§3.2)
+├── lwc.py           données des rendus LWC : /api/klines, /api/profile,
+│                    /api/perp (§3.2)
 ├── wsgi.py          fabrique gunicorn du régime service (§3.11)
 ├── theme.py         palette et styles partagés
-├── charts.py        constructeurs de figures Plotly (panneaux hors prix)
-├── assets/          CSS et JS — lwc-price.js dessine le panneau prix,
-│                    vendor/ porte Lightweight Charts (aucun CDN)
+├── charts.py        constructeurs de figures Plotly (autres panneaux)
+├── assets/          CSS et JS — lwc-price.js et lwc-perp.js dessinent
+│                    prix et perpétuel, vendor/ porte Lightweight Charts
+│                    (aucun CDN)
 └── panels/          un module par panneau
     ├── price.py         chandeliers, indicateurs, profil de volume
     ├── orderbook.py     carnet + profondeur comparée
@@ -626,6 +629,19 @@ l'échelle et quatre sous-graphiques ne tiennent sur une ligne qu'au prix de
 sélecteurs en 9 px, d'un titre réduit à `BTC/USDT` et d'une devise notée `$` /
 `€`. Deux lignes voleraient de la hauteur au cours ; `ui_smoke.py` mesure donc
 que la barre tient sur une ligne et ne déborde pas de la largeur du panneau.
+
+**Le perpétuel a rejoint ce côté du partage.** Même contrat que le prix,
+en plus simple : `/api/perp` sérialise financement (en % par 8 h) et open
+interest (en dollars — la série prolongée par le journal, §2.7) via
+`serialize_perp`, et `assets/lwc-perp.js` dessine — histogramme signé
+pour le financement, ligne d'open interest sur son axe gauche gradué en
+milliards, crosshair commun. Pas de canal push ni de pagination : ces
+données bougent par tranches de 4 à 8 heures, le client suit l'horloge
+rare et un poll ne vole jamais le zoom en cours. Hors ligne, les listes
+reviennent vides et le panneau l'écrit. Les badges de la barre de titre
+restent un callback serveur : ce sont des instantanés, pas des séries.
+Les autres panneaux restent des figures Plotly — le rendu serveur
+convient à ce qu'on regarde ; le canvas se gagne quand on manipule.
 
 ### 3.3 Préserver l'état d'analyse
 
@@ -1170,7 +1186,8 @@ Un chantier de plus a été mené depuis cette clôture, et soldé : la
 côté navigateur (§3.2) — sept phases, du vendoring de la bibliothèque et
 du contrat de série jusqu'à la dépose du rendu Plotly du prix et du
 drapeau de transition `BTCTERM_LWC`. Le serveur ne sert plus que des
-données au panneau prix ; les autres panneaux restent des figures Plotly.
+données au panneau prix — et, depuis le troisième chantier ci-dessous,
+au perpétuel ; les autres panneaux restent des figures Plotly.
 
 Trois chantiers ont été ouverts ensemble après la version 1.0, tirés des
 limites que la clôture assumait :
@@ -1183,9 +1200,11 @@ limites que la clôture assumait :
    la bougie horaire close (§2.8) — écart à la MA 200, RSI hors bornes,
    signal gradué fort —, réglées du panneau ALERTES et muettes sur la
    série de démonstration.
-3. **Étendre le rendu LWC au panneau perpétuel** — la décision d'étape 2
-   (les autres panneaux restent Plotly) est révisée pour ce panneau,
-   dont la série s'allonge précisément grâce au chantier 1.
+3. ~~**Étendre le rendu LWC au panneau perpétuel**~~ — fait : `/api/perp`
+   et `assets/lwc-perp.js` (§3.2) — histogramme de financement signé,
+   open interest en ligne sur la série que le chantier 1 allonge, poll à
+   l'horloge rare sans canal push. La décision d'étape 2 est révisée
+   pour ce seul panneau.
 
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 

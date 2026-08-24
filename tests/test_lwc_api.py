@@ -205,6 +205,47 @@ def test_profil_repli_demo():
     print("  ✓ hors ligne : profil sur la série de démonstration, drapeau levé")
 
 
+def test_api_perp_series_et_unites():
+    """`/api/perp` : financement en % par 8 h, open interest en dollars
+    bruts, tous deux au contrat de série (epoch croissants, sans NaN) —
+    et la série d'OI prolongée par le journal quand il en tient."""
+    debut = pd.Timestamp("2026-07-01")
+    sources.fetch_funding_history = lambda symbol, limit: pd.DataFrame({
+        "time": pd.date_range(debut, periods=limit, freq="8h"),
+        "rate": [0.0001 * (-1) ** k for k in range(limit)],
+    })
+    sources.fetch_open_interest = lambda symbol, period, limit: pd.DataFrame({
+        "time": pd.date_range(debut, periods=limit, freq="4h"),
+        "oi": [80_000.0] * limit,
+        "oi_usd": [1.2e10] * limit,
+    })
+    web = client()
+    page = web.get("/api/perp").get_json()
+
+    assert len(page["funding"]) == 90, "90 points de financement — 30 jours"
+    assert page["funding"][0]["value"] == 0.01, "le taux voyage en %"
+    assert page["funding"][1]["value"] == -0.01
+    assert len(page["oi"]) == 180
+    assert page["oi"][-1]["value"] == 1.2e10, "l'OI voyage en dollars bruts"
+    for serie in (page["funding"], page["oi"]):
+        temps = [p["time"] for p in serie]
+        assert all(a < b for a, b in zip(temps, temps[1:]))
+    print("  ✓ financement en %, OI en dollars, contrat de série tenu")
+
+
+def test_api_perp_hors_ligne():
+    """Sources en panne : deux listes vides, statut 200 — le panneau
+    l'écrit, le terminal vit."""
+    sources.fetch_funding_history = panne_reseau
+    sources.fetch_open_interest = panne_reseau
+    web = client()
+    reponse = web.get("/api/perp")
+    assert reponse.status_code == 200
+    page = reponse.get_json()
+    assert page == {"funding": [], "oi": []}
+    print("  ✓ hors ligne : listes vides, jamais une erreur")
+
+
 def test_parametres_hostiles():
     web = client()
     assert web.get("/api/klines?interval=7m").status_code == 400

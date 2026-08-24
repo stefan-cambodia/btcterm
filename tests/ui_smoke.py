@@ -333,16 +333,19 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                  .find(t => t.textContent === 'PERPÉTUEL').click();
         """)
         time.sleep(3)
+        # Rendu Lightweight Charts, comme le prix : un canvas dans le
+        # div #perp-lwc, pas de figure Plotly.
         perp = browser.js("""
-            const gd = document.getElementById('perp-chart')
-                .querySelector('.js-plotly-plot');
-            return {series: gd.data.map(t => t.name),
+            const el = document.getElementById('perp-lwc');
+            return {canvas: !!(el && el.querySelector('canvas')),
+                    note: el ? getComputedStyle(el.querySelector(
+                        '.lwc-perp-note') || el).display : null,
                     badges: document.getElementById('perp-badges').textContent};
         """)
-        check("financement et open interest tracés",
-              perp["series"] == ["financement", "open interest"], perp["series"])
-        check("financement et OI chiffrés dans le titre",
-              "%" in perp["badges"] and "OI" in perp["badges"],
+        check("le canvas LWC du perpétuel est monté", perp["canvas"])
+        check("financement et OI chiffrés dans le titre — ou l'absence dite",
+              ("%" in perp["badges"] and "OI" in perp["badges"])
+              or "indisponible" in perp["badges"],
               perp["badges"][:46])
 
         print("\nOnglets dominance et on-chain")

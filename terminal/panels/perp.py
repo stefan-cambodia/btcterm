@@ -11,6 +11,14 @@ Les trois se lisent ensemble : un financement élevé sur un open interest
 qui gonfle, c'est un marché endetté d'un seul côté, la configuration d'où
 sortent les liquidations en cascade.
 
+Rendu Lightweight Charts, comme le panneau prix : le serveur ne sert que
+des données — `/api/perp` (terminal/lwc.py) — et le navigateur dessine
+(assets/lwc-perp.js) : financement en histogramme signé, open interest
+en ligne sur son axe gauche, crosshair commun. Ce module ne pose que la
+barre de titre et deux relais clientside — configuration au montage et
+au plein écran, poll à l'horloge rare ; ces données bougent par tranches
+de 4 à 8 heures, aucun canal push n'est justifié.
+
 Données publiques de Binance Futures, sans clé. Binance ne conserve que
 trente jours d'open interest ; au-delà, la série continue sur les
 instantanés que le hub journalise (§ journal) — le graphique remonte
@@ -21,15 +29,9 @@ from __future__ import annotations
 
 import time
 
-from dash import Input, Output, dcc, html
+from dash import Input, Output, State, dcc, html
 
-from ..charts import build_perp_chart
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
-
-#: Points de financement chargés : 90 × 8 h, soit trente jours — la même
-#: profondeur que l'open interest, pour que les deux séries se
-#: superposent sur la même fenêtre.
-FUNDING_POINTS = 90
 
 #: Un financement de 0,01 % par période (le taux « neutre » de Binance)
 #: fait 0,01 × 3 × 365 ≈ 11 % par an : c'est cette conversion qui rend le
@@ -45,12 +47,19 @@ def layout(title=None):
                       style={"fontSize": "9px", "whiteSpace": "nowrap",
                              "marginLeft": "10px"}),
         ], style=TITLE_STYLE),
-        dcc.Graph(
-            id="perp-chart",
-            style={"flex": "1", "minHeight": "0"},
-            config={"scrollZoom": True, "displaylogo": False,
-                    "modeBarButtonsToRemove": ["select2d", "lasso2d"]},
-        ),
+        # Le graphique est créé dans ce div par assets/lwc-perp.js ; le
+        # Store porte la configuration que le serveur transmet au client
+        # (le thème — une seule définition, ici), les puits sont ceux
+        # qu'exigent les callbacks clientside.
+        html.Div([
+            html.Div(id="perp-lwc",
+                     style={"flex": "1", "minHeight": "0",
+                            "position": "relative"}),
+            dcc.Store(id="lwc-perp-config", data={"theme": C, "mono": MONO}),
+            dcc.Store(id="lwc-perp-sink"),
+            dcc.Store(id="lwc-perp-poll-sink"),
+        ], style={"flex": "1", "minHeight": "0", "display": "flex",
+                  "flexDirection": "column"}),
     ], style=PANEL_STYLE)
 
 
@@ -122,21 +131,46 @@ def _badges(snapshot: dict, open_interest, verbose: bool = False):
 
 
 def register(app, hub):
+    """Relie la barre de titre au serveur et le rendu LWC au client.
+
+    Les badges restent un callback serveur — un instantané, pas une
+    série. Le graphique, lui, vit côté client : `configure` au montage
+    du panneau (le callback rejoue quand ses puits remontent) et à
+    chaque bascule de plein écran, `poll` à l'horloge rare.
+    """
     @app.callback(
-        Output("perp-chart", "figure"),
         Output("perp-badges", "children"),
         Input("tick-rare", "n_intervals"),
         Input("maximized", "data"),
     )
     def _refresh(_tick, maximized):
-        funding = hub.funding_history(limit=FUNDING_POINTS)
-        open_interest = hub.open_interest_extended()
-        snapshot = hub.perp_snapshot()
-
         # Le panneau partage la cellule « etf » : c'est donc sur ce nom
         # de zone que se lit l'agrandissement, pas sur le sien.
-        agrandi = maximized == "etf"
-        return (
-            build_perp_chart(funding, open_interest, maximized=agrandi),
-            _badges(snapshot, open_interest, verbose=agrandi),
-        )
+        return _badges(hub.perp_snapshot(), hub.open_interest_extended(),
+                       verbose=maximized == "etf")
+
+    app.clientside_callback(
+        """
+        function (maximized, config) {
+            if (window.lwcPerp) {
+                window.lwcPerp.configure(
+                    {maximized: maximized === 'etf'}, config);
+            }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("lwc-perp-sink", "data"),
+        Input("maximized", "data"),
+        State("lwc-perp-config", "data"),
+    )
+
+    app.clientside_callback(
+        """
+        function (tick) {
+            if (window.lwcPerp) { window.lwcPerp.poll(); }
+            return window.dash_clientside.no_update;
+        }
+        """,
+        Output("lwc-perp-poll-sink", "data"),
+        Input("tick-rare", "n_intervals"),
+    )

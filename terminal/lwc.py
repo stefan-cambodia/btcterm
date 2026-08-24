@@ -28,9 +28,9 @@ from btcterm import sources
 from .charts import VOL_BINS, prepare_price_frame
 
 __all__ = ["OVERLAY_COLUMNS", "PANE_COLUMNS", "VOLUME_MA_COLUMN",
-           "TAIL_BARS", "frame_to_bars", "frame_to_lines", "frame_to_volume",
-           "serialize_price_frame", "tail_points", "push_payload",
-           "register_api"]
+           "TAIL_BARS", "FUNDING_POINTS", "frame_to_bars", "frame_to_lines",
+           "frame_to_volume", "serialize_price_frame", "serialize_perp",
+           "tail_points", "push_payload", "register_api"]
 
 #: Indicateurs tracés par-dessus le cours, dans l'ordre où le client les
 #: pose. Les noms sont les colonnes de `prepare_price_frame` — le client
@@ -42,6 +42,11 @@ PANE_COLUMNS = ("rsi", "crsi")
 
 #: Moyenne mobile tracée sur l'histogramme de volume.
 VOLUME_MA_COLUMN = "vol_ma20"
+
+#: Points de financement servis au panneau perpétuel : 90 × 8 h, soit
+#: trente jours — la même fenêtre que l'open interest Binance, pour que
+#: les deux séries se superposent là où elles coexistent.
+FUNDING_POINTS = 90
 
 
 def _val(value: float) -> float:
@@ -153,6 +158,29 @@ def serialize_price_frame(df: pd.DataFrame) -> dict:
         "signals": frame_to_signals(df),
         "demo": bool(df.attrs.get("demo", False)),
     }
+
+
+def serialize_perp(
+    funding: pd.DataFrame, open_interest: pd.DataFrame
+) -> dict:
+    """Le panneau perpétuel, prêt pour `/api/perp`.
+
+    Le financement voyage en pour cent par période de 8 h — l'unité que
+    les deux rendus ont toujours affichée — et l'open interest en
+    dollars bruts : c'est le client qui le met en milliards, une affaire
+    de format d'axe, pas de données. Les deux séries passent par le même
+    contrat que le reste (`frame_to_lines`) : epoch secondes, triées,
+    dédoublonnées, sans NaN.
+    """
+    points_funding: list[dict] = []
+    if not funding.empty:
+        pct = funding.assign(value=funding["rate"] * 100)
+        points_funding = frame_to_lines(pct, ("value",)).get("value", [])
+    points_oi: list[dict] = []
+    if not open_interest.empty:
+        oi = open_interest.rename(columns={"oi_usd": "value"})
+        points_oi = frame_to_lines(oi, ("value",)).get("value", [])
+    return {"funding": points_funding, "oi": points_oi}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -282,6 +310,20 @@ def register_api(app, hub) -> None:
         # multiplication côté client, jamais un refetch.
         payload["eur_rate"] = float(hub.eur_rate())
         return jsonify(payload)
+
+    @app.server.get("/api/perp")
+    def _perp():
+        """Financement et open interest du perpétuel, en séries LWC.
+
+        L'open interest passe par `open_interest_extended` : la série
+        Binance (trente jours) prolongée vers le passé sur les
+        instantanés journalisés (§ hub). Hors ligne, les deux listes
+        reviennent vides — le panneau l'écrit, le terminal vit.
+        """
+        return jsonify(serialize_perp(
+            hub.funding_history(limit=FUNDING_POINTS),
+            hub.open_interest_extended(),
+        ))
 
     @app.server.get("/api/profile")
     def _profile():

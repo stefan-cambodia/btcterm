@@ -37,7 +37,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Liquidations** | positions fermées de force, toutes paires, totaux de l'heure (onglet de l'arbitrage) | 250 ms |
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
-| **Perpétuel** | financement, open interest et part des comptes longs (onglet des flux ETF) | 5 min |
+| **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed | 2 s en lecture, collecte toutes les 15 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
 | **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort (onglet des news) | 2 s |
@@ -122,8 +122,10 @@ en [Lightweight Charts](https://tradingview.github.io/lightweight-charts/)
 courante mise à jour en temps réel par le canal push, historique antérieur
 chargé à la volée quand on remonte le graphique, profil de volume recalculé
 sur la plage visible. Le serveur ne sert que des données (`/api/klines`,
-`/api/profile`) et reste la seule source de vérité des indicateurs ; les
-autres panneaux sont des figures Plotly.
+`/api/profile`) et reste la seule source de vérité des indicateurs. Le
+panneau perpétuel dessine de la même façon (`/api/perp`) — financement en
+histogramme signé, open interest en ligne — ; les autres panneaux sont des
+figures Plotly.
 
 **Hors ligne** — si Binance est injoignable au démarrage, le panneau prix sert
 une série de démonstration générée localement plutôt qu'un cadre vide, et le
@@ -192,7 +194,8 @@ s'épuise — un calendrier qui se tait parce qu'il est périmé doit se voir.
   moteur d'arbitrage, collecteurs REST, base de news partagée avec le tracker,
   et le hub qui n'ouvre qu'une connexion par plateforme pour tous les panneaux.
 - **`terminal/`** — l'application Dash : grille, thème, figures, panneaux,
-  rendu Lightweight Charts du prix (`lwc.py`, `assets/lwc-price.js`).
+  rendus Lightweight Charts du prix et du perpétuel (`lwc.py`,
+  `assets/lwc-price.js`, `assets/lwc-perp.js`).
 
 Détail complet dans [`ARCHITECTURE.md`](ARCHITECTURE.md), feuille de route en
 [§7](ARCHITECTURE.md#7-feuille-de-route-vers-le-terminal).
