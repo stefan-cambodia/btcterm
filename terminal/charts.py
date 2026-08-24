@@ -19,8 +19,10 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
+from plotly.subplots import make_subplots
 
 from btcterm import indicators as ind
+from btcterm.sources import STABLES
 
 from .theme import C, MONO
 
@@ -286,27 +288,36 @@ def build_perp_chart(
 # Dominance : parts de capitalisation
 # ─────────────────────────────────────────────────────────────
 
-#: Actifs traités comme des dollars : leur part mesure le cash qui attend
-#: sur le marché, pas une concurrence faite au Bitcoin.
-STABLES = {"USDT", "USDC", "DAI", "FDUSD", "TUSD", "USDE", "PYUSD"}
-
-
 def build_dominance_chart(
-    shares: dict, top: int = 8, uirevision: str = "dominance"
+    shares: dict,
+    history: pd.DataFrame | None = None,
+    top: int = 8,
+    uirevision: str = "dominance",
 ) -> go.Figure:
-    """Parts de capitalisation, en barres horizontales.
+    """Parts de capitalisation en barres, tendance journalisée en dessous.
 
-    Un instantané, pas une série : CoinGecko réserve l'historique de ces
-    agrégats à son offre payante. Le Bitcoin garde sa couleur, les
-    stablecoins la leur — leur part ne dit pas la même chose que celle
-    d'un concurrent —, et tout ce qui n'entre pas dans le classement est
-    regroupé, pour que les barres somment bien à cent.
+    CoinGecko réserve l'historique de ces agrégats à son offre payante :
+    l'instantané vient de l'API, la tendance vient du journal local
+    (§ hub.market_snapshots) — elle n'apparaît qu'une fois deux
+    instantanés accumulés, et s'allonge séance après séance. Le Bitcoin
+    garde sa couleur, les stablecoins la leur — leur part ne dit pas la
+    même chose que celle d'un concurrent —, et tout ce qui n'entre pas
+    dans le classement est regroupé, pour que les barres somment à cent.
     """
-    fig = go.Figure()
+    trend = (history is not None and not history.empty
+             and history["btc_dominance"].notna().sum() >= 2)
+    if trend:
+        fig = make_subplots(rows=2, cols=1, row_heights=[0.60, 0.40],
+                            vertical_spacing=0.16)
+        bar_target = dict(row=1, col=1)
+    else:
+        fig = go.Figure()
+        bar_target = {}
+
     if not shares:
         fig.add_annotation(
             text="agrégats de marché indisponibles", xref="paper", yref="paper",
-            x=0.5, y=0.5, showarrow=False,
+            x=0.5, y=0.85 if trend else 0.5, showarrow=False,
             font=dict(family=MONO, size=11, color=C["muted"]),
         )
     else:
@@ -328,20 +339,55 @@ def build_dominance_chart(
             marker_color=couleurs,
             text=[f"{part:.1f} %" for part in parts],
             textposition="outside", textfont=dict(size=9, color=C["text"]),
-            cliponaxis=False,
+            cliponaxis=False, showlegend=False,
             hovertemplate="%{y} · %{x:.2f} %<extra></extra>",
-        ))
+        ), **bar_target)
 
     axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
                        tickfont=dict(size=9, color=C["muted"]))
+
+    if trend:
+        btc = history.dropna(subset=["btc_dominance"])
+        fig.add_trace(go.Scatter(
+            x=btc["time"], y=btc["btc_dominance"], name="BTC",
+            mode="lines", line=dict(color=C["yellow"], width=1.6),
+            hovertemplate="BTC %{y:.1f} %<extra></extra>",
+        ), row=2, col=1)
+        stables = history.dropna(subset=["stable_share"])
+        if not stables.empty:
+            fig.add_trace(go.Scatter(
+                x=stables["time"], y=stables["stable_share"],
+                name="stables", mode="lines",
+                line=dict(color=C["blue"], width=1.4),
+                hovertemplate="stables %{y:.1f} %<extra></extra>",
+            ), row=2, col=1)
+        fig.update_xaxes(title_text="part de la capitalisation (%)",
+                         row=1, col=1, **axis_common)
+        fig.update_yaxes(row=1, col=1, **axis_common)
+        fig.update_xaxes(row=2, col=1, **axis_common)
+        fig.update_yaxes(title_text="dominance (%)", row=2, col=1,
+                         **axis_common)
+        fig.update_layout(
+            showlegend=True,
+            legend=dict(orientation="h", y=0.36, x=0, yanchor="bottom",
+                        font=dict(size=9), bgcolor="rgba(0,0,0,0)"),
+            hovermode="x unified",
+            hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
+                            font_color=C["text"], font_size=10),
+        )
+    else:
+        fig.update_layout(
+            showlegend=False,
+            xaxis=dict(title_text="part de la capitalisation (%)",
+                       **axis_common),
+            yaxis=dict(**axis_common),
+        )
+
     fig.update_layout(
         paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
         font=dict(family=MONO, color=C["text"], size=10),
         margin=dict(l=8, r=42, t=6, b=4),
-        showlegend=False,
         bargap=0.25,
-        xaxis=dict(title_text="part de la capitalisation (%)", **axis_common),
-        yaxis=dict(**axis_common),
         uirevision=uirevision,
     )
     return fig

@@ -12,7 +12,9 @@ qui gonfle, c'est un marché endetté d'un seul côté, la configuration d'où
 sortent les liquidations en cascade.
 
 Données publiques de Binance Futures, sans clé. Binance ne conserve que
-trente jours d'open interest ; le graphique n'en montrera jamais plus.
+trente jours d'open interest ; au-delà, la série continue sur les
+instantanés que le hub journalise (§ journal) — le graphique remonte
+donc aussi loin que l'accumulation locale le permet.
 """
 
 from __future__ import annotations
@@ -128,7 +130,7 @@ def register(app, hub):
     )
     def _refresh(_tick, maximized):
         funding = hub.funding_history(limit=FUNDING_POINTS)
-        open_interest = hub.open_interest()
+        open_interest = hub.open_interest_extended()
         snapshot = hub.perp_snapshot()
 
         # Le panneau partage la cellule « etf » : c'est donc sur ce nom

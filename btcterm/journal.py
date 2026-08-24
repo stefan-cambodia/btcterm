@@ -21,6 +21,16 @@ Deux natures d'enregistrement, à l'image des données :
 Les **alertes** (§ alerts) s'y écrivent aussi, une ligne par sonnerie :
 relire une séance, c'est aussi relire ce qui a sonné.
 
+S'y ajoutent les **instantanés de marché** : dominance, capitalisation et
+open interest, que leurs sources refusent de servir en série — CoinGecko
+réserve l'historique à son offre payante, Binance ne garde que trente
+jours d'open interest. La boucle d'observation du hub en écrit un toutes
+les cinq minutes, et c'est l'accumulation locale qui construit, séance
+après séance, l'historique que les API ne donnent pas. Leur rétention
+est donc bien plus longue que celle des données de séance
+(`SNAPSHOT_RETENTION_DAYS`) : effacer ces lignes au bout d'un mois
+détruirait précisément ce que leur journalisation devait bâtir.
+
 La base n'existe qu'à la première écriture : construire un `Journal`
 (comme le fait tout `MarketHub`, démarré ou non) ne crée aucun fichier —
 les tests et les usages sans réseau ne laissent aucune trace.
@@ -44,7 +54,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
-__all__ = ["DB_DIR", "DB_PATH", "GRACE", "RETENTION_DAYS", "Journal"]
+__all__ = ["DB_DIR", "DB_PATH", "GRACE", "RETENTION_DAYS",
+           "SNAPSHOT_RETENTION_DAYS", "Journal"]
 
 DB_DIR = Path.home() / ".btcterm"
 DB_PATH = DB_DIR / "journal.db"
@@ -58,6 +69,12 @@ GRACE = 30.0
 #: Au-delà, les lignes sont purgées au démarrage du hub : le journal
 #: sert à relire des séances, pas à archiver des années.
 RETENTION_DAYS = 30
+
+#: Rétention des instantanés de marché, elle, longue à dessein : ces
+#: lignes remplacent un historique que les API refusent de servir, et
+#: une par cinq minutes ne pèse presque rien (≈ 100 000 lignes par an).
+#: Quatre cents jours couvrent une année de tendance avec de la marge.
+SNAPSHOT_RETENTION_DAYS = 400
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS liquidations (
@@ -89,7 +106,21 @@ CREATE TABLE IF NOT EXISTS alerts (
     message TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_alerts_ts ON alerts (ts);
+
+CREATE TABLE IF NOT EXISTS market_snapshots (
+    ts               REAL NOT NULL,  -- epoch de l'observation
+    btc_dominance    REAL,           -- part du BTC dans la cap. totale, %
+    stable_share     REAL,           -- part des stablecoins, %
+    total_cap_usd    REAL,
+    total_volume_usd REAL,
+    oi_usd           REAL            -- open interest du perpétuel, $
+);
+CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON market_snapshots (ts);
 """
+
+#: Colonnes de `market_snapshots` hors horodatage — l'ordre du schéma.
+SNAPSHOT_FIELDS = ("btc_dominance", "stable_share",
+                   "total_cap_usd", "total_volume_usd", "oi_usd")
 
 
 class Journal:
@@ -138,6 +169,21 @@ class Journal:
             self._connection().execute(
                 "INSERT INTO alerts VALUES (?, ?, ?)",
                 (alert.time, alert.kind, alert.message),
+            )
+            self._db.commit()
+
+    def record_market_snapshot(self, ts: float, **fields) -> None:
+        """Un instantané de marché — dominance, capitalisation, OI.
+
+        Les champs absents ou à `None` restent NULL : les deux sources
+        (CoinGecko, Binance Futures) échouent indépendamment, et un
+        instantané partiel vaut mieux que pas d'instantané.
+        """
+        values = [fields.get(name) for name in SNAPSHOT_FIELDS]
+        with self._lock:
+            self._connection().execute(
+                "INSERT INTO market_snapshots VALUES (?, ?, ?, ?, ?, ?)",
+                (ts, *values),
             )
             self._db.commit()
 
@@ -196,7 +242,12 @@ class Journal:
             self._db.commit()
 
     def purge(self, days: float = RETENTION_DAYS) -> None:
-        """Oublie ce qui dépasse la rétention. Sans base, ne crée rien."""
+        """Oublie ce qui dépasse la rétention. Sans base, ne crée rien.
+
+        Les instantanés de marché ont leur propre horizon, bien plus
+        lointain : ils sont l'historique que les API refusent, pas une
+        donnée de séance.
+        """
         if not self.path.exists():
             return
         horizon = time.time() - days * 86_400
@@ -206,6 +257,8 @@ class Journal:
             db.execute("DELETE FROM arbitrage_episodes WHERE last_seen < ?",
                        (horizon,))
             db.execute("DELETE FROM alerts WHERE ts < ?", (horizon,))
+            db.execute("DELETE FROM market_snapshots WHERE ts < ?",
+                       (time.time() - SNAPSHOT_RETENTION_DAYS * 86_400,))
             db.commit()
 
     # ── Lectures ────────────────────────────────────────────
@@ -234,6 +287,14 @@ class Journal:
         with self._lock:
             return self._connection().execute(
                 "SELECT * FROM alerts WHERE ts BETWEEN ? AND ?"
+                " ORDER BY ts", (start, end)).fetchall()
+
+    def snapshots_between(self, start: float, end: float) -> list[sqlite3.Row]:
+        if not self.path.exists():
+            return []
+        with self._lock:
+            return self._connection().execute(
+                "SELECT * FROM market_snapshots WHERE ts BETWEEN ? AND ?"
                 " ORDER BY ts", (start, end)).fetchall()
 
 
@@ -282,6 +343,20 @@ def _relire(hours: float) -> None:
                   f"{row['sell_exchange']:<8s} "
                   f"net {row['best_net_pct']:+.3f} %  "
                   f"pendant {duree:5.1f} s  ({row['samples']} obs.)")
+
+    # Les instantanés dépassent la séance : c'est leur accumulation qui
+    # fait l'historique, la relecture dit donc jusqu'où il remonte.
+    snapshots = journal.snapshots_between(0, end)
+    if not snapshots:
+        print("Instantanés de marché : aucun.")
+    else:
+        depuis = time.strftime("%d/%m/%Y", time.localtime(snapshots[0]["ts"]))
+        print(f"Instantanés de marché : {len(snapshots)}, depuis le {depuis}")
+        dominance = [r["btc_dominance"] for r in snapshots
+                     if r["btc_dominance"] is not None]
+        if dominance:
+            print(f"  dominance BTC : {dominance[-1]:.1f} % "
+                  f"(de {min(dominance):.1f} à {max(dominance):.1f} %)")
     print()
 
 

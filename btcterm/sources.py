@@ -65,6 +65,12 @@ M2_URL = "https://api.db.nomics.world/v22/series/FED/H6_H6_M2/M2.M"
 
 OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
 
+#: Actifs traités comme des dollars dans les parts de capitalisation :
+#: leur poids mesure le cash qui attend sur le marché, pas une
+#: concurrence faite au Bitcoin. Partagé entre le graphique de dominance
+#: et l'instantané que le hub journalise.
+STABLES = {"USDT", "USDC", "DAI", "FDUSD", "TUSD", "USDE", "PYUSD"}
+
 # Un User-Agent de navigateur est nécessaire : farside.co.uk renvoie une
 # page vide aux clients qui s'annoncent comme des scripts.
 BROWSER_HEADERS = {

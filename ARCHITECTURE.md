@@ -343,10 +343,28 @@ python -m btcterm.journal --heures 6
 Le journal tient aussi la table des **alertes** (§2.8), une ligne par
 sonnerie : relire une séance, c'est aussi relire ce qui a sonné.
 
+S'y ajoutent les **instantanés de marché** — dominance, parts de
+capitalisation, open interest —, la seule table qui ne relit pas la
+séance mais construit un historique : CoinGecko réserve ces séries à
+son offre payante et Binance ne garde que trente jours d'open interest,
+alors la boucle d'observation en journalise un toutes les cinq minutes
+(`SNAPSHOT_EVERY`), composé de ses deux sources qui échouent
+indépendamment — un instantané partiel s'écrit, colonnes manquantes à
+NULL ; hors ligne, rien ne s'écrit. Leur rétention est longue à dessein
+(`SNAPSHOT_RETENTION_DAYS`, 400 jours contre 30) : purger ces lignes au
+rythme de la séance détruirait ce que leur accumulation devait bâtir.
+Deux lecteurs côté hub : `market_snapshots()` rend l'historique en
+DataFrame — la tendance du panneau dominance —, et
+`open_interest_extended()` prolonge la série Binance vers le passé sur
+les instantanés, rééchantillonnés au pas de 4 h pour une couture
+invisible.
+
 `tests/test_journal.py` déroule la vie d'un épisode au temps simulé —
 ouverture, meilleur profit, flottement toléré, clôture après la grâce —
 et protège les frontières : panne du rappel sans effet sur le flux,
-aucun fichier créé sans écriture, rétention appliquée.
+aucun fichier créé sans écriture, rétention appliquée — la double
+rétention des instantanés, leur écriture partielle et le prolongement
+de l'open interest compris.
 
 ### 2.8 `alerts` — le terminal sait attirer l'attention
 
@@ -1135,6 +1153,20 @@ du contrat de série jusqu'à la dépose du rendu Plotly du prix et du
 drapeau de transition `BTCTERM_LWC`. Le serveur ne sert plus que des
 données au panneau prix ; les autres panneaux restent des figures Plotly.
 
+Trois chantiers ont été ouverts ensemble après la version 1.0, tirés des
+limites que la clôture assumait :
+
+1. ~~**Historiser ce que les API ne gardent pas**~~ — fait : le journal
+   accumule un instantané de marché toutes les cinq minutes (§2.7), le
+   panneau dominance trace la tendance ainsi construite et l'open
+   interest du perpétuel remonte au-delà des trente jours de Binance.
+2. **Enrichir les alertes** — des règles relatives assises sur les
+   indicateurs déjà calculés : écart à la MA 200, RSI extrême, signal
+   gradué fort.
+3. **Étendre le rendu LWC au panneau perpétuel** — la décision d'étape 2
+   (les autres panneaux restent Plotly) est révisée pour ce panneau,
+   dont la série s'allonge précisément grâce au chantier 1.
+
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
@@ -1235,12 +1267,14 @@ Fait :
 - **Marché à terme** — un panneau perpétuel en onglet des flux ETF : taux de
   financement en barres, open interest en ligne, et dans la barre de titre le
   financement courant, son équivalent annualisé et la part des comptes longs.
-  Binance ne conserve que trente jours d'open interest, ce qui borne la fenêtre.
+  Binance ne conserve que trente jours d'open interest — une borne depuis
+  levée par le journal, dont les instantanés prolongent la série (§2.7).
 - **Dominance et capitalisation** — en onglet de la cellule macro : parts de
   capitalisation en barres, Bitcoin et stablecoins distingués par la couleur,
   capitalisation totale et volume dans la barre de titre. CoinGecko réserve
-  l'historique de ces agrégats à son offre payante : c'est un instantané, et le
-  panneau le dit plutôt que de laisser croire à une tendance.
+  l'historique de ces agrégats à son offre payante : l'API ne donne qu'un
+  instantané, mais le journal les accumule désormais (§2.7) et le panneau
+  trace sous les barres la tendance ainsi construite, séance après séance.
 - **On-chain** — hashrate et difficulté sur un an, rythme des blocs et taille du
   mempool. La source prévue, mempool.space, a dû être abandonnée : elle publie
   souvent des adresses IPv6 seules et cette machine n'a pas de route IPv6, d'où

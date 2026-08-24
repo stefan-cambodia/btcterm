@@ -6,9 +6,12 @@ quand le Bitcoin absorbe les flux, elle baisse quand ils partent vers le
 reste. La part des stablecoins se lit autrement — c'est du cash qui
 attend, pas un concurrent —, d'où leur couleur distincte.
 
-**Un instantané, pas une série.** CoinGecko réserve l'historique de ces
-agrégats à son offre payante ; le panneau montre donc l'état du moment et
-le dit, plutôt que de laisser croire à une tendance.
+**L'instantané vient de l'API, la tendance du journal.** CoinGecko
+réserve l'historique de ces agrégats à son offre payante ; le hub
+journalise donc un instantané toutes les cinq minutes (§ journal), et
+c'est cette accumulation locale que le panneau trace sous les barres —
+une tendance qui n'existe qu'à partir du deuxième instantané et
+s'allonge séance après séance, jusqu'à couvrir l'année que l'API refuse.
 """
 
 from __future__ import annotations
@@ -76,6 +79,7 @@ def register(app, hub):
     def _refresh(_tick):
         agregats = hub.market_global()
         return (
-            build_dominance_chart(agregats.get("shares", {}), top=TOP),
+            build_dominance_chart(agregats.get("shares", {}),
+                                  history=hub.market_snapshots(), top=TOP),
             _badges(agregats),
         )

@@ -109,6 +109,14 @@ class MarketHub:
     #: quelques articles par heure : un quart d'heure suffit largement.
     NEWS_INTERVAL = 900
 
+    #: Cadence des instantanés de marché journalisés (§ journal) : cinq
+    #: minutes, alignées sur les TTL des sources (TTL_GLOBAL,
+    #: TTL_OPEN_INTEREST) — plus vite n'apprendrait rien, chaque
+    #: instantané relirait le même cache. Le premier attend une minute :
+    #: au démarrage, les panneaux réchauffent déjà les mêmes caches.
+    SNAPSHOT_EVERY = 300.0
+    SNAPSHOT_WARMUP = 60.0
+
     def __init__(
         self,
         symbol: str = "BTCUSDT",
@@ -190,6 +198,7 @@ class MarketHub:
         """
         if self.journal is not None:
             self.journal.purge()
+        next_snapshot = time.monotonic() + self.SNAPSHOT_WARMUP
         while not self._observe_stop.wait(1.0):
             # Un tour raté — balayage, base verrouillée, disque — ne
             # doit pas arrêter d'observer : le suivant retentera.
@@ -203,6 +212,16 @@ class MarketHub:
                 self.alerts.evaluate(self, opportunities)
             except Exception:
                 pass
+            # L'instantané de marché, à cadence propre : c'est lui qui
+            # construit l'historique que les API refusent de servir, et
+            # il couvre la séance entière — navigateur ouvert ou non.
+            if (self.journal is not None
+                    and time.monotonic() >= next_snapshot):
+                next_snapshot = time.monotonic() + self.SNAPSHOT_EVERY
+                try:
+                    self.record_market_snapshot()
+                except Exception:
+                    pass
 
     def stop(self) -> None:
         for connector in self._connectors:
@@ -311,6 +330,53 @@ class MarketHub:
         except Exception:
             return {}
 
+    def record_market_snapshot(self, now: Optional[float] = None) -> None:
+        """Journalise l'instantané de marché du moment.
+
+        Les deux sources échouent indépendamment : un instantané partiel
+        — dominance sans open interest, ou l'inverse — s'écrit quand
+        même, chaque colonne absente restant NULL. Rien ne s'écrit quand
+        tout manque : hors ligne, le journal ne se remplit pas de vide.
+        """
+        if self.journal is None:
+            return
+        agregats = self.market_global()
+        oi = self.open_interest()
+
+        shares = agregats.get("shares") or {}
+        fields = {
+            "btc_dominance": shares.get("BTC"),
+            "stable_share": (sum(part for nom, part in shares.items()
+                                 if nom in sources.STABLES)
+                             if shares else None),
+            "total_cap_usd": agregats.get("total_cap_usd"),
+            "total_volume_usd": agregats.get("total_volume_usd"),
+            "oi_usd": float(oi["oi_usd"].iloc[-1]) if not oi.empty else None,
+        }
+        if all(value is None for value in fields.values()):
+            return
+        self.journal.record_market_snapshot(
+            time.time() if now is None else now, **fields)
+
+    def market_snapshots(self, days: float = 400) -> pd.DataFrame:
+        """L'historique journalisé des instantanés, en DataFrame.
+
+        C'est la série que CoinGecko ne donne qu'en payant et que
+        Binance tronque à trente jours : elle n'existe que par
+        l'accumulation locale, et commence donc vide.
+        """
+        columns = ["time", "btc_dominance", "stable_share",
+                   "total_cap_usd", "total_volume_usd", "oi_usd"]
+        if self.journal is None:
+            return pd.DataFrame(columns=columns)
+        end = time.time()
+        rows = self.journal.snapshots_between(end - days * 86_400, end)
+        if not rows:
+            return pd.DataFrame(columns=columns)
+        df = pd.DataFrame([dict(row) for row in rows])
+        df["time"] = pd.to_datetime(df.pop("ts"), unit="s")
+        return df[columns]
+
     def chain_chart(self, name: str = "hash-rate",
                     timespan: str = "1year") -> pd.DataFrame:
         """Série on-chain (hashrate, difficulté, mempool), ou tableau vide."""
@@ -354,6 +420,29 @@ class MarketHub:
             )
         except Exception:
             return pd.DataFrame(columns=["time", "oi", "oi_usd"])
+
+    def open_interest_extended(self) -> pd.DataFrame:
+        """Open interest prolongé vers le passé par le journal local.
+
+        Binance ne sert que trente jours ; au-delà, la série continue
+        sur les instantanés journalisés (§ record_market_snapshot),
+        rééchantillonnés au pas des données Binance (4 h) pour que la
+        couture ne se voie pas. Sans historique local, la série est
+        celle de Binance, telle quelle — le prolongement se gagne à
+        l'usage, séance après séance.
+        """
+        base = self.open_interest()
+        history = self.market_snapshots()
+        if history.empty:
+            return base
+        history = history.dropna(subset=["oi_usd"])[["time", "oi_usd"]]
+        if not base.empty:
+            history = history[history["time"] < base["time"].iloc[0]]
+        if history.empty:
+            return base
+        resampled = (history.set_index("time")["oi_usd"]
+                     .resample("4h").last().dropna().reset_index())
+        return pd.concat([resampled, base], ignore_index=True)
 
     def perp_snapshot(self) -> dict:
         """Prix marqué, financement courant et positionnement des comptes."""

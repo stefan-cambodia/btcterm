@@ -42,7 +42,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
 | **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
-| **Dominance** | parts de capitalisation, cap totale et volume 24 h (onglet de la macro) | 5 min |
+| **Dominance** | parts de capitalisation et leur tendance journalisée, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
 
 Les **liquidations** sont le pendant du perpétuel : quand une position à levier
@@ -143,7 +143,12 @@ CRYPTOPANIC_API_KEY=… python -m terminal.app     # ajouter CryptoPanic aux RSS
 journalisées dans `~/.btcterm/journal.db` (30 jours de rétention) : chaque
 liquidation, et chaque épisode d'arbitrage rentable — ouvert quand une paire
 devient rentable, clos quand elle a cessé de l'être, une ligne par épisode
-avec le meilleur profit observé. La séance se relit après coup :
+avec le meilleur profit observé. S'y ajoutent, toutes les cinq minutes, les
+**instantanés de marché** (dominance, capitalisation, open interest) que
+leurs API refusent de servir en série ; leur rétention est de 400 jours, et
+leur accumulation donne au panneau dominance sa tendance et au perpétuel un
+open interest qui remonte au-delà des trente jours de Binance. La séance se
+relit après coup :
 
 ```bash
 python -m btcterm.journal --heures 6             # relire la séance

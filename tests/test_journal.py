@@ -146,6 +146,125 @@ def test_retention():
     print("  ✓ 30 jours de rétention, l'ancien purgé")
 
 
+def test_instantanes_partiels_et_lecture():
+    """Un instantané partiel s'écrit, les colonnes absentes restent NULL."""
+    with tempfile.TemporaryDirectory() as tmp:
+        journal = Journal(Path(tmp) / "journal.db")
+        t0 = 3_000_000.0
+        journal.record_market_snapshot(t0, btc_dominance=56.2,
+                                       stable_share=7.8,
+                                       total_cap_usd=2.4e12,
+                                       total_volume_usd=9.1e10,
+                                       oi_usd=1.2e10)
+        # CoinGecko en panne, Binance répond : l'OI seul s'écrit.
+        journal.record_market_snapshot(t0 + 300, oi_usd=1.3e10)
+
+        rows = journal.snapshots_between(0, t0 + 600)
+        assert len(rows) == 2, len(rows)
+        assert rows[0]["btc_dominance"] == 56.2
+        assert rows[0]["oi_usd"] == 1.2e10
+        assert rows[1]["btc_dominance"] is None, "l'absence devait rester NULL"
+        assert rows[1]["oi_usd"] == 1.3e10
+    print("  ✓ instantané complet puis partiel, NULL où la source a manqué")
+
+
+def test_instantanes_retention_longue():
+    """La purge de séance épargne les instantanés : eux seuls font
+    l'historique que les API refusent, les effacer au bout d'un mois
+    détruirait ce que leur journalisation devait bâtir."""
+    with tempfile.TemporaryDirectory() as tmp:
+        journal = Journal(Path(tmp) / "journal.db")
+        now = time.time()
+        journal.record_alert(type("A", (), {
+            "time": now - 40 * 86_400, "kind": "price", "message": "vieux"})())
+        journal.record_market_snapshot(now - 40 * 86_400, btc_dominance=50.0)
+        journal.record_market_snapshot(now - 500 * 86_400, btc_dominance=45.0)
+
+        journal.purge(days=30)
+        assert journal.alerts_between(0, now) == [], "l'alerte devait partir"
+        rows = journal.snapshots_between(0, now)
+        assert len(rows) == 1, "40 jours gardés, 500 jours purgés"
+        assert rows[0]["btc_dominance"] == 50.0
+    print("  ✓ l'instantané survit à la purge de séance, pas aux 400 jours")
+
+
+def test_hub_ecrit_et_relit_les_instantanes():
+    """Le hub compose l'instantané de ses deux sources, et le relit en
+    DataFrame ; hors ligne, rien ne s'écrit — pas même la base."""
+    import pandas as pd
+
+    with tempfile.TemporaryDirectory() as tmp:
+        hub = MarketHub(collect_news=False)
+        hub.journal = Journal(Path(tmp) / "journal.db")
+
+        now = time.time()
+        # Hors ligne : les deux accès rendent leur valeur vide.
+        hub.market_global = lambda: {}
+        hub.open_interest = lambda **kw: pd.DataFrame(
+            columns=["time", "oi", "oi_usd"])
+        hub.record_market_snapshot(now=now)
+        assert not hub.journal.path.exists(), "le vide a créé la base"
+        assert hub.market_snapshots().empty
+
+        # Les deux sources répondent : l'instantané se compose.
+        hub.market_global = lambda: {
+            "total_cap_usd": 2.4e12, "total_volume_usd": 9.1e10,
+            "shares": {"BTC": 56.2, "ETH": 12.1, "USDT": 5.5, "USDC": 1.5},
+        }
+        hub.open_interest = lambda **kw: pd.DataFrame(
+            {"time": [pd.Timestamp("2026-08-24")],
+             "oi": [80_000.0], "oi_usd": [1.2e10]})
+        hub.record_market_snapshot(now=now)
+
+        df = hub.market_snapshots()
+        assert len(df) == 1
+        assert df["btc_dominance"].iloc[0] == 56.2
+        assert df["stable_share"].iloc[0] == 7.0, "USDT + USDC"
+        assert df["oi_usd"].iloc[0] == 1.2e10
+    print("  ✓ instantané composé des deux sources, muet hors ligne")
+
+
+def test_open_interest_prolonge_par_le_journal():
+    """La série Binance (30 j) continue vers le passé sur le journal,
+    rééchantillonné au pas de 4 h pour une couture invisible."""
+    import pandas as pd
+
+    with tempfile.TemporaryDirectory() as tmp:
+        hub = MarketHub(collect_news=False)
+        hub.journal = Journal(Path(tmp) / "journal.db")
+
+        base_start = time.time() - 30 * 86_400
+        # Quarante jours d'instantanés au pas de 5 min seraient longs à
+        # écrire un à un : une heure de pas suffit à prouver le
+        # rééchantillonnage (4 h doivent en garder un sur quatre).
+        for k in range(12 * 24):  # douze jours antérieurs à Binance
+            hub.journal.record_market_snapshot(
+                base_start - (k + 1) * 3600, oi_usd=1.0e10 + k * 1e6)
+
+        base = pd.DataFrame({
+            "time": pd.to_datetime(
+                [base_start + k * 4 * 3600 for k in range(180)], unit="s"),
+            "oi": [80_000.0] * 180,
+            "oi_usd": [1.2e10] * 180,
+        })
+        hub.open_interest = lambda **kw: base
+
+        merged = hub.open_interest_extended()
+        assert len(merged) > len(base), "le journal devait prolonger"
+        assert merged["time"].is_monotonic_increasing
+        assert (merged["time"].iloc[0] < base["time"].iloc[0]), \
+            "la série devait remonter avant Binance"
+        # La partie journalisée est rééchantillonnée : moins de points
+        # que d'instantanés écrits.
+        assert len(merged) - len(base) < 12 * 24
+        assert merged["oi_usd"].notna().all()
+
+        # Sans historique local, la série de Binance ressort telle quelle.
+        hub.journal = Journal(Path(tmp) / "vide.db")
+        assert hub.open_interest_extended() is base
+    print("  ✓ open interest prolongé et rééchantillonné, couture triée")
+
+
 def test_cablage_du_hub():
     """Le hub branche le journal sur le fil — sans créer la base."""
     existait = DB_PATH.exists()
