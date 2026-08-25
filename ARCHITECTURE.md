@@ -110,7 +110,10 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_prepare_price_frame.py  enrichissement du prix : le contrat
 │   ├── test_resolver.py           résolution DNS de secours, sans réseau
 │   ├── marionette_client.py       pilotage minimal de Firefox
-│   └── ui_smoke.py                contrôle de l'interface à l'écran
+│   ├── ui_smoke.py                contrôle de l'interface à l'écran
+│   └── ui_captures.py             captures des onglets pour le README
+│
+├── docs/captures/             ← captures d'écran du README (1600 px)
 │
 ├── etf_bitcoin_flows.py       ← CLI flux ETF
 │

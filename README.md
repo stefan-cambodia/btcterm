@@ -8,6 +8,36 @@ d'arbitrage, liquidations, flux des ETF spot, marché perpétuel, news à impact
 et sentiment, calendrier macro, dominance, données on-chain et contexte
 monétaire — le tout sous alertes configurables.
 
+## Aperçu
+
+![La grille du terminal : prix et indicateurs, carnet, arbitrage, flux ETF, news, macro](docs/captures/grille.png)
+
+*La grille par défaut — chandeliers Lightweight Charts avec moyennes, Bollinger
+et profil de volume, carnet Binance en direct, écarts d'arbitrage entre cinq
+plateformes, flux des ETF spot, fil de news scoré, cours contre masse
+monétaire.*
+
+![Les onglets secondaires : profondeur comparée, liquidations, perpétuel, calendrier macro, dominance](docs/captures/grille-onglets.png)
+
+*Les mêmes cellules, autres onglets — profondeur cumulée des cinq carnets,
+liquidations Binance et Bybit, financement et open interest du perpétuel,
+calendrier macro, dominance.*
+
+![Le panneau prix en plein écran](docs/captures/plein-ecran.png)
+
+*Un panneau en plein écran d'un clic (ou d'un double-clic), Échap pour
+revenir ; ici le prix en 4 h avec ses signaux gradués et le profil de volume
+de la plage visible.*
+
+![Le journal de la séance, les réglages d'alertes et les données de chaîne](docs/captures/grille-journal.png)
+
+*Le journal relit la séance — alertes sonnées, épisodes d'arbitrage, bilan
+des liquidations —, les seuils d'alerte se règlent dans le terminal, et la
+chaîne (hashrate, difficulté, mempool) a son onglet.*
+
+Captures produites par `tests/ui_smoke.py --capture` et
+`tests/ui_captures.py` sur un terminal en marche, réduites à 1600 px.
+
 ## Lancement
 
 ```bash
@@ -331,6 +361,7 @@ python tests/test_resolver.py            # résolution DNS de secours, sans rés
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
+python tests/ui_captures.py docs/captures   # captures des onglets secondaires
 ```
 
 Le premier vérifie que les indicateurs du socle produisent exactement les mêmes
