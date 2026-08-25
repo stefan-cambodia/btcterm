@@ -1,0 +1,323 @@
+/* Styles du terminal — chargés automatiquement par Dash depuis assets/. */
+
+body {
+    margin: 0;
+    background: #080b12;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+/* ── Plein écran d'un panneau ──────────────────────────────
+   Le panneau agrandi sort du flux de la grille et couvre le
+   viewport sous le bandeau ; les autres disparaissent. */
+
+.cell {
+    min-height: 0;
+    min-width: 0;
+    position: relative;
+}
+
+.cell-max {
+    position: fixed !important;
+    top: 46px;
+    left: 8px;
+    right: 8px;
+    bottom: 8px;
+    z-index: 60;
+}
+
+.cell-hidden {
+    display: none !important;
+}
+
+/* ── Bouton d'agrandissement ───────────────────────────────
+   Toujours visible : caché au repos, il était introuvable. La barre de
+   titre lui réserve sa place à droite (voir TITLE_STYLE), pour qu'il ne
+   recouvre pas les sélecteurs du panneau. */
+
+.zoom-btn {
+    position: absolute;
+    top: 5px;
+    right: 6px;
+    z-index: 5;
+    background: #111827;
+    color: #94a3b8;
+    border: 1px solid #1e2639;
+    border-radius: 3px;
+    width: 24px;
+    height: 21px;
+    line-height: 1;
+    font-size: 12px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+    padding: 0;
+}
+
+.cell:hover .zoom-btn {
+    color: #e2e8f0;
+    border-color: #4b5563;
+}
+
+.zoom-btn:hover {
+    color: #080b12;
+    background: #fbbf24;
+    border-color: #fbbf24;
+}
+
+.cell-max .zoom-btn {
+    opacity: 1;
+    color: #fbbf24;
+    border-color: #fbbf24;
+}
+
+/* ── Onglets d'une cellule ─────────────────────────────────
+   Posés à la place du titre du panneau, pas au-dessus : une barre
+   d'onglets qui s'ajouterait volerait une ligne de hauteur à chaque
+   cellule qui en porte.
+
+   Préfixe `cell-` obligatoire : Dash sert la feuille de style de
+   `dcc.Tabs`, qui revendique `.tab` et y met `padding: 20px` et
+   `flex: 1 1 0`. Des onglets nommés `.tab` héritaient donc d'une barre
+   de titre haute de 55 px au lieu de 14. */
+
+.cell-tabs {
+    display: inline-flex;
+    gap: 12px;
+}
+
+.cell-tab {
+    cursor: pointer;
+    color: #4b5563;
+    white-space: nowrap;
+    border-bottom: 1px solid transparent;
+}
+
+.cell-tab:hover {
+    color: #94a3b8;
+}
+
+.cell-tab-active {
+    color: #fbbf24;
+    border-bottom-color: #fbbf24;
+}
+
+/* ── Sélecteurs de barre de titre ──────────────────────────
+   Dash enveloppe la case dans un <span> et marque le <label> de la
+   classe `selected` : c'est sur elle qu'il faut styler, un sélecteur
+   `input:checked + span` ne correspondant à rien dans ce balisage. */
+
+.tf-radio label,
+.tf-check label {
+    margin-left: 6px;
+    color: #4b5563;
+    cursor: pointer;
+    white-space: nowrap;
+    /* La barre de titre est en majuscules, mais pas ses sélecteurs :
+       les intervalles suivent la convention Binance, où la casse
+       distingue les minutes (`30m`) du mois (`1M`). */
+    text-transform: none;
+}
+
+.tf-radio .dash-options-list-option-wrapper,
+.tf-check .dash-options-list-option-wrapper {
+    display: none;
+}
+
+.tf-radio label:hover,
+.tf-check label:hover {
+    color: #94a3b8;
+}
+
+.tf-radio label.selected {
+    color: #fbbf24;
+    border-bottom: 1px solid #fbbf24;
+}
+
+.tf-check label.selected {
+    color: #22d3ee;
+}
+
+/* ── Disposition de la grille ──────────────────────────────
+   Le bouton ⚙ du bandeau ouvre un dialogue où chaque panneau se range
+   dans une cellule. Les sélecteurs réutilisent le style `tf-radio` des
+   barres de titre ; la largeur fixe des libellés aligne les colonnes
+   d'une rangée à l'autre. */
+
+.layout-btn {
+    margin-left: auto;
+    background: #111827;
+    color: #94a3b8;
+    border: 1px solid #1e2639;
+    border-radius: 3px;
+    width: 24px;
+    height: 21px;
+    line-height: 1;
+    font-size: 12px;
+    cursor: pointer;
+    padding: 0;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.layout-btn:hover {
+    color: #080b12;
+    background: #fbbf24;
+    border-color: #fbbf24;
+}
+
+.layout-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 80; /* au-dessus d'un panneau en plein écran (60) */
+    background: rgba(8, 11, 18, 0.72);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.layout-overlay-hidden {
+    display: none;
+}
+
+.layout-dialog {
+    background: #0e1117;
+    border: 1px solid #1e2639;
+    border-radius: 6px;
+    padding: 16px 20px;
+    max-height: 85vh;
+    overflow-y: auto;
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+}
+
+.layout-title {
+    color: #fbbf24;
+    font-size: 11px;
+    letter-spacing: 0.14em;
+    margin-bottom: 6px;
+}
+
+.layout-help {
+    color: #4b5563;
+    font-size: 10px;
+    margin-bottom: 12px;
+    max-width: 560px;
+}
+
+.layout-row {
+    display: flex;
+    align-items: center;
+    padding: 3px 0;
+    border-bottom: 1px solid #111827;
+}
+
+.layout-panel-name {
+    width: 120px;
+    flex-shrink: 0;
+    color: #e2e8f0;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+}
+
+.layout-radio {
+    font-size: 10px;
+}
+
+.layout-radio label {
+    display: inline-block;
+    width: 88px;
+    margin-left: 0;
+}
+
+.layout-msg {
+    color: #f59e0b;
+    font-size: 10px;
+    min-height: 14px;
+    margin-top: 10px;
+}
+
+.layout-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}
+
+.layout-button {
+    background: #111827;
+    color: #94a3b8;
+    border: 1px solid #1e2639;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 10px;
+    padding: 4px 14px;
+    cursor: pointer;
+    transition: color 0.12s, border-color 0.12s, background 0.12s;
+}
+
+.layout-button:hover {
+    color: #e2e8f0;
+    border-color: #4b5563;
+}
+
+.layout-button-primary {
+    color: #080b12;
+    background: #fbbf24;
+    border-color: #fbbf24;
+}
+
+.layout-button-primary:hover {
+    color: #080b12;
+    background: #fcd34d;
+    border-color: #fcd34d;
+}
+
+/* ── Barres de défilement ──────────────────────────────────*/
+
+::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+
+::-webkit-scrollbar-track {
+    background: #0e1117;
+}
+
+::-webkit-scrollbar-thumb {
+    background: #1e2639;
+    border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: #4b5563;
+}
+
+/* ── Panneau prix, rendu Lightweight Charts (BTCTERM_LWC=1) ─*/
+/* Les couleurs viennent du thème via lwc-price.js ; ici, seulement la
+   géométrie des éléments posés par-dessus le canvas. */
+
+.lwc-legend {
+    position: absolute;
+    top: 4px;
+    left: 8px;
+    z-index: 8;
+    display: flex;
+    gap: 10px;
+    font-size: 10px;
+    pointer-events: none;
+}
+
+.lwc-demo-banner {
+    position: absolute;
+    top: 4px;
+    right: 8px;
+    z-index: 9;
+    padding: 3px 8px;
+    border-radius: 3px;
+    font-size: 10px;
+    pointer-events: none;
+}
+
+.lwc-profile {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 7;
+    pointer-events: none;
+}

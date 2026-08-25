@@ -38,6 +38,15 @@ chaîne (hashrate, difficulté, mempool) a son onglet.*
 Captures produites par `tests/ui_smoke.py --capture` et
 `tests/ui_captures.py` sur un terminal en marche, réduites à 1600 px.
 
+**Démo à manipuler** — le panneau prix se dessine entièrement dans le
+navigateur : il est servi en page statique, sur un instantané figé, à
+**https://stefan-cambodia.github.io/btcterm/** — zoom, crosshair, pan vers
+le passé (l'historique se charge en glissant), bascule $/€, échelle log,
+panes RSI/CRSI, profil de volume de la plage visible. Mille bougies par
+intervalle, datées dans le bandeau ; rien n'y est en direct. La page se
+regénère par `python -m terminal.demo docs` (voir « Outils
+complémentaires »).
+
 ## Lancement
 
 ```bash
@@ -283,6 +292,20 @@ de news) ne font double emploi avec aucun panneau.
 
 ## Outils complémentaires
 
+### La démo statique — `python -m terminal.demo docs`
+
+Fige un paquet `/api/klines` par intervalle (mille bougies, indicateurs
+compris) dans `docs/demo/data/`, copie le rendu Lightweight Charts et sa
+bibliothèque depuis `terminal/assets/`, et écrit `docs/index.html` : la page
+que GitHub Pages sert depuis `docs/`. Le navigateur y remplace le serveur —
+`docs/demo/shim.js` détourne `fetch` vers les paquets figés, pagine par
+`time` comme `terminal/lwc.py`, et recalcule le profil de volume ;
+`tests/test_demo.py` vérifie sous Node que ce remplaçant dit la même chose
+que l'original. À relancer après tout changement de `lwc-price.js`, ou pour
+rafraîchir l'instantané ; le tout passe par le résolveur de secours, donc
+fonctionne aussi là où le DNS ment.
+
+
 Ce que le terminal ne couvre pas garde sa ligne de commande : l'export des
 flux ETF et le tracker de news, tous deux bâtis sur le socle. Les quatre
 scripts que le terminal a remplacés — `btc-dash.py`, `btc_dashboard2.py`,
@@ -362,6 +385,7 @@ python tests/test_resolver.py            # résolution DNS de secours, sans rés
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
 python tests/ui_captures.py docs/captures   # captures des onglets secondaires
+python tests/test_demo.py                # démo statique : constructeur, shim (Node)
 ```
 
 Le premier vérifie que les indicateurs du socle produisent exactement les mêmes

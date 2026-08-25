@@ -81,6 +81,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── lwc.py                     données des rendus LWC : /api/klines,
 │   │                              /api/profile et /api/perp (§3.2)
 │   ├── wsgi.py                    fabrique gunicorn du régime service (§3.11)
+│   ├── demo.py                    démo statique pour GitHub Pages (§3.12)
 │   ├── theme.py                   palette et styles
 │   ├── charts.py                  figures Plotly des autres panneaux
 │   ├── assets/                    CSS et JS servis au navigateur — dont
@@ -111,9 +112,12 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_resolver.py           résolution DNS de secours, sans réseau
 │   ├── marionette_client.py       pilotage minimal de Firefox
 │   ├── ui_smoke.py                contrôle de l'interface à l'écran
-│   └── ui_captures.py             captures des onglets pour le README
+│   ├── ui_captures.py             captures des onglets pour le README
+│   └── test_demo.py               démo statique : constructeur, shim (Node)
 │
-├── docs/captures/             ← captures d'écran du README (1600 px)
+├── docs/                      ← GitHub Pages : index.html (démo, §3.12),
+│   ├── demo/                      shim.js, page.js, assets copiés, data/
+│   └── captures/                  captures d'écran du README (1600 px)
 │
 ├── etf_bitcoin_flows.py       ← CLI flux ETF
 │
@@ -1058,6 +1062,41 @@ déconnexion. gunicorn est l'extra `serve` du paquet
 (`pip install -e '.[serve]'`). `tests/test_wsgi.py` éprouve la fabrique
 sans réseau ni gunicorn : la traduction de l'environnement en arguments du
 hub, le démarrage, l'arrêt enregistré, la route `/push` posée.
+
+### 3.12 La démo statique : le panneau prix sans serveur
+
+Une démo de btcterm sur GitHub ne peut pas être vivante — GitHub
+n'exécute aucun serveur —, mais le panneau prix a une propriété qui
+change tout : depuis la bascule de la voie A (§3.2), le serveur ne lui
+sert que des données, et tout le dessin vit dans le navigateur.
+`terminal/demo.py` en tire une page statique servie par GitHub Pages
+depuis `docs/`.
+
+Le constructeur fige un paquet `/api/klines` par intervalle — mille
+bougies, enrichies après la même marge de calcul que la route, pour que
+la MA 200 soit juste dès la première — dans `docs/demo/data/`, copie
+`lwc-price.js`, la bibliothèque vendorisée et la feuille de style depuis
+`terminal/assets/`, et écrit `docs/index.html` avec la configuration
+(thème, police, profondeurs de page) que le vrai panneau reçoit de son
+Store. Dans la page, `docs/demo/shim.js` détourne `fetch` **avant** le
+chargement du rendu : `/api/klines` est servi depuis le paquet figé,
+paginé par `time` exactement comme `terminal/lwc.py` — `limit` borne,
+`before` exclut la bougie tenue, les autres tableaux suivent la fenêtre —
+et `/api/profile` est recalculé sur place, port ligne à ligne de
+`ind.volume_profile`. `docs/demo/page.js` tient la barre de titre sans
+Dash, réglages dans localStorage. Le rendu, lui, n'est pas modifié d'une
+ligne : il ne sait pas qu'il n'y a pas de serveur.
+
+`tests/test_demo.py` vérifie le constructeur avec un hub factice, puis
+fait tourner le shim sous Node contre un paquet généré et compare
+pagination et profil à ce que produit le serveur — la démo dit la même
+chose que l'original. Elle est datée dans son bandeau et ne se dit pas
+« démo » au sens du repli hors ligne (§4.3) : ce sont de vraies données,
+seulement arrêtées.
+
+Les assets étant **copiés**, la démo se regénère après tout changement de
+`lwc-price.js` — `python -m terminal.demo docs` —, ce qui rafraîchit
+aussi l'instantané.
 
 ## 4. Patrons transverses
 

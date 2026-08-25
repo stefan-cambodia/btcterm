@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>BTC Terminal — démo statique du panneau prix</title>
+<link rel="stylesheet" href="demo/terminal.css">
+<style>
+  html, body { height: 100%; margin: 0; }
+  body { background: #080b12; color: #e2e8f0; font-family: 'JetBrains Mono', 'Fira Code', monospace;
+         display: flex; flex-direction: column; }
+  a { color: #22d3ee; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  .demo-header { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+                 padding: 8px 14px; border-bottom: 1px solid #1e2639;
+                 font-size: 11px; color: #4b5563; flex-shrink: 0; }
+  .demo-brand { color: #fbbf24; font-weight: 700; letter-spacing: 0.08em;
+                font-size: 13px; }
+  .demo-note { color: #f59e0b; }
+  .demo-main { flex: 1; min-height: 0; padding: 8px; display: flex; }
+  .demo-panel { flex: 1; min-height: 0; background: #0e1117;
+                border: 1px solid #1e2639; border-radius: 6px;
+                padding: 8px 10px; display: flex; flex-direction: column;
+                overflow: hidden; }
+  .demo-title { display: flex; justify-content: space-between; align-items: center;
+                flex-shrink: 0; margin-bottom: 6px; color: #4b5563;
+                font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
+                white-space: nowrap; overflow-x: auto; }
+  .demo-title .tf-radio, .demo-title .tf-check { display: inline-block;
+                font-size: 9px; margin-left: 10px; }
+  .demo-title .tf-radio:first-child { margin-left: 0; }
+  #price-lwc { flex: 1; min-height: 0; position: relative; }
+  .demo-footer { padding: 6px 14px; border-top: 1px solid #1e2639;
+                 font-size: 10px; color: #4b5563; flex-shrink: 0; }
+</style>
+</head>
+<body>
+<div class="demo-header">
+  <span class="demo-brand">₿ BTC TERMINAL</span>
+  <span>démo statique du panneau prix</span>
+  <span class="demo-note">instantané figé du 25/08/2026 16:55 UTC · aucune donnée en direct</span>
+  <span style="margin-left:auto"><a href="https://github.com/stefan-cambodia/btcterm">le dépôt sur GitHub</a></span>
+</div>
+<div class="demo-main">
+  <div class="demo-panel">
+    <div class="demo-title">
+      <span style="font-size:9px;letter-spacing:0.02em">BTC/USDT</span>
+      <div style="display:flex;align-items:center;white-space:nowrap">
+        <div id="price-interval" class="tf-radio"></div>
+        <div id="price-currency" class="tf-radio"></div>
+        <div id="price-scale" class="tf-check"></div>
+        <div id="price-extras" class="tf-check"></div>
+      </div>
+    </div>
+    <div id="price-lwc"></div>
+  </div>
+</div>
+<div class="demo-footer">
+  Le vrai terminal sert ces données en temps réel depuis cinq plateformes,
+  avec treize autres panneaux — carnet, profondeur, arbitrage, liquidations,
+  ETF, perpétuel, news, calendrier, alertes, journal, macro, dominance,
+  chaîne. Ici, seul le panneau prix, sur 1000 bougies par intervalle
+  figées le 25/08/2026 16:55 UTC : zoom à la molette, pan à la souris (l'historique se
+  charge en glissant vers le passé), crosshair, $/€, échelle log, panes.
+</div>
+<script src="demo/vendor/lightweight-charts.standalone.production.js"></script>
+<script>window.DEMO_CONF = {"theme": {"bg": "#080b12", "panel": "#0e1117", "card": "#111827", "border": "#1e2639", "text": "#e2e8f0", "muted": "#4b5563", "green": "#00d4aa", "red": "#ff3d6b", "orange": "#f59e0b", "blue": "#3b82f6", "purple": "#a78bfa", "yellow": "#fbbf24", "cyan": "#22d3ee", "grid": "#111827", "ma9": "#00d4aa", "ma26": "#f59e0b", "ma200": "#a78bfa", "bb": "#3b82f6", "buy": "#00ff99", "sell": "#ff2255", "poc": "#fbbf24", "va": "rgba(251,191,36,0.07)"}, "mono": "'JetBrains Mono', 'Fira Code', monospace", "intervals": {"15m": 300, "30m": 300, "1h": 350, "4h": 350, "6h": 300, "12h": 300, "1d": 365, "1w": 260, "1M": 120}, "default_interval": "1d", "default_extras": ["rsi", "volume", "profile"], "frozen_at": 1787676919.4000473};</script>
+<script src="demo/shim.js"></script>
+<script src="demo/lwc-price.js"></script>
+<script src="demo/page.js"></script>
+</body>
+</html>
