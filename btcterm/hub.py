@@ -25,6 +25,7 @@ from .arbitrage import ArbitrageEngine
 from .journal import Journal
 from .newsdb import NewsCollector
 from .liquidations import LiquidationFeed
+from . import resolver
 from .exchanges import (
     BinanceConnector,
     BybitConnector,
@@ -169,6 +170,10 @@ class MarketHub:
         """Ouvre les connexions temps réel. Idempotent."""
         if self._thread is not None:
             return
+        # Avant toute connexion : si le résolveur du fournisseur d'accès
+        # renvoie 127.0.0.1 pour Binance ou Bybit, la résolution de secours
+        # par DNS sur HTTPS prend le relais (voir btcterm/resolver.py).
+        resolver.install()
         self._connectors = [
             BinanceConnector(self.books["Binance"], symbol="btcusdt", depth=20),
             KrakenConnector(self.books["Kraken"], pair="XBT/USDT", depth=25),

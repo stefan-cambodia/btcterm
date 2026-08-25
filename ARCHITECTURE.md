@@ -65,6 +65,8 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   │                              d'arbitrage (~/.btcterm/journal.db)
 │   ├── alerts.py                  moteur d'alertes : seuils, rafales,
 │   │                              financement, news, arbitrage
+│   ├── resolver.py                résolution DNS de secours (DoH) contre
+│   │                              l'empoisonnement par le FAI
 │   └── hub.py                     connexions mutualisées + caches
 │
 ├── terminal/                  ← TERMINAL : l'application Dash
@@ -105,6 +107,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_lwc_api.py            /api/klines : pagination, repli démo
 │   ├── test_indicators_incremental.py  dernier point : borné = complet
 │   ├── test_prepare_price_frame.py  enrichissement du prix : le contrat
+│   ├── test_resolver.py           résolution DNS de secours, sans réseau
 │   ├── marionette_client.py       pilotage minimal de Firefox
 │   └── ui_smoke.py                contrôle de l'interface à l'écran
 │
@@ -472,7 +475,42 @@ demandée d'un geste) partent d'un callback clientside sur le fil global
 — la sonnerie retentit même panneau replié, et un rechargement ne
 rejoue rien.
 
-### 2.9 Non-régression
+### 2.9 `resolver` — quand le DNS ment
+
+Dans certains pays, le résolveur du fournisseur d'accès ne refuse pas les
+domaines des exchanges : il y répond **127.0.0.1**. Depuis le Cambodge,
+`api.binance.com`, `fapi.binance.com`, `stream.binance.com`,
+`stream.bybit.com`, `ws.okx.com` et `advanced-trade-ws.coinbase.com`
+résolvent tous en bouclage ; la connexion est refusée sur place, sans
+sortir de la machine, et le terminal tombe sur sa série de démonstration
+sans que le symptôme désigne la cause. Les serveurs, eux, répondent dès
+qu'on leur parle par leur vraie adresse : seul le DNS ment.
+
+`btcterm/resolver.py` enveloppe `socket.getaddrinfo`. Quand la réponse du
+système pour un nom public ne contient que des adresses de bouclage ou
+nulles — ou quand le nom n'existe soudain plus —, le nom est redemandé à
+un résolveur DNS sur HTTPS joint **par son adresse IP** (`1.1.1.1`, puis
+`8.8.8.8`), de sorte qu'aucune résolution empoisonnable n'entre dans la
+boucle ; les entrées `getaddrinfo` sont reconstruites à partir des
+adresses obtenues, en respectant la famille et le type de socket demandés,
+et gardées le temps de leur TTL borné (30 s à 1 h). Tout le reste passe tel
+quel : un nom sain coûte une comparaison, une adresse littérale et
+`localhost` gardent le droit de valoir 127.0.0.1. `requests` (urllib3)
+comme `websockets` (`loop.getaddrinfo`) cherchent `socket.getaddrinfo` au
+moment de l'appel : l'enveloppe, posée par `hub.start()` avant l'ouverture
+des connexions, vaut pour les collecteurs REST et les connecteurs
+WebSocket sans qu'ils en sachent rien. Chaque nom sauvé est signalé une
+fois, en avertissement.
+
+Ce que ce module ne peut pas : Binance ne livre aucune donnée sur ses flux
+WebSocket **futures** (`fstream.binance.com`) depuis certains pays — le
+handshake passe, l'abonnement est acquitté, le ping répond, et rien
+n'arrive. Le fil des liquidations (§2.5) reste donc muet depuis le
+Cambodge, alors que le REST futures (`fapi`) répond normalement. Le
+remède de fond — un résolveur DNS sur TLS configuré dans systemd-resolved,
+donné dans le README — couvre aussi le navigateur et les satellites.
+
+### 2.10 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
@@ -1037,6 +1075,7 @@ Chaque source distante a une stratégie de repli explicite :
 | Source | Repli |
 |---|---|
 | toute donnée REST déjà servie | dernière valeur connue, conservée par `TTLCache` |
+| nom d'exchange résolu en 127.0.0.1 par le FAI | résolution de secours par DNS sur HTTPS (`resolver`, §2.9) |
 | chandeliers Binance, sans rien en cache | série de démonstration, signalée par un bandeau |
 | taux EUR | constante `0.924` |
 | masse monétaire M2 | tableau vide, le panneau macro le dit |
@@ -1289,7 +1328,7 @@ chantiers s'ouvriront à l'usage.
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.9) :
+scripts y sont ramenés, sans changement de comportement (§2.10) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -1457,6 +1496,12 @@ sentir, aucun ne conditionnant les autres.
   (§2.7) écrit liquidations et épisodes d'arbitrage rentables dans
   `~/.btcterm/journal.db`, et `python -m btcterm.journal` relit la séance.
   Les alertes y trouveront leur base de comparaison.
+- **Liquidations sans Binance Futures** — depuis un pays où Binance tait
+  ses flux WebSocket futures (§2.9), le fil des liquidations reste vide.
+  Bybit livre son flux `allLiquidation.BTCUSDT` (`stream.bybit.com`,
+  canal `linear`) sans restriction constatée : un second connecteur de
+  liquidations, au même `LiquidationFeed`, rendrait le panneau et l'alerte
+  de rafale à ces séances-là.
 
 **Hygiène technique :**
 

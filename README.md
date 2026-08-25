@@ -132,6 +132,39 @@ figures Plotly.
 une série de démonstration générée localement plutôt qu'un cadre vide, et le
 signale par un bandeau orange : les chiffres affichés ne sont alors pas réels.
 
+**Depuis un pays qui bloque les exchanges** — certains fournisseurs d'accès
+(au Cambodge, par exemple) ne refusent pas `api.binance.com`, `stream.bybit.com`
+ou `ws.okx.com` : leur résolveur DNS y répond `127.0.0.1`, et le terminal
+tombe sur la démo sans qu'aucune erreur ne le dise. Le hub pose au démarrage
+une résolution de secours (`btcterm/resolver.py`) : dès qu'un nom public
+résout en adresse de bouclage, il est redemandé à un résolveur DNS sur HTTPS
+joint par son adresse IP (1.1.1.1, puis 8.8.8.8) — et les connexions
+partent vers les vraies adresses. Rien à configurer ; un avertissement
+`résolution empoisonnée pour …` dans le journal signale chaque nom sauvé.
+
+Le remède de fond est de faire de même pour tout le système, ce qui vaut
+aussi pour le navigateur et les outils en ligne de commande. Avec
+systemd-resolved, un fichier suffit :
+
+```ini
+# /etc/systemd/resolved.conf.d/dns-over-tls.conf
+[Resolve]
+DNS=1.1.1.1#cloudflare-dns.com 1.0.0.1#cloudflare-dns.com 9.9.9.9#dns.quad9.net
+FallbackDNS=8.8.8.8#dns.google
+DNSOverTLS=yes
+Domains=~.
+```
+
+puis `sudo systemctl restart systemd-resolved` ; `resolvectl query
+api.binance.com` doit alors rendre une adresse publique. Le DNS sur TLS
+empêche le fournisseur d'intercepter les requêtes vers ces résolveurs.
+
+Une restriction ne se contourne pas ainsi : Binance ne livre **aucune donnée
+sur ses flux WebSocket futures** (`fstream.binance.com`) depuis certains
+pays — la connexion s'ouvre, l'abonnement est acquitté, rien n'arrive. Le
+panneau des liquidations reste donc vide depuis le Cambodge, alors que le
+panneau perpétuel (REST `fapi`) et tout le reste sont bien en temps réel.
+
 **News** — le terminal **remplit** lui-même `~/.btc_news/news.db`, toutes les
 quinze minutes, avec les règles de scoring du tracker : plus besoin du timer
 systemd pour avoir un fil vivant. La barre de titre du panneau donne l'âge de la
@@ -292,6 +325,7 @@ python tests/test_lwc_serialize.py       # contrat de série du rendu du prix
 python tests/test_lwc_api.py             # /api/klines : pagination, repli démo
 python tests/test_indicators_incremental.py  # dernier point : borné = complet
 python tests/test_prepare_price_frame.py # enrichissement du prix : colonnes, bornes
+python tests/test_resolver.py            # résolution DNS de secours, sans réseau
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox
@@ -409,6 +443,9 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
   d'arbitrage de la séance. `--no-journal` l'en dispense.
 - Aucun de ces scripts n'écrit d'ordre sur un exchange ; ils sont en lecture
   seule sur des endpoints publics.
+- Le hub contourne de lui-même un résolveur DNS qui empoisonne les noms des
+  exchanges (voir « Depuis un pays qui bloque les exchanges ») ; les outils en
+  ligne de commande, eux, s'en remettent au DNS du système.
 - Le terminal se lie à `127.0.0.1:8050` ; `--host` et `--port` permettent d'en
   changer.
 - Le dépôt est versionné avec git (branche `main`, pas de remote).
