@@ -8,7 +8,7 @@ d'observation du hub, 1 s) et publie des alertes — affichées par le
 panneau ALERTES, comptées dans le bandeau, notifiées par le navigateur,
 et journalisées (§ journal) pour être relues avec la séance.
 
-Neuf règles, toutes nourries par ce que le hub tient déjà — aucune
+Onze règles, toutes nourries par ce que le hub tient déjà — aucune
 connexion nouvelle :
 
 - **seuils de prix**, posés par l'utilisateur : le sens (au-dessus,
@@ -49,7 +49,17 @@ Une neuvième s'assoit sur l'historique que le journal accumule (§2.7) :
   tait tant que l'historique local ne couvre pas la fenêtre : elle est
   la première à ne pouvoir exister qu'à l'usage.
 
-Les règles d'état (tout sauf les news et le signal) sonnent sur le
+Deux autres lisent les collecteurs de contexte que les panneaux ETF et
+on-chain tirent déjà :
+
+- **flux ETF** : le flux net du dernier jour publié dépasse le seuil,
+  en entrée comme en sortie — un événement daté, une sonnerie par jour
+  au plus ; le jour présent au démarrage est tenu pour vu, comme les
+  news de la première lecture ;
+- **réseau chargé** : le mempool dépasse le seuil (Mo), ou le rythme
+  moyen des blocs s'étire au-delà du seuil (minutes) — chacun son front.
+
+Les règles d'état (tout sauf les news, le signal et le flux ETF) sonnent sur le
 **front montant** et pas avant un délai de garde : une condition qui
 dure ne sonne qu'une fois, une condition qui clignote ne sonne pas en
 rafale.
@@ -97,6 +107,11 @@ DEFAULT_CONFIG: dict = {
     "signal_strong": True,
     #: glissement de la dominance BTC sur 24 h, en points de part.
     "dominance_shift_pts": 1.5,
+    #: flux ETF : |flux net du dernier jour publié| en M$.
+    "etf_flow_musd": 500.0,
+    #: réseau chargé : mempool en Mo, minutes moyennes entre blocs.
+    "mempool_mb": 150.0,
+    "block_minutes": 12.0,
     #: bip sonore côté navigateur — le moteur l'ignore, le client le lit.
     "sound": True,
 }
@@ -126,7 +141,7 @@ class Alert:
 
     time: float
     kind: str      #: price | liq | funding | news | arb
-                   #:   | trend | rsi | signal | dominance
+                   #:   | trend | rsi | signal | dominance | etf | chain
     message: str
 
 
@@ -146,7 +161,8 @@ def normalize_config(data) -> dict:
         return config
     for key in ("liq_burst_musd", "funding_pct", "news_score", "arb_net_pct",
                 "ma200_gap_pct", "rsi_overbought", "rsi_oversold",
-                "dominance_shift_pts"):
+                "dominance_shift_pts", "etf_flow_musd", "mempool_mb",
+                "block_minutes"):
         value = data.get(key)
         if isinstance(value, (int, float)) and value > 0:
             config[key] = float(value)
@@ -193,6 +209,8 @@ class AlertEngine:
         #: Bougie du dernier signal fort sonné : un ±2 est un événement
         #: daté, il ne sonne qu'une fois par bougie.
         self._last_signal_candle = None
+        #: Dernier jour de flux ETF sonné — ou tenu pour vu au démarrage.
+        self._etf_last_date = None
         self._next_slow = 0.0
 
     # ── Réglages et lecture ─────────────────────────────────
@@ -234,7 +252,8 @@ class AlertEngine:
         if now >= self._next_slow:
             self._next_slow = now + SLOW_EVERY
             for rule in (self._check_funding, self._check_news,
-                         self._check_technical, self._check_dominance):
+                         self._check_technical, self._check_dominance,
+                         self._check_etf, self._check_chain):
                 try:
                     rule(hub, opportunities, config, now)
                 except Exception:
@@ -396,6 +415,59 @@ class AlertEngine:
             self._fire("dominance",
                        f"dominance BTC {delta:+.1f} pt en 24 h "
                        f"({latest:.1f} %)", now)
+
+    def _check_etf(self, hub, _opps, config, now) -> None:
+        """Flux net du dernier jour publié, en entrée comme en sortie.
+
+        Un jour de flux est un événement daté : une sonnerie par date au
+        plus. La date n'est retenue qu'au moment où elle sonne — la
+        source remplit son jour au fil de la soirée, émetteur après
+        émetteur, et le total peut franchir le seuil bien après
+        l'apparition de la ligne. Le jour présent à la première lecture
+        est tenu pour vu sans sonner : rejouer la veille à chaque
+        démarrage serait le défaut que la règle des news évite déjà.
+        """
+        df = hub.etf_flows()
+        if df is None or df.empty:
+            return
+        total_col = "Total" if "Total" in df.columns else df.columns[-1]
+        last = df.iloc[-1]
+        date = pd.Timestamp(last["Date"]).date()
+        if self._etf_last_date is None:
+            self._etf_last_date = date
+            return
+        flow = float(last[total_col])
+        if date == self._etf_last_date or abs(flow) < config["etf_flow_musd"]:
+            return
+        self._etf_last_date = date
+        sens = "entrée" if flow >= 0 else "sortie"
+        self._fire("etf",
+                   f"flux ETF du {date:%d/%m} : {sens} nette {flow:+,.0f} M$",
+                   now)
+
+    def _check_chain(self, hub, _opps, config, now) -> None:
+        """Réseau chargé : mempool gonflé ou blocs lents, chacun son front.
+
+        Mêmes lectures que le panneau on-chain — la série du mempool en
+        cache et l'instantané du réseau —, ramenées à leur dernier
+        point. blockchain.info donne le mempool en octets et le rythme
+        des blocs en moyenne sur la journée : un rythme qui s'étire dit
+        que le réseau a perdu des mineurs depuis le dernier ajustement.
+        """
+        mempool = hub.chain_chart("mempool-size", "5weeks")
+        if mempool is not None and not mempool.empty:
+            size_mb = float(mempool["value"].iloc[-1]) / 1e6
+            if self._edge("mempool", size_mb >= config["mempool_mb"], now):
+                self._fire("chain",
+                           f"mempool chargé : {size_mb:,.0f} Mo en attente",
+                           now)
+        minutes = float((hub.chain_stats() or {})
+                        .get("minutes_between_blocks") or 0)
+        if minutes and self._edge("blocks",
+                                  minutes >= config["block_minutes"], now):
+            self._fire("chain",
+                       f"blocs lents : {minutes:.1f} min en moyenne "
+                       "(cible 10)", now)
 
     def _check_news(self, hub, _opps, config, now) -> None:
         rows = self._fetch_news()

@@ -41,7 +41,8 @@ ROWS = 30
 KIND_COLORS = {"price": C["yellow"], "liq": C["red"],
                "funding": C["orange"], "news": C["blue"], "arb": C["green"],
                "trend": C["purple"], "rsi": C["cyan"], "signal": C["green"],
-               "dominance": C["yellow"]}
+               "dominance": C["yellow"], "etf": C["green"],
+               "chain": C["purple"]}
 
 _INPUT = {
     "width": "52px", "background": C["card"], "color": C["text"],
@@ -114,6 +115,15 @@ def layout(title=None):
                     id="alert-dominance", type="number", min=0.1,
                     debounce=True, value=config["dominance_shift_pts"],
                     style=_INPUT)),
+                _field("flux ETF (M$)", dcc.Input(
+                    id="alert-etf", type="number", min=1, debounce=True,
+                    value=config["etf_flow_musd"], style=_INPUT)),
+                _field("mempool (Mo)", dcc.Input(
+                    id="alert-mempool", type="number", min=1, debounce=True,
+                    value=config["mempool_mb"], style=_INPUT)),
+                _field("bloc (min)", dcc.Input(
+                    id="alert-block", type="number", min=1, debounce=True,
+                    value=config["block_minutes"], style=_INPUT)),
                 dcc.Checklist(
                     id="alert-signal",
                     options=[{"label": "signaux ±2", "value": "on"}],
@@ -224,6 +234,9 @@ def register(app, hub):
         Input("alert-rsi-hi", "value"),
         Input("alert-rsi-lo", "value"),
         Input("alert-dominance", "value"),
+        Input("alert-etf", "value"),
+        Input("alert-mempool", "value"),
+        Input("alert-block", "value"),
         Input("alert-signal", "value"),
         Input("alert-sound", "value"),
         State("alert-price-input", "value"),
@@ -231,7 +244,8 @@ def register(app, hub):
         prevent_initial_call=True,
     )
     def _edit(_add, _dels, liq, funding, news_score, arb,
-              ma200, rsi_hi, rsi_lo, dominance, signal, sound, level, stored):
+              ma200, rsi_hi, rsi_lo, dominance, etf, mempool, block,
+              signal, sound, level, stored):
         trigger = dash.ctx.triggered_id
         # Un composant qui vient d'être monté déclenche aussi ce
         # callback (n_clicks 0, valeurs du Store) : sans valeur de
@@ -270,6 +284,8 @@ def register(app, hub):
                       "ma200_gap_pct": ma200, "rsi_overbought": rsi_hi,
                       "rsi_oversold": rsi_lo,
                       "dominance_shift_pts": dominance,
+                      "etf_flow_musd": etf, "mempool_mb": mempool,
+                      "block_minutes": block,
                       "signal_strong": bool(signal),
                       "sound": bool(sound)}
             config = normalize_config(merged)

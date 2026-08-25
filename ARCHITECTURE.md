@@ -386,7 +386,7 @@ de l'open interest compris.
 
 Douze panneaux qu'il faut balayer des yeux couvraient la surveillance
 active ; la passive demande l'inverse — que le terminal prévienne.
-`AlertEngine` évalue neuf règles dans la boucle d'observation du hub
+`AlertEngine` évalue onze règles dans la boucle d'observation du hub
 (1 s), toutes nourries par ce que le hub tient déjà, sans aucune
 connexion nouvelle :
 
@@ -430,6 +430,23 @@ Une neuvième s'assoit sur l'historique que le journal accumule (§2.7) :
   l'historique local ne couvre pas la fenêtre : c'est la première à ne
   pouvoir exister qu'à l'usage.
 
+Deux autres lisent les collecteurs de contexte que les panneaux ETF et
+on-chain tirent déjà — mêmes caches, aucune requête de plus :
+
+- **flux ETF** — le flux net du dernier jour publié dépasse le seuil,
+  en entrée comme en sortie. Un jour de flux est un événement daté :
+  une sonnerie par date au plus, la date n'étant retenue qu'au moment
+  où elle sonne — farside remplit son jour au fil de la soirée,
+  émetteur après émetteur, et le total peut franchir le seuil bien
+  après l'apparition de la ligne. Le jour présent à la première lecture
+  est tenu pour vu, comme les gros titres de la première lecture des
+  news ;
+- **réseau chargé** — le mempool dépasse le seuil (Mo), ou le rythme
+  moyen des blocs s'étire au-delà du seuil (minutes) ; chaque grandeur
+  a son front. Un rythme qui s'étire dit que le réseau a perdu des
+  mineurs depuis le dernier ajustement — ce que le panneau on-chain
+  colore déjà en orange.
+
 Les règles d'état sonnent sur le **front montant** et pas avant un
 délai de garde de 10 minutes : une condition qui dure ne sonne qu'une
 fois, une condition qui clignote ne sonne pas en rafale. Les contrôles
@@ -441,8 +458,8 @@ qui a sonné.
 Le moteur ne connaît pas Dash : il reçoit le hub en paramètre, comme
 les fonctions de rendu des panneaux, et `tests/test_alerts.py` le
 déroule au temps simulé sur un hub factice — hystérésis, fronts,
-cadences, journalisation, et la normalisation des réglages venus du
-localStorage. Le test garde aussi la normalisation contre un bug
+cadences, journalisation, un jour de flux qui se remplit puis grossit
+sans resonner, et la normalisation des réglages venus du localStorage. Le test garde aussi la normalisation contre un bug
 réellement rencontré : une copie superficielle des défauts partageait
 la liste des seuils, et le premier seuil posé mutait les réglages par
 défaut de tout le processus.
@@ -1254,8 +1271,20 @@ chantiers livrés depuis la 1.0, tous tirés des limites que sa clôture
 assumait, aucun n'en laissant de nouvelle. Au passage, le point d'entrée
 `terminal/app.py`, grossi au fil de ces chantiers, a été découpé en
 modules d'une responsabilité chacun — grille, disposition, bandeau,
-assemblage (§3). Comme à la clôture de la 1.0, plus rien n'est *en
-cours* : les prochains chantiers s'ouvriront à l'usage.
+assemblage (§3).
+
+Un septième chantier a été ouvert après la 1.1, dans la ligne du
+deuxième — étendre la surveillance passive à ce que le terminal montre
+déjà :
+
+7. ~~**Alertes ETF et on-chain**~~ — fait : deux règles de plus au
+   moteur (§2.8), lues sur les caches que les panneaux ETF et on-chain
+   tirent déjà — un jour de flux ETF au-delà du seuil, en entrée comme
+   en sortie, et un réseau chargé (mempool gonflé, blocs lents). Onze
+   règles, toutes réglées du panneau ALERTES.
+
+Comme à chaque clôture, plus rien n'est *en cours* : les prochains
+chantiers s'ouvriront à l'usage.
 
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 

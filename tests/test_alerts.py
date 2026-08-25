@@ -12,6 +12,8 @@ l'écran au bon moment. Les points guettés :
 - les règles d'état sonnent sur le front montant, sous délai de garde ;
 - les contrôles coûteux (financement, news) ne tournent qu'à leur
   cadence, et la première lecture des news arme sans sonner ;
+- un jour de flux ETF sonne une fois, jamais celui présent au démarrage ;
+- le réseau chargé — mempool, blocs lents — a un front par grandeur ;
 - chaque sonnerie part au journal.
 
 Aucun réseau n'est touché.
@@ -65,6 +67,19 @@ class FakeHub:
         #: Historique d'instantanés vide par défaut : la règle de
         #: dominance se tait tant que le journal n'a rien accumulé.
         self.snapshots = pd.DataFrame(columns=["time", "btc_dominance"])
+        #: Contexte vide par défaut : flux ETF et réseau se taisent.
+        self.etf = pd.DataFrame(columns=["Date", "Total"])
+        self.mempool = pd.DataFrame(columns=["time", "value"])
+        self.chain = {}
+
+    def etf_flows(self):
+        return self.etf
+
+    def chain_chart(self, name="hash-rate", timespan="1year"):
+        return self.mempool
+
+    def chain_stats(self):
+        return self.chain
 
     def reference_price(self):
         return self.price
@@ -358,6 +373,90 @@ def test_glissement_de_dominance_sous_le_seuil():
     assert not [a for a in e.alerts if a.kind == "dominance"], \
         "un point de glissement est sous le seuil de 1,5"
     print("  ✓ sous le seuil : silence")
+
+
+def etf_frame(*days) -> pd.DataFrame:
+    """Des jours de flux (date ISO, total en M$), comme farside les livre."""
+    return pd.DataFrame({
+        "Date": pd.to_datetime([d for d, _ in days]),
+        "IBIT": [0.0] * len(days),
+        "Total": [float(t) for _, t in days],
+    })
+
+
+def test_flux_etf_une_fois_par_jour():
+    """Un jour de flux est un événement daté : une sonnerie par date, et
+    le jour présent au démarrage est tenu pour vu."""
+    hub = FakeHub()
+    e = engine(etf_flow_musd=500)
+
+    # Première lecture : une sortie massive déjà publiée ne rejoue pas.
+    hub.etf = etf_frame(("2026-08-20", -900))
+    e.evaluate(hub, now=T0)
+    assert not e.alerts, "le jour présent au démarrage a sonné"
+
+    # Un jour neuf apparaît sous le seuil, puis se remplit au fil de la
+    # soirée : la sonnerie vient quand le total franchit le seuil.
+    hub.etf = etf_frame(("2026-08-20", -900), ("2026-08-21", 120))
+    e.evaluate(hub, now=T0 + SLOW_EVERY + 1)
+    assert not e.alerts, "un jour sous le seuil a sonné"
+    hub.etf = etf_frame(("2026-08-20", -900), ("2026-08-21", 612))
+    e.evaluate(hub, now=T0 + 2 * (SLOW_EVERY + 1))
+    sonneries = [a for a in e.alerts if a.kind == "etf"]
+    assert len(sonneries) == 1, sonneries
+    assert "21/08" in sonneries[0].message and "+612 M$" in sonneries[0].message
+    assert "entrée" in sonneries[0].message
+
+    # Le même jour qui grossit encore ne resonne pas.
+    hub.etf = etf_frame(("2026-08-20", -900), ("2026-08-21", 1_050))
+    e.evaluate(hub, now=T0 + 3 * (SLOW_EVERY + 1))
+    assert len([a for a in e.alerts if a.kind == "etf"]) == 1, "rejoué"
+
+    # Le lendemain, une sortie : le sens est dit.
+    hub.etf = etf_frame(("2026-08-21", 1_050), ("2026-08-22", -730))
+    e.evaluate(hub, now=T0 + 4 * (SLOW_EVERY + 1))
+    sonneries = [a for a in e.alerts if a.kind == "etf"]
+    assert len(sonneries) == 2 and "sortie nette -730 M$" in sonneries[1].message
+    print("  ✓ flux ETF : démarrage muet, une sonnerie par jour, sens dit")
+
+
+def test_reseau_charge():
+    """Mempool gonflé et blocs lents : un front chacun, sous délai de garde."""
+    hub = FakeHub()
+    e = engine(mempool_mb=150, block_minutes=12)
+
+    hub.mempool = pd.DataFrame({"time": pd.to_datetime(["2026-08-20"]),
+                                "value": [80e6]})
+    hub.chain = {"minutes_between_blocks": 9.8}
+    e.evaluate(hub, now=T0)
+    assert not e.alerts, "un réseau calme a sonné"
+
+    hub.mempool = pd.DataFrame({"time": pd.to_datetime(["2026-08-20"]),
+                                "value": [230e6]})
+    hub.chain = {"minutes_between_blocks": 13.4}
+    e.evaluate(hub, now=T0 + SLOW_EVERY + 1)
+    sonneries = [a for a in e.alerts if a.kind == "chain"]
+    assert len(sonneries) == 2, sonneries
+    assert "230 Mo" in sonneries[0].message
+    assert "13.4 min" in sonneries[1].message
+
+    # La condition dure : silence tant qu'elle ne retombe pas.
+    e.evaluate(hub, now=T0 + 2 * (SLOW_EVERY + 1))
+    assert len([a for a in e.alerts if a.kind == "chain"]) == 2, "rafale"
+
+    # Retombée puis remontée sous le délai de garde : toujours silence ;
+    # après le délai, le front resonne.
+    hub.chain = {"minutes_between_blocks": 9.9}
+    e.evaluate(hub, now=T0 + 3 * (SLOW_EVERY + 1))
+    hub.chain = {"minutes_between_blocks": 12.5}
+    e.evaluate(hub, now=T0 + 4 * (SLOW_EVERY + 1))
+    assert len([a for a in e.alerts if a.kind == "chain"]) == 2, "sous garde"
+    hub.chain = {"minutes_between_blocks": 9.9}
+    e.evaluate(hub, now=T0 + COOLDOWN + 5 * (SLOW_EVERY + 1))
+    hub.chain = {"minutes_between_blocks": 12.5}
+    e.evaluate(hub, now=T0 + COOLDOWN + 6 * (SLOW_EVERY + 1))
+    assert len([a for a in e.alerts if a.kind == "chain"]) == 3
+    print("  ✓ réseau chargé : un front par grandeur, délai de garde tenu")
 
 
 def test_sonneries_au_journal():
