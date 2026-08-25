@@ -394,6 +394,42 @@ def test_panneau_journal_rend_la_seance():
     print("  ✓ le panneau relit alertes, épisodes, bilan — et dit l'absence")
 
 
+def test_liquidations_disent_leur_plateforme_et_base_anterieure():
+    """La colonne `exchange` s'écrit ; une base créée sans elle s'élargit
+    à l'ouverture, ses lignes intactes."""
+    import sqlite3
+    from btcterm.liquidations import BybitLiquidationConnector
+
+    with tempfile.TemporaryDirectory() as tmp:
+        path = Path(tmp) / "journal.db"
+        vieille = sqlite3.connect(path)
+        vieille.execute("""
+            CREATE TABLE liquidations (
+                ts REAL NOT NULL, symbol TEXT NOT NULL, side TEXT NOT NULL,
+                price REAL NOT NULL, quantity REAL NOT NULL,
+                notional REAL NOT NULL)""")
+        vieille.execute("INSERT INTO liquidations VALUES "
+                        "(1000.0, 'BTCUSDT', 'long', 60000.0, 1.0, 60000.0)")
+        vieille.commit()
+        vieille.close()
+
+        journal = Journal(path)
+        feed = LiquidationFeed()
+        feed.on_event = journal.record_liquidation
+        feed._handle(message(side="SELL", price="64000", qty="0.5"))
+        BybitLiquidationConnector(feed)._handle(
+            {"topic": "allLiquidation.ETHUSDT", "ts": 1,
+             "data": [{"T": int(time.time() * 1000), "s": "ETHUSDT",
+                       "S": "Sell", "v": "2", "p": "3000"}]})
+
+        rows = journal.liquidations_between(0, time.time() + 1)
+        assert [r["exchange"] for r in rows] == [None, "Binance", "Bybit"], \
+            [r["exchange"] for r in rows]
+        assert rows[0]["notional"] == 60000.0, "l'ancienne ligne a survécu"
+        assert rows[2]["side"] == "short" and rows[2]["symbol"] == "ETHUSDT"
+    print("  ✓ la plateforme se journalise ; base antérieure élargie")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nJournal des données éphémères — {len(tests)} vérifications\n"

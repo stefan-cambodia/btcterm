@@ -32,6 +32,10 @@ WINDOW = 3600
 
 SIDE_LABEL = {"long": ("LONG", C["red"]), "short": ("SHORT", C["green"])}
 
+#: Étiquette courte de la plateforme, dans la table — les mêmes
+#: abréviations que le sélecteur du carnet.
+EXCHANGE_TAG = {"Binance": "BIN", "Bybit": "BYB"}
+
 
 def layout(title=None):
     return html.Div([
@@ -60,10 +64,19 @@ def _badges(feed):
         return html.Span(f"flux coupé{' · ' + feed.error if feed.error else ''}",
                          style={"color": C["red"]})
 
+    # Un lien sur deux qui manque se dit, en queue de badge : le fil
+    # reste vivant, mais ne voit qu'une plateforme.
+    manque = feed.missing()
+    sans = ([html.Span(" · sans " + ", ".join(manque),
+                       style={"color": C["red"]},
+                       title=feed.error or "lien non établi")]
+            if manque else [])
+
     totals = feed.totals(WINDOW)
     if not totals["count"]:
-        return html.Span("aucune liquidation depuis une heure",
-                         style={"color": C["muted"]})
+        return html.Span([html.Span("aucune liquidation depuis une heure",
+                                    style={"color": C["muted"]})] + sans,
+                         style={"fontFamily": MONO})
 
     return html.Span([
         html.Span("1 h · ", style={"color": C["muted"]}),
@@ -77,16 +90,19 @@ def _badges(feed):
         html.Span(" · dont BTC ", style={"color": C["muted"]}),
         html.Span(_montant(totals["btc"]), style={"color": C["yellow"]},
                   title="part des paires Bitcoin dans le total"),
-    ], style={"fontFamily": MONO})
+    ] + sans, style={"fontFamily": MONO})
 
 
 def _row(event):
-    """Une liquidation : heure, paire, côté liquidé, prix, montant."""
+    """Une liquidation : heure, plateforme, paire, côté liquidé, prix, montant."""
     label, color = SIDE_LABEL.get(event.side, ("?", C["muted"]))
     cell = {"padding": "1px 6px", "whiteSpace": "nowrap"}
     return html.Tr([
         html.Td(datetime.fromtimestamp(event.time).strftime("%H:%M:%S"),
                 style={**cell, "color": C["muted"]}),
+        html.Td(EXCHANGE_TAG.get(event.exchange, event.exchange[:3].upper()),
+                style={**cell, "color": C["muted"], "fontSize": "9px"},
+                title=event.exchange),
         html.Td(event.symbol.replace("USDT", ""),
                 style={**cell, "color": C["text"]}),
         html.Td(label, style={**cell, "color": color, "fontWeight": "600"}),

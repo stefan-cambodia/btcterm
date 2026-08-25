@@ -12,6 +12,11 @@ longue, un **achat** forcé ferme une position courte. L'inverser
 donnerait un panneau qui raconte exactement le contraire de ce qui se
 passe.
 
+La seconde source, Bybit, est vérifiée de la même façon : son champ
+`S` est le côté de la **position** — `Buy` pour un long liquidé —, à
+l'inverse de Binance ; ses événements vont au même magasin, marqués de
+leur plateforme ; et l'état du fil se compose de ses deux liens.
+
 Aucun réseau n'est touché.
 
 Lancement :
@@ -24,7 +29,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from btcterm.liquidations import LiquidationFeed  # noqa: E402
+from btcterm.liquidations import (  # noqa: E402
+    BybitLiquidationConnector, LiquidationFeed)
 from terminal.panels import liquidations as panneau  # noqa: E402
 
 
@@ -109,7 +115,7 @@ def test_rendu_du_panneau():
 
     lignes = [panneau._row(event) for event in feed.latest(5)]
     assert len(lignes) == 2
-    assert all(len(ligne.children) == 5 for ligne in lignes), "colonnes manquantes"
+    assert all(len(ligne.children) == 6 for ligne in lignes), "colonnes manquantes"
 
     assert panneau._montant(1_250_000) == "1.25 M$"
     assert panneau._montant(64_000) == "64 k$"
@@ -128,6 +134,83 @@ def test_panneau_sans_flux():
     feed._mark_connected()
     assert "aucune liquidation" in str(panneau._badges(feed))
     print("  ✓ flux coupé et marché calme distingués")
+
+
+def message_bybit(symbol="BTCUSDT", side="Buy", price="79000", qty="0.5",
+                  when=None):
+    """Message `allLiquidation` au format documenté par Bybit."""
+    when = int((when if when is not None else time.time()) * 1000)
+    return {"topic": f"allLiquidation.{symbol}", "type": "snapshot",
+            "ts": when,
+            "data": [{"T": when, "s": symbol, "S": side, "v": qty, "p": price}]}
+
+
+def test_bybit_sens_et_plateforme():
+    feed = LiquidationFeed()
+    bybit = BybitLiquidationConnector(feed)
+    bybit._handle(message_bybit(side="Buy"))
+    bybit._handle(message_bybit(side="Sell"))
+    # Un événement Binance dans le même magasin.
+    feed._handle(message(side="SELL"))
+
+    derniers = feed.latest(3)
+    assert [e.side for e in derniers] == ["long", "short", "long"], derniers
+    assert [e.exchange for e in derniers] == ["Binance", "Bybit", "Bybit"]
+    assert derniers[1].notional == 79000 * 0.5
+    print("  ✓ Bybit : Buy = long liquidé, Sell = short ; plateforme marquée")
+
+
+def test_bybit_ignore_le_reste_et_refuse_l_abonnement_rate():
+    feed = LiquidationFeed()
+    bybit = BybitLiquidationConnector(feed, symbols=("BTCUSDT", "ETHUSDT"))
+    assert bybit.subscription["args"] == ["allLiquidation.BTCUSDT",
+                                          "allLiquidation.ETHUSDT"]
+    bybit._handle({"success": True, "op": "subscribe"})
+    bybit._handle({"topic": "tickers.BTCUSDT", "data": {"p": "1"}})
+    bybit._handle({"topic": "allLiquidation.BTCUSDT", "data": [{"s": "BTCUSDT"}]})
+    bybit._handle({"topic": "allLiquidation.BTCUSDT",
+                   "data": [{"T": 1, "s": "BTCUSDT", "S": "Buy", "v": "0", "p": "1"}]})
+    assert not feed.events, "acquittement, autre canal, données incomplètes : rien"
+    try:
+        bybit._handle({"success": False, "ret_msg": "handler not found"})
+    except RuntimeError as exc:
+        assert "handler not found" in str(exc)
+    else:
+        raise AssertionError("un abonnement refusé doit valoir panne")
+    print("  ✓ acquittements et autres canaux ignorés, refus signalé")
+
+
+def test_etat_par_lien():
+    feed = LiquidationFeed()
+    bybit = BybitLiquidationConnector(feed)
+    assert feed.missing() == ["Binance", "Bybit"] and not feed.connected
+
+    bybit._mark_connected()
+    assert feed.connected and feed.missing() == ["Binance"]
+    assert feed.error is None, "aucun lien tombé en erreur : pas d'erreur"
+
+    feed._mark_connected()
+    assert feed.missing() == []
+
+    bybit._mark_disconnected(RuntimeError("abonnement refusé"))
+    assert feed.connected, "Binance tient encore"
+    assert feed.missing() == ["Bybit"] and "refusé" in feed.error
+
+    badges = str(panneau._badges(feed))
+    assert "sans Bybit" in badges and "coupé" not in badges
+    feed._mark_disconnected(RuntimeError("flux coupé"))
+    assert "coupé" in str(panneau._badges(feed))
+    print("  ✓ un lien suffit au fil ; le panneau nomme celui qui manque")
+
+
+def test_panneau_etiquette_la_plateforme():
+    feed = LiquidationFeed()
+    BybitLiquidationConnector(feed)._handle(message_bybit())
+    feed._handle(message(symbol="ETHUSDT", side="SELL", price="3000", qty="2"))
+    ligne_bybit, ligne_binance = str(panneau._row(feed.latest(2)[1])), \
+        str(panneau._row(feed.latest(2)[0]))
+    assert "BYB" in ligne_bybit and "BIN" in ligne_binance
+    print("  ✓ chaque ligne dit sa plateforme")
 
 
 if __name__ == "__main__":

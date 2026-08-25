@@ -35,7 +35,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Carnet** | 8 niveaux de chaque côté, spread, âge du flux, choix de la plateforme | 250 ms |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
-| **Liquidations** | positions fermées de force, toutes paires, totaux de l'heure (onglet de l'arbitrage) | 250 ms |
+| **Liquidations** | positions fermées de force — Binance, toutes paires, et Bybit, dix grandes paires —, totaux de l'heure (onglet de l'arbitrage) | 250 ms |
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
 | **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC (onglet des flux ETF) | 5 min |
@@ -161,9 +161,11 @@ empêche le fournisseur d'intercepter les requêtes vers ces résolveurs.
 
 Une restriction ne se contourne pas ainsi : Binance ne livre **aucune donnée
 sur ses flux WebSocket futures** (`fstream.binance.com`) depuis certains
-pays — la connexion s'ouvre, l'abonnement est acquitté, rien n'arrive. Le
-panneau des liquidations reste donc vide depuis le Cambodge, alors que le
-panneau perpétuel (REST `fapi`) et tout le reste sont bien en temps réel.
+pays — la connexion s'ouvre, l'abonnement est acquitté, rien n'arrive. C'est
+pourquoi le fil des liquidations écoute aussi **Bybit** (canal
+`allLiquidation`, dix grandes paires) : les deux plateformes nourrissent le
+même panneau, chaque ligne dit la sienne (`BIN`/`BYB`), et le badge nomme le
+lien qui manque. Le panneau perpétuel (REST `fapi`) n'est pas concerné.
 
 **News** — le terminal **remplit** lui-même `~/.btc_news/news.db`, toutes les
 quinze minutes, avec les règles de scoring du tracker : plus besoin du timer

@@ -57,6 +57,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── exchanges.py               carnet normalisé + connecteurs WebSocket
 │   ├── arbitrage.py               moteur d'écarts inter-plateformes
 │   ├── liquidations.py            fil des positions fermées de force
+│   │                              (Binance, et Bybit)
 │   ├── sources.py                 collecteurs REST : marché, ETF, M2,
 │   │                              terme, chaîne, news, sentiment
 │   ├── macrocal.py                calendrier macro tenu à la main
@@ -272,12 +273,26 @@ la fenêtre nourrit le panneau, le journal la séance. Le fil expose les dernier
 heure, et la part des paires Bitcoin dans ce total, qui distingue une
 cascade locale d'une cascade de marché.
 
-Deux points méritent attention.
+Trois points méritent attention.
 
 **Le sens.** Une vente forcée ferme une position *longue*, un achat forcé
 une position *courte*. L'inverser donnerait un panneau qui raconte le
 contraire de ce qui se passe ; `tests/test_liquidations.py` le vérifie,
 faute de pouvoir compter sur l'arrivée d'un événement au bon moment.
+
+**Deux sources, un magasin.** Binance tait ses flux WebSocket futures
+depuis certains pays (§2.9) : le fil se connecte, s'abonne, et n'entend
+rien. `BybitLiquidationConnector` écoute donc aussi le canal
+`allLiquidation` de Bybit — par paire, sans joker, d'où la liste
+`BYBIT_SYMBOLS` des dix plus grosses capitalisations — et verse ses
+événements dans le **même** magasin par `record`, l'entrée commune.
+Chez Bybit, `S` est le côté de la *position* (`Buy` = long liquidé),
+l'inverse de la convention Binance ; chaque `Liquidation` porte son
+`exchange`, que le panneau étiquette et que le journal conserve. Les
+totaux — et l'alerte de rafale (§2.8) — additionnent les deux
+plateformes. Le fil publie son état **par lien** (`links`, `missing`) :
+`connected` vaut dès qu'un lien tient, et le badge du panneau nomme
+celui qui manque plutôt que d'annoncer un flux coupé.
 
 **La boucle de reconnexion est celle des connecteurs.** `LiquidationFeed`
 hérite d'`ExchangeConnector`, dont le carnet est devenu optionnel pour
@@ -323,7 +338,8 @@ démarrage) les deux données qui valent d'être relues, chacune selon sa
 nature :
 
 - une **liquidation** est un événement — une ligne par événement,
-  écrite au fil de l'eau par le rappel `on_event` du fil (§2.5) ;
+  écrite au fil de l'eau par le rappel `on_event` du fil (§2.5), avec
+  la plateforme qui l'a fermée (colonne `exchange`, ajoutée par migration) ;
 - une **opportunité d'arbitrage** est un état qui dure — la journaliser
   à chaque balayage rempilerait la même paire dix fois par seconde. Le
   journal tient des **épisodes** : ouvert quand une paire devient
@@ -505,9 +521,9 @@ fois, en avertissement.
 Ce que ce module ne peut pas : Binance ne livre aucune donnée sur ses flux
 WebSocket **futures** (`fstream.binance.com`) depuis certains pays — le
 handshake passe, l'abonnement est acquitté, le ping répond, et rien
-n'arrive. Le fil des liquidations (§2.5) reste donc muet depuis le
-Cambodge, alors que le REST futures (`fapi`) répond normalement. Le
-remède de fond — un résolveur DNS sur TLS configuré dans systemd-resolved,
+n'arrive. Le fil des liquidations (§2.5) n'entend donc pas Binance depuis
+le Cambodge — c'est Bybit qui le nourrit là-bas —, alors que le REST
+futures (`fapi`) répond normalement. Le remède de fond — un résolveur DNS sur TLS configuré dans systemd-resolved,
 donné dans le README — couvre aussi le navigateur et les satellites.
 
 ### 2.10 Non-régression
@@ -1496,12 +1512,11 @@ sentir, aucun ne conditionnant les autres.
   (§2.7) écrit liquidations et épisodes d'arbitrage rentables dans
   `~/.btcterm/journal.db`, et `python -m btcterm.journal` relit la séance.
   Les alertes y trouveront leur base de comparaison.
-- **Liquidations sans Binance Futures** — depuis un pays où Binance tait
-  ses flux WebSocket futures (§2.9), le fil des liquidations reste vide.
-  Bybit livre son flux `allLiquidation.BTCUSDT` (`stream.bybit.com`,
-  canal `linear`) sans restriction constatée : un second connecteur de
-  liquidations, au même `LiquidationFeed`, rendrait le panneau et l'alerte
-  de rafale à ces séances-là.
+- ~~**Liquidations sans Binance Futures**~~ — fait :
+  `BybitLiquidationConnector` (§2.5) verse le canal `allLiquidation` de
+  Bybit dans le même fil, dix grandes paires ; le panneau étiquette la
+  plateforme, le journal la conserve (colonne `exchange`, ajoutée par
+  migration), et le badge nomme le lien qui manque.
 
 **Hygiène technique :**
 

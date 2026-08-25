@@ -24,7 +24,7 @@ from .alerts import AlertEngine
 from .arbitrage import ArbitrageEngine
 from .journal import Journal
 from .newsdb import NewsCollector
-from .liquidations import LiquidationFeed
+from .liquidations import BybitLiquidationConnector, LiquidationFeed
 from . import resolver
 from .exchanges import (
     BinanceConnector,
@@ -181,6 +181,9 @@ class MarketHub:
             OKXConnector(self.books["OKX"], inst_id="BTC-USDT"),
             CoinbaseAdvancedConnector(self.books["Coinbase"], product="BTC-USDT"),
             self.liquidations,
+            # Seconde source du même fil : Binance tait ses flux futures
+            # depuis certains pays, Bybit non.
+            BybitLiquidationConnector(self.liquidations),
         ]
         self._thread = run_connectors_in_thread(self._connectors)
 

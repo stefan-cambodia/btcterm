@@ -83,7 +83,8 @@ CREATE TABLE IF NOT EXISTS liquidations (
     side     TEXT NOT NULL,      -- la position qui a sauté : long | short
     price    REAL NOT NULL,
     quantity REAL NOT NULL,
-    notional REAL NOT NULL       -- price × quantity, précalculé pour SUM()
+    notional REAL NOT NULL,      -- price × quantity, précalculé pour SUM()
+    exchange TEXT                -- la plateforme : Binance | Bybit
 );
 CREATE INDEX IF NOT EXISTS idx_liquidations_ts ON liquidations (ts);
 
@@ -132,6 +133,7 @@ SNAPSHOT_FIELDS = ("btc_dominance", "stable_share",
 #: lignes déjà écrites — l'historique accumulé n'est jamais perdu.
 _MIGRATIONS = {
     "market_snapshots": ("funding_rate REAL",),
+    "liquidations": ("exchange TEXT",),
 }
 
 
@@ -180,9 +182,11 @@ class Journal:
         """Une ligne par événement — branché sur `on_event` du fil."""
         with self._lock:
             self._connection().execute(
-                "INSERT INTO liquidations VALUES (?, ?, ?, ?, ?, ?)",
+                "INSERT INTO liquidations (ts, symbol, side, price, "
+                "quantity, notional, exchange) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 (event.time, event.symbol, event.side,
-                 event.price, event.quantity, event.notional),
+                 event.price, event.quantity, event.notional,
+                 getattr(event, "exchange", None)),
             )
             self._db.commit()
 
@@ -344,7 +348,8 @@ def _relire(hours: float) -> None:
         gros = max(events, key=lambda r: r["notional"])
         quand = time.strftime("%H:%M", time.localtime(gros["ts"]))
         print(f"  la plus grosse : {gros['symbol']} {gros['side']} "
-              f"{gros['notional']:,.0f} $ à {quand}")
+              f"{gros['notional']:,.0f} $ à {quand}"
+              f"{' (' + gros['exchange'] + ')' if gros['exchange'] else ''}")
 
     alerts = journal.alerts_between(start, end)
     if not alerts:
