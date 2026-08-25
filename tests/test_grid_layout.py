@@ -20,10 +20,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from terminal.app import (AREA_LABELS, AREAS, CELLS,  # noqa: E402
-                          DEFAULT_PLACEMENT, DIALOG_COLUMNS, HOME_AREA,
-                          PANEL_REGISTRY, normalize_placement,
-                          placement_from_choices)
+from terminal.grid import (AREA_LABELS, AREAS, CELLS,  # noqa: E402
+                           DEFAULT_PLACEMENT, HOME_AREA, PANEL_REGISTRY,
+                           normalize_placement)
+from terminal.placement import (DIALOG_COLUMNS,  # noqa: E402
+                                placement_from_choices)
 
 TOUS = set(PANEL_REGISTRY)
 

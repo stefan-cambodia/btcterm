@@ -4,7 +4,7 @@ Vérifie la bascule plein écran des panneaux.
 
 Cette logique vit dans un callback *clientside* : elle s'exécute dans le
 navigateur, hors de portée des tests Python. On extrait donc la fonction
-de `terminal/app.py` et on la fait tourner sous Node avec un faux
+de `terminal/grid.py` et on la fait tourner sous Node avec un faux
 `dash_clientside`, ce qui la couvre sans navigateur.
 
 Le test est ignoré si Node n'est pas installé.
@@ -22,9 +22,9 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from terminal.app import AREAS  # noqa: E402
+from terminal.grid import AREAS  # noqa: E402
 
-APP_SOURCE = Path(__file__).resolve().parent.parent / "terminal" / "app.py"
+GRID_SOURCE = Path(__file__).resolve().parent.parent / "terminal" / "grid.py"
 
 HARNESS = """
 let resized = 0;
@@ -66,7 +66,7 @@ console.log(JSON.stringify(results));
 
 def extract_js() -> str:
     """Isole le corps de la fonction clientside et résout son gabarit."""
-    source = APP_SOURCE.read_text()
+    source = GRID_SOURCE.read_text()
     start = source.index('        """\n        function (...args)')
     end = source.index('        """ % {"areas"', start)
     body = source[start + len('        """\n'):end]

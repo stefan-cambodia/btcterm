@@ -68,8 +68,12 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   └── hub.py                     connexions mutualisées + caches
 │
 ├── terminal/                  ← TERMINAL : l'application Dash
-│   ├── app.py                     grille, horloges, bandeau, plein écran,
-│   │                              disposition configurable
+│   ├── app.py                     assemblage : horloges, Stores partagés,
+│   │                              point d'entrée
+│   ├── grid.py                    grille : rangement, cellules, onglets,
+│   │                              plein écran (§3.4–3.5)
+│   ├── placement.py               dialogue de disposition (§3.6)
+│   ├── header.py                  bandeau : cours, variation, spread, flux
 │   ├── push.py                    canal push des panneaux rapides (§3.10)
 │   ├── lwc.py                     données des rendus LWC : /api/klines,
 │   │                              /api/profile et /api/perp (§3.2)
@@ -496,7 +500,10 @@ SSH, ce qui écartait à la fois une interface texte et une application Qt.
 
 ```
 terminal/
-├── app.py           grille, disposition, horloges, bandeau, point d'entrée
+├── app.py           assemblage : horloges, Stores partagés, point d'entrée
+├── grid.py          grille : rangement, cellules, onglets, plein écran
+├── placement.py     dialogue de disposition (§3.6)
+├── header.py        bandeau : cours, variation, spread, état des flux
 ├── push.py          canal push des panneaux rapides (§3.10)
 ├── lwc.py           données des rendus LWC : /api/klines, /api/profile,
 │                    /api/perp (§3.2)
@@ -722,7 +729,7 @@ double-clic sur le panneau. Le double-clic ignore les graphiques : Plotly y
 réserve ce geste à la réinitialisation des axes.
 
 Cette logique vivant en JavaScript, elle échapperait aux tests Python.
-`tests/test_fullscreen_toggle.py` extrait la fonction de `app.py` et l'exécute
+`tests/test_fullscreen_toggle.py` extrait la fonction de `grid.py` et l'exécute
 sous Node avec un faux `dash_clientside` (test ignoré si Node est absent).
 
 ### 3.5 Onglets : plusieurs panneaux par cellule
@@ -733,7 +740,7 @@ rétrécir encore les cellules, une cellule peut désormais héberger **plusieur
 panneaux**, choisis par des onglets. Le carnet et la profondeur comparée
 inaugurent le mécanisme : on ne regarde pas les deux en même temps.
 
-`CELLS`, dans `app.py`, est la seule liste qui décide de ce qui est affichable :
+`CELLS`, dans `grid.py`, est la seule liste qui décide de ce qui est affichable :
 
 ```python
 CELLS = {
