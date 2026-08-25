@@ -1249,6 +1249,14 @@ Puis deux prolongements des chantiers 1 et 2 :
    (§2.8), assise sur l'historique journalisé — un glissement de la
    dominance BTC au-delà du seuil en points sur vingt-quatre heures.
 
+Ce cycle est clos à son tour, et l'empaquetage passe en **1.1.0** : six
+chantiers livrés depuis la 1.0, tous tirés des limites que sa clôture
+assumait, aucun n'en laissant de nouvelle. Au passage, le point d'entrée
+`terminal/app.py`, grossi au fil de ces chantiers, a été découpé en
+modules d'une responsabilité chacun — grille, disposition, bandeau,
+assemblage (§3). Comme à la clôture de la 1.0, plus rien n'est *en
+cours* : les prochains chantiers s'ouvriront à l'usage.
+
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
@@ -1446,6 +1454,7 @@ sentir, aucun ne conditionnant les autres.
   besoin énoncé (§1) — tandis que l'export ETF et le tracker de news, qui
   produisent ou exportent ce qu'aucun panneau ne couvre, deviennent des
   satellites assumés. §5 n'est plus un « pas encore ».
-- ~~**Version 1.0**~~ — fait : l'empaquetage affiche `1.0.0`. La feuille
+- ~~**Version 1.0**~~ — fait : l'empaquetage a affiché `1.0.0`, puis
+  `1.1.0` à la clôture des six chantiers qui ont suivi. La feuille
   de route est soldée, les chantiers d'hygiène fermés, les deux derniers
   points arbitrés — le numéro dit désormais quelque chose de vrai.
