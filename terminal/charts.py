@@ -29,7 +29,8 @@ from .theme import C, MONO
 __all__ = ["VOL_BINS", "prepare_price_frame",
            "build_depth_chart", "prepare_macro_frame", "macro_stats",
            "build_macro_chart", "build_dominance_chart",
-           "build_chain_chart"]
+           "build_chain_chart", "build_fear_greed_chart",
+           "fear_greed_color", "FEAR_GREED_ZONES"]
 
 VOL_BINS = 60
 
@@ -391,4 +392,108 @@ def build_chain_chart(
             x=0.5, y=0.5, showarrow=False,
             font=dict(family=MONO, size=11, color=C["muted"]),
         )
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────
+# Fear & Greed : l'humeur du marché dans le temps
+# ─────────────────────────────────────────────────────────────
+
+#: Découpage d'alternative.me, borne haute exclue : intitulé, couleur et
+#: opacité de la bande. Trois couleurs pour cinq zones — les deux zones
+#: extrêmes ne sont que la teinte de leur voisine, appuyée. C'est la
+#: convention du badge du panneau news (rouge sous 45, vert au-dessus de
+#: 55), et une seule vaut mieux que deux : le chiffre du jour et la
+#: bande où la courbe le pose doivent être de la même couleur, sans quoi
+#: le panneau se contredit tout seul.
+FEAR_GREED_ZONES = (
+    (0, 25, "peur extrême", "red", 0.13),
+    (25, 45, "peur", "red", 0.06),
+    (45, 55, "neutre", "yellow", 0.05),
+    (55, 75, "avidité", "green", 0.06),
+    (75, 101, "avidité extrême", "green", 0.13),
+)
+
+
+def fear_greed_color(value: int) -> str:
+    """Couleur de la zone où tombe une valeur de l'indice.
+
+    Source unique de la règle : le badge du panneau news s'en sert aussi.
+    """
+    for low, high, _, color, _opacity in FEAR_GREED_ZONES:
+        if low <= value < high:
+            return C[color]
+    return C["muted"]
+
+
+def build_fear_greed_chart(
+    history: list[dict],
+    uirevision: str = "fng",
+) -> go.Figure:
+    """L'indice Fear & Greed dans le temps, sur ses bandes de lecture.
+
+    Le chiffre du jour ne dit presque rien seul : 30 n'a pas le même sens
+    selon qu'on descende de 70 ou qu'on remonte de 15. La courbe rend
+    visibles les deux choses qui comptent — la pente, et le temps passé
+    dans une zone, une capitulation étant un plancher tenu plusieurs
+    semaines, pas une journée rouge.
+
+    Les bandes colorées portent la lecture ; l'axe est figé sur 0–100
+    pour qu'un mois calme ne se dilate pas en montagnes russes.
+    """
+    fig = go.Figure()
+
+    if not history:
+        fig.add_annotation(
+            text="indice Fear & Greed indisponible", xref="paper", yref="paper",
+            x=0.5, y=0.5, showarrow=False,
+            font=dict(family=MONO, size=11, color=C["muted"]),
+        )
+    else:
+        for low, high, _, color, opacity in FEAR_GREED_ZONES:
+            fig.add_hrect(y0=low, y1=min(high, 100), line_width=0,
+                          fillcolor=C[color], opacity=opacity, layer="below")
+
+        times = [point["time"] for point in history]
+        values = [point["value"] for point in history]
+        labels = [point["label"] for point in history]
+
+        fig.add_trace(go.Scatter(
+            x=times, y=values, mode="lines",
+            line=dict(color=C["text"], width=1.6),
+            customdata=labels,
+            hovertemplate="%{x|%d %b %Y}<br>%{y}/100 · %{customdata}"
+                          "<extra></extra>",
+        ))
+        # Le dernier point marqué et chiffré : c'est celui qu'on vient
+        # lire, et il doit se trouver sans suivre la courbe des yeux.
+        dernier = history[-1]
+        couleur = fear_greed_color(dernier["value"])
+        fig.add_annotation(
+            text=f"Fear &amp; Greed · {len(history)} j", xref="paper", yref="paper",
+            x=0, y=1, xanchor="left", yanchor="top", showarrow=False,
+            font=dict(family=MONO, size=9, color=C["muted"]),
+        )
+        fig.add_trace(go.Scatter(
+            x=[dernier["time"]], y=[dernier["value"]], mode="markers+text",
+            marker=dict(color=couleur, size=8,
+                        line=dict(color=C["panel"], width=1)),
+            text=[f" {dernier['value']}"], textposition="middle right",
+            textfont=dict(family=MONO, size=11, color=couleur),
+            cliponaxis=False, hoverinfo="skip",
+        ))
+
+    axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
+                       tickfont=dict(size=9, color=C["muted"]))
+    fig.update_layout(
+        paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
+        font=dict(family=MONO, color=C["text"], size=10),
+        margin=dict(l=8, r=26, t=6, b=4),
+        showlegend=False,
+        hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
+                        font_color=C["text"], font_size=10),
+        xaxis=dict(**axis_common),
+        yaxis=dict(range=[0, 100], dtick=25, fixedrange=True, **axis_common),
+        uirevision=uirevision,
+    )
     return fig

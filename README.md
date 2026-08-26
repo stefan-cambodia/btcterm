@@ -78,7 +78,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
 | **Flux ETF** | entrées/sorties nettes des ETF spot sur 30 jours | 5 min |
 | **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC (onglet des flux ETF) | 5 min |
-| **News** | fil scoré + indice Fear & Greed | 2 s en lecture, collecte toutes les 15 min |
+| **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
 | **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, glissement de dominance, jour de flux ETF, réseau chargé (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
@@ -381,6 +381,7 @@ python tests/test_lwc_api.py             # /api/klines : pagination, repli démo
 python tests/test_indicators_incremental.py  # dernier point : borné = complet
 python tests/test_prepare_price_frame.py # enrichissement du prix : colonnes, bornes
 python tests/test_resolver.py            # résolution DNS de secours, sans réseau
+python tests/test_fear_greed.py          # Fear & Greed : lecture, dérivation, couleurs
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox

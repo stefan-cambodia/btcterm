@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import io
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
 import numpy as np
@@ -32,12 +32,19 @@ __all__ = [
     "fetch_market_global", "fetch_chain_chart", "fetch_chain_stats",
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
+    "fetch_fear_greed_history", "FEAR_GREED_DAYS",
 ]
 
 BINANCE_REST = "https://api.binance.com/api/v3"
 FX_URL = "https://api.exchangerate-api.com/v4/latest/USD"
 FARSIDE_URL = "https://farside.co.uk/btc/"
-FEAR_GREED_URL = "https://api.alternative.me/fng/?limit=1"
+FEAR_GREED_URL = "https://api.alternative.me/fng/"
+
+#: Profondeur d'historique demandée à alternative.me. L'indice est
+#: journalier : quatre-vingt-dix points couvrent un trimestre, la
+#: fenêtre où un cycle complet de peur et d'avidité se lit encore d'un
+#: seul coup d'œil.
+FEAR_GREED_DAYS = 90
 
 #: Données de chaîne — blockchain.info, sans clé.
 #:
@@ -549,9 +556,40 @@ def fetch_cryptopanic_posts(api_key: str) -> list[dict[str, Any]]:
 def fetch_fear_greed() -> Optional[dict[str, Any]]:
     """Indice Fear & Greed du jour, ou `None` si la source est injoignable."""
     try:
-        response = requests.get(FEAR_GREED_URL, timeout=8)
+        response = requests.get(FEAR_GREED_URL, params={"limit": 1}, timeout=8)
         response.raise_for_status()
         data = response.json()["data"][0]
         return {"value": int(data["value"]), "label": data["value_classification"]}
     except Exception:
         return None
+
+
+def fetch_fear_greed_history(
+    days: int = FEAR_GREED_DAYS,
+) -> list[dict[str, Any]]:
+    """Historique de l'indice, du point le plus ancien au plus récent.
+
+    alternative.me publie une valeur par jour et sert l'historique par la
+    même requête que la valeur du jour — demander la série ne coûte donc
+    rien de plus qu'un appel, et la valeur courante en est le dernier
+    point.
+
+    Contrairement à `fetch_fear_greed`, cette fonction laisse remonter
+    l'erreur : le cache du hub préfère resservir sa série précédente
+    plutôt que d'effacer la courbe à la première source injoignable.
+    """
+    response = requests.get(FEAR_GREED_URL, params={"limit": days}, timeout=10)
+    response.raise_for_status()
+
+    points = [
+        {
+            "time": datetime.fromtimestamp(int(item["timestamp"]), timezone.utc),
+            "value": int(item["value"]),
+            "label": item["value_classification"],
+        }
+        for item in response.json().get("data", [])
+    ]
+    # L'API répond du plus récent au plus ancien ; un graphique se lit
+    # dans l'autre sens.
+    points.sort(key=lambda point: point["time"])
+    return points

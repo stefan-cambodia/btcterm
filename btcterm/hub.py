@@ -500,7 +500,34 @@ class MarketHub:
         except Exception:
             return {}
 
+    def fear_greed_history(self) -> list[dict]:
+        """Historique de l'indice Fear & Greed, du plus ancien au plus récent.
+
+        La série vaut mieux que le chiffre : 30 aujourd'hui ne dit pas la
+        même chose selon qu'on vienne de 70 ou de 15. C'est aussi la
+        seule requête que le terminal adresse à alternative.me — le badge
+        du panneau news en lit le dernier point.
+
+        Retourne une liste vide si la source est injoignable *et* que le
+        cache n'a rien à resservir : le panneau le dit alors, plutôt que
+        de tracer une courbe fausse.
+        """
+        try:
+            return self._cache.get(
+                "fear_greed_history", self.TTL_FEAR_GREED,
+                sources.fetch_fear_greed_history,
+            )
+        except Exception:
+            return []
+
     def fear_greed(self) -> Optional[dict]:
-        return self._cache.get(
-            "fear_greed", self.TTL_FEAR_GREED, sources.fetch_fear_greed
-        )
+        """Indice du jour — dernier point de l'historique.
+
+        Dériver plutôt que refaire un appel garantit que le chiffre du
+        badge et la fin de la courbe racontent la même chose, même quand
+        le cache resert une série vieille d'un quart d'heure.
+        """
+        history = self.fear_greed_history()
+        if not history:
+            return None
+        return {"value": history[-1]["value"], "label": history[-1]["label"]}

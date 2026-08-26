@@ -98,6 +98,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_news_scoring.py       non-régression du scoring des news
 │   ├── test_liquidations.py       lecture du flux de liquidations
 │   ├── test_macrocal.py           calendrier macro tenu à la main
+│   ├── test_fear_greed.py         indice Fear & Greed : source, hub, couleurs
 │   ├── test_terminal_wiring.py    panneaux posés et branchés
 │   ├── test_grid_layout.py        rangement configurable des panneaux
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
@@ -228,7 +229,7 @@ son premier état — et le moteur d'arbitrage, qui écarte les carnets de plus 
 | Marché à terme | `fetch_funding_history`, `fetch_open_interest`, `fetch_perp_snapshot` |
 | Agrégats de marché | `fetch_market_global` |
 | Chaîne | `fetch_chain_chart`, `fetch_chain_stats` |
-| News | `fetch_rss_entries`, `fetch_cryptopanic_posts`, `fetch_fear_greed` |
+| News | `fetch_rss_entries`, `fetch_cryptopanic_posts`, `fetch_fear_greed`, `fetch_fear_greed_history` |
 
 Ces fonctions récupèrent et normalisent, rien de plus : ni écriture en base, ni
 affichage, ni filtrage métier. Ce qui relève du métier des news — scorer,
@@ -553,6 +554,17 @@ mais un mardi écrit à la place d'un mercredi passerait sans bruit, d'où le
 contrôle qu'aucune publication ne tombe un week-end — et la conversion d'heure,
 vérifiée de part et d'autre du changement d'heure américain.
 
+`tests/test_fear_greed.py` tient les trois façons dont l'indice Fear & Greed
+peut mentir sans le dire. alternative.me répond du plus récent au plus ancien :
+tracé tel quel, l'historique se lirait à l'envers et une capitulation
+ressemblerait à une euphorie. Le hub n'appelle la source qu'une fois et dérive
+le chiffre du badge du dernier point de la courbe : se tromper de bout
+afficherait une valeur vieille de trois mois sans qu'aucune erreur ne remonte.
+Et le badge comme les bandes du graphique doivent colorer une même valeur de la
+même façon (§4.4). Le test vérifie en prime qu'une panne survenue après coup
+laisse la dernière courbe connue à l'écran plutôt qu'un cadre vide, en
+vieillissant le cache à la main.
+
 `tests/test_news_scoring.py` fait de même pour le scoring extrait du tracker —
 mêmes scores, mêmes mots-clés, mêmes sentiments qu'avant — et vérifie en prime
 ce que l'extraction rend enfin testable sans réseau ni base réelle : la collecte
@@ -600,7 +612,7 @@ terminal/
     ├── liquidations.py  positions fermées de force
     ├── dominance.py     parts de capitalisation
     ├── onchain.py       hashrate, difficulté, mempool
-    ├── news.py          fil de news + Fear & Greed
+    ├── news.py          fil de news + Fear & Greed (courbe 90 j agrandi)
     ├── calendar.py      échéances macro : FOMC, CPI, NFP, PCE
     ├── alerts.py        sonneries et réglages du moteur d'alertes
     └── macro.py         cours contre masse monétaire M2
@@ -800,6 +812,17 @@ la fenêtre après la bascule. Plotly ne redimensionne ses figures qu'à cet
 Le panneau prix, lui, suit tout seul (`autoSize` de Lightweight Charts), mais
 lwc-price.js recadre sa plage visible au changement d'agrandissement : la
 série resterait sinon tassée contre le bord droit du panneau élargi.
+
+Le même piège se referme sur un graphique qui n'existe *que* pendant le plein
+écran. Le panneau news montre l'historique de l'indice Fear & Greed sur
+quatre-vingt-dix jours, mais seulement agrandi — dans la grille, chaque ligne
+de news vaut mieux qu'une courbe écrasée. Ce graphique n'est pas masqué puis
+révélé : il est **construit à l'agrandissement**, le callback qui lit `expanded`
+rendant le `dcc.Graph` ou rien. Un graphique monté dans un conteneur en
+`display: none` se dessine sur une hauteur nulle et reste plat une fois
+découvert, l'événement `resize` de la bascule ne le rattrapant pas — il n'a
+jamais eu de taille à rattraper. Corollaire utile : replié, il ne coûte rien,
+et le hub n'est pas interrogé pour une courbe que personne ne regarde.
 
 La bascule s'ouvre par le bouton ⛶ — **toujours visible**, une première version
 qui ne l'affichait qu'au survol s'étant révélée introuvable — ou par un
@@ -1160,6 +1183,14 @@ Tout est en thème sombre. Le terminal centralise sa palette dans
 `terminal/theme.py` (dictionnaire `C` et styles partagés) ; les outils en ligne
 de commande gardent la leur en tête de fichier. Convention constante :
 **vert = achat/hausse, rouge = vente/baisse**.
+
+L'indice Fear & Greed s'y range plutôt que d'adopter la lecture à contre-courant
+qui voudrait la peur verte — la zone où l'on achète. Deux conventions dans un
+même panneau se contrediraient à l'écran : le chiffre du badge et la bande où la
+courbe le pose doivent être de la même couleur. `charts.fear_greed_color` tient
+cette règle une seule fois (rouge sous 45, jaune entre 45 et 55, vert au-dessus)
+et sert les deux rendus ; les zones extrêmes ne sont que la teinte de leur
+voisine, appuyée.
 
 ---
 
