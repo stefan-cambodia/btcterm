@@ -30,7 +30,10 @@ __all__ = ["VOL_BINS", "prepare_price_frame",
            "build_depth_chart", "prepare_macro_frame", "macro_stats",
            "build_macro_chart", "build_dominance_chart",
            "build_chain_chart", "build_fear_greed_chart",
-           "fear_greed_color", "FEAR_GREED_ZONES"]
+           "fear_greed_color", "FEAR_GREED_ZONES",
+           "build_etf_chart", "etf_stats", "etf_issuers",
+           "etf_total_column", "format_flow",
+           "ETF_WINDOWS", "ETF_DEFAULT_WINDOW"]
 
 VOL_BINS = 60
 
@@ -495,5 +498,203 @@ def build_fear_greed_chart(
         xaxis=dict(**axis_common),
         yaxis=dict(range=[0, 100], dtick=25, fixedrange=True, **axis_common),
         uirevision=uirevision,
+    )
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────
+# Flux ETF : ce que les institutions achètent
+# ─────────────────────────────────────────────────────────────
+
+#: Fenêtres d'observation, en jours **ouvrés** — le tableau de farside
+#: n'a pas de lignes le week-end. `None` prend tout l'historique, qui
+#: remonte au lancement des ETF en janvier 2024.
+ETF_WINDOWS = {"30 J": 30, "90 J": 90, "1 AN": 252, "TOUT": None}
+ETF_DEFAULT_WINDOW = "30 J"
+
+
+def etf_total_column(frame: pd.DataFrame) -> str:
+    """Colonne du flux net agrégé — la dernière si farside la renomme."""
+    return "Total" if "Total" in frame.columns else frame.columns[-1]
+
+
+def etf_issuers(frame: pd.DataFrame) -> list[str]:
+    """Colonnes des émetteurs, le total et la date exclus."""
+    total = etf_total_column(frame)
+    return [c for c in frame.columns if c not in ("Date", total)]
+
+
+def format_flow(value: float) -> str:
+    """Montant de flux, en M$ ou en Md$ selon l'ordre de grandeur."""
+    if abs(value) >= 1000:
+        return f"{value / 1000:+,.1f} Md$"
+    return f"{value:+,.0f} M$"
+
+
+def etf_stats(frame: pd.DataFrame, days: int | None = None) -> dict:
+    """Chiffres clés des flux, sur la fenêtre et depuis le lancement.
+
+    Le cumul depuis le lancement est calculé sur l'historique entier, pas
+    sur la fenêtre : c'est le stock détenu par les ETF qui compte, et il
+    ne dépend pas de la période qu'on regarde.
+    """
+    stats = {"last": None, "last_date": None, "five": None, "window": None,
+             "days": 0, "cumul": None, "best": None, "worst": None,
+             "full": False}
+    if frame.empty:
+        return stats
+
+    total = etf_total_column(frame)
+    view = frame if days is None else frame.tail(days)
+    flux = view[total]
+
+    stats["days"] = len(view)
+    # Fenêtre couvrant tout l'historique : le net de la fenêtre et le
+    # stock sont alors le même chiffre, et l'afficher deux fois n'apprend
+    # rien.
+    stats["full"] = len(view) >= len(frame)
+    stats["cumul"] = float(frame[total].sum())
+    stats["window"] = float(flux.sum())
+    stats["five"] = float(frame[total].tail(5).sum())
+    stats["last"] = float(frame[total].iloc[-1])
+    stats["last_date"] = frame["Date"].iloc[-1]
+    if not flux.empty:
+        stats["best"] = (view["Date"].iloc[flux.argmax()], float(flux.max()))
+        stats["worst"] = (view["Date"].iloc[flux.argmin()], float(flux.min()))
+    return stats
+
+
+def build_etf_chart(
+    frame: pd.DataFrame,
+    days: int | None = 30,
+    maximized: bool = False,
+    uirevision: str = "etf",
+) -> go.Figure:
+    """Flux quotidiens et, en plein écran, le cumul et les émetteurs.
+
+    Trois lectures que la barre du jour ne donne pas :
+
+    - le **cumul** depuis le lancement, en courbe sur l'axe droit. Les
+      barres quotidiennes sont bruyantes ; c'est la pente du cumul qui
+      dit si les institutions accumulent ou distribuent ;
+    - la **répartition par émetteur** sur la fenêtre. Le total masque
+      des mouvements opposés — GBTC a passé deux ans à saigner pendant
+      qu'IBiT encaissait, et un total nul peut cacher les deux ;
+    - la fenêtre elle-même, réglable, l'histoire de ces flux ne se lisant
+      pas à la même échelle sur un mois et sur deux ans.
+
+    Dans la grille, seules les barres restent : la cellule y fait deux
+    cents pixels de haut, et un graphique à deux volets n'y serait qu'un
+    brouillon illisible.
+    """
+    if frame.empty:
+        return _etf_empty("flux ETF indisponibles")
+
+    total = etf_total_column(frame)
+    view = frame if days is None else frame.tail(days)
+    cumul = frame[total].cumsum().tail(len(view))
+
+    if maximized:
+        fig = make_subplots(
+            rows=1, cols=2, column_widths=[0.76, 0.24], horizontal_spacing=0.07,
+            specs=[[{"secondary_y": True}, {}]],
+            subplot_titles=("flux quotidiens et cumul depuis le lancement",
+                            "cumul par émetteur sur la fenêtre"),
+        )
+        cible = dict(row=1, col=1)
+    else:
+        fig = go.Figure()
+        cible = {}
+
+    fig.add_trace(go.Bar(
+        x=view["Date"], y=view[total], name="flux net",
+        marker_color=[C["green"] if v >= 0 else C["red"] for v in view[total]],
+        hovertemplate="%{x|%d %b %Y}<br>%{y:+,.1f} M$<extra></extra>",
+        showlegend=False,
+    ), **({**cible, "secondary_y": False} if maximized else {}))
+
+    if maximized:
+        fig.add_trace(go.Scatter(
+            x=view["Date"], y=cumul / 1000, name="cumul",
+            mode="lines", line=dict(color=C["yellow"], width=1.8),
+            hovertemplate="cumul %{y:,.1f} Md$<extra></extra>",
+            showlegend=False,
+        ), row=1, col=1, secondary_y=True)
+
+        _etf_ranking(fig, view, etf_issuers(frame))
+
+    axis = dict(gridcolor=C["grid"], zerolinecolor=C["border"],
+                tickfont=dict(size=9, color=C["muted"]))
+    fig.update_layout(
+        paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
+        font=dict(family=MONO, color=C["text"], size=10),
+        margin=dict(l=8, r=34 if maximized else 8,
+                    t=22 if maximized else 4, b=4),
+        showlegend=False, bargap=0.2,
+        hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
+                        font_color=C["text"], font_size=10),
+        uirevision=uirevision,
+    )
+    if maximized:
+        fig.update_xaxes(**axis)
+        fig.update_yaxes(title_text="flux net (M$)", row=1, col=1,
+                         secondary_y=False, **axis)
+        # Ni grille ni ligne de zéro sur l'axe du cumul : celui-ci part
+        # de zéro, et sa ligne de zéro barrait le bas du cadre d'un trait
+        # blanc que rien ne justifiait.
+        fig.update_yaxes(title_text="cumul (Md$)", row=1, col=1,
+                         secondary_y=True, showgrid=False, zeroline=False,
+                         tickfont=dict(size=9, color=C["yellow"]))
+        fig.update_yaxes(row=1, col=2, **axis)
+        fig.update_xaxes(row=1, col=2, showticklabels=False, **axis)
+        for note in fig.layout.annotations:
+            note.font = dict(family=MONO, size=9, color=C["muted"])
+    else:
+        fig.update_xaxes(**axis)
+        fig.update_yaxes(**axis)
+    return fig
+
+
+def _etf_ranking(fig: go.Figure, view: pd.DataFrame, issuers: list[str]) -> None:
+    """Classement horizontal des cumuls par émetteur, sur la fenêtre.
+
+    Trié croissant : Plotly empile les barres horizontales du bas vers le
+    haut, et c'est le plus gros collecteur qu'on veut lire en premier.
+    """
+    cumuls = view[issuers].sum().sort_values()
+    cumuls = cumuls[cumuls != 0]
+    if cumuls.empty:
+        return
+
+    fig.add_trace(go.Bar(
+        x=cumuls.values, y=list(cumuls.index), orientation="h",
+        marker_color=[C["green"] if v >= 0 else C["red"] for v in cumuls.values],
+        text=[format_flow(v) for v in cumuls.values],
+        textposition="outside", textfont=dict(size=9, color=C["text"]),
+        cliponaxis=False, showlegend=False,
+        hovertemplate="%{y} · %{x:+,.0f} M$<extra></extra>",
+    ), row=1, col=2)
+
+    # Les montants sont écrits au bout de la barre, donc à *gauche* du
+    # zéro pour un émetteur qui décollecte : sans marge, ils viendraient
+    # se coucher sur les tickers de l'axe. La marge est prise sur la
+    # plus grande barre, la seule échelle qui vaille ici — IBIT pèse dix
+    # fois ses concurrents.
+    ampleur = max(abs(float(cumuls.min())), abs(float(cumuls.max())))
+    fig.update_xaxes(
+        range=[min(0.0, float(cumuls.min())) - ampleur * 0.42,
+               max(0.0, float(cumuls.max())) + ampleur * 0.30],
+        row=1, col=2,
+    )
+
+
+def _etf_empty(message: str) -> go.Figure:
+    fig = go.Figure()
+    fig.update_layout(
+        paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
+        margin=dict(l=8, r=8, t=4, b=4),
+        annotations=[dict(text=message, showarrow=False,
+                          font=dict(family=MONO, color=C["muted"], size=11))],
+        xaxis=dict(visible=False), yaxis=dict(visible=False),
     )
     return fig

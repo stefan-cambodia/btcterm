@@ -2,9 +2,11 @@
 """
 Suivi des flux entrants/sortants des ETF Bitcoin spot (US).
 
-Source des données : farside.co.uk/btc/ (page publique qui agrège les flux
-quotidiens de tous les ETF Bitcoin spot américains : IBIT, FBTC, GBTC, ARKB,
-BITB, HODL, BRRR, EZBC, BTCO, etc.)
+Source des données : farside.co.uk/bitcoin-etf-flow-all-data/ (page publique
+qui agrège les flux quotidiens de tous les ETF Bitcoin spot américains :
+IBIT, FBTC, GBTC, ARKB, BITB, HODL, BRRR, EZBC, BTCO, etc.) — la page
+d'accueil du site ne publie plus que les trois dernières semaines, celle-ci
+sert l'historique depuis janvier 2024.
 
 Usage :
     python etf_bitcoin_flows.py                 # affiche les flux récents

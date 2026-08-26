@@ -99,6 +99,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_liquidations.py       lecture du flux de liquidations
 │   ├── test_macrocal.py           calendrier macro tenu à la main
 │   ├── test_fear_greed.py         indice Fear & Greed : source, hub, couleurs
+│   ├── test_etf_flows.py          flux ETF : fenêtres, cumul, classement
 │   ├── test_terminal_wiring.py    panneaux posés et branchés
 │   ├── test_grid_layout.py        rangement configurable des panneaux
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
@@ -554,6 +555,16 @@ mais un mardi écrit à la place d'un mercredi passerait sans bruit, d'où le
 contrôle qu'aucune publication ne tombe un week-end — et la conversion d'heure,
 vérifiée de part et d'autre du changement d'heure américain.
 
+`tests/test_etf_flows.py` protège ce que le terminal *déduit* du tableau de
+farside, dont la forme peut changer sans prévenir : le stock se compte sur tout
+l'historique et jamais sur la fenêtre affichée — c'est la quantité détenue par
+les ETF, elle ne dépend pas de la période qu'on regarde —, quand le classement
+par émetteur se compte au contraire sur la fenêtre, la question étant « qui
+achète en ce moment ». Le test vérifie aussi qu'un émetteur immobile disparaît
+du classement plutôt que d'y figurer à zéro, que la courbe de cumul continue
+l'historique antérieur à la fenêtre au lieu de repartir de zéro, et que la barre
+de titre reste muette dans la grille sans séparateur orphelin ni chiffre répété.
+
 `tests/test_fear_greed.py` tient les trois façons dont l'indice Fear & Greed
 peut mentir sans le dire. alternative.me répond du plus récent au plus ancien :
 tracé tel quel, l'historique se lirait à l'envers et une capitulation
@@ -823,6 +834,24 @@ rendant le `dcc.Graph` ou rien. Un graphique monté dans un conteneur en
 découvert, l'événement `resize` de la bascule ne le rattrapant pas — il n'a
 jamais eu de taille à rattraper. Corollaire utile : replié, il ne coûte rien,
 et le hub n'est pas interrogé pour une courbe que personne ne regarde.
+
+Le panneau des flux ETF pousse le principe plus loin : agrandi, il ne montre
+pas la même chose en plus grand, mais **trois lectures que la vignette ne peut
+pas porter**. Les barres quotidiennes gagnent le cumul depuis le lancement sur
+un axe droit — ce sont les barres qui font le bruit et la pente du cumul qui dit
+si les institutions accumulent ou distribuent ; un second volet classe les
+émetteurs sur la fenêtre, le total masquant des mouvements opposés (GBTC a passé
+deux ans à décollecter pendant qu'IBiT encaissait) ; et un sélecteur ouvre la
+fenêtre de trente jours à tout l'historique. Ces commandes, comme les chiffres
+clés de la barre de titre, ne s'affichent qu'agrandies : la cellule d'origine
+partage déjà sa barre de titre avec les onglets du perpétuel.
+
+Cela a demandé de changer de page source. `farside.co.uk/btc/` ne publie plus
+que les trois dernières semaines — le panneau annonçait « 30 jours » qu'il
+n'avait pas —, quand `farside.co.uk/bitcoin-etf-flow-all-data/` sert le même
+tableau depuis le lancement des ETF en janvier 2024, soit six cent soixante-dix
+jours ouvrés. Le collecteur n'a pas bougé d'une ligne : c'est la même table, au
+même format.
 
 La bascule s'ouvre par le bouton ⛶ — **toujours visible**, une première version
 qui ne l'affichait qu'au survol s'étant révélée introuvable — ou par un
@@ -1214,7 +1243,8 @@ fait qu'afficher, et gardent leur utilité quand il ne tourne pas.
 Pipeline en trois fonctions :
 
 ```
-fetch_flows()  GET farside.co.uk/btc/ (User-Agent navigateur)
+fetch_flows()  GET farside.co.uk/bitcoin-etf-flow-all-data/
+    │              (User-Agent navigateur)
     ├─ pd.read_html → on retient la table la plus haute
     ├─ normalisation des en-têtes
     ├─ filtre des lignes par regex de date "^\d{1,2} \w{3} \d{4}$"

@@ -37,7 +37,12 @@ __all__ = [
 
 BINANCE_REST = "https://api.binance.com/api/v3"
 FX_URL = "https://api.exchangerate-api.com/v4/latest/USD"
-FARSIDE_URL = "https://farside.co.uk/btc/"
+#: Flux des ETF spot — la page « all data » de farside.co.uk plutôt que
+#: sa page d'accueil : celle-ci ne publie plus que les trois dernières
+#: semaines, quand l'autre sert le même tableau depuis le lancement des
+#: ETF en janvier 2024. Le panneau annonçait trente jours qu'il n'avait
+#: pas.
+FARSIDE_URL = "https://farside.co.uk/bitcoin-etf-flow-all-data/"
 FEAR_GREED_URL = "https://api.alternative.me/fng/"
 
 #: Profondeur d'historique demandée à alternative.me. L'indice est
