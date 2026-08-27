@@ -198,7 +198,7 @@ l'état réel de chaque flux. Les sous-classes n'implémentent que `_stream()`.
 | `BinanceConnector` | `<sym>@depth<N>@<vitesse>` | snapshot répété |
 | `KrakenConnector` | `book` | snapshot `as`/`bs` puis deltas `a`/`b` |
 | `CoinbaseConnector` | `level2_batch` (flux public) | snapshot puis `l2update` |
-| `CoinbaseAdvancedConnector` | `level2` (Advanced Trade) | deltas seuls |
+| `CoinbaseAdvancedConnector` | `level2` (Advanced Trade) | snapshot puis deltas, même forme |
 | `BybitConnector` | `orderbook.<N>` | snapshot puis deltas |
 | `OKXConnector` | `books5` | snapshot 5 niveaux |
 
@@ -217,6 +217,36 @@ de type `snapshot` en ignorant les deltas, tout en rafraîchissant l'horodatage
 à chaque message. Le carnet paraissait donc frais alors qu'il était figé sur
 son premier état — et le moteur d'arbitrage, qui écarte les carnets de plus de
 5 secondes, n'avait aucun moyen de s'en apercevoir.
+
+**Le niveau fantôme.** Un carnet nourri par deltas ne se corrige jamais
+seul : une suppression manquée laisse un niveau que rien ne retirera, et
+`best_ask` — `min(asks)` — le remonte à chaque lecture. Le journal de
+séance (§2.7) l'a montré sans ambiguïté : le prix d'achat Coinbase de
+tous les épisodes d'arbitrage entre 15 h 22 et 0 h 52 valait 78 880 $, à
+l'unité près, pendant que le marché passait de 79 700 à 80 600 $ ; neuf
+heures d'« écart rentable » de +1 à +2 %, jusqu'au redémarrage du
+service, et neuf alertes d'arbitrage sur douze dans la journée. Le carnet
+était frais (les bids vivaient), connecté, et faux. La cause première
+tenait au connecteur Advanced Trade : Coinbase envoie un snapshot à
+chaque souscription, sous la même forme que ses mises à jour — une liste
+de niveaux — et le connecteur l'appliquait comme telle. Correct à la
+première connexion, sur un carnet vide ; mais à chaque reconnexion, le
+snapshot neuf se posait par-dessus l'ancien carnet, dont les niveaux
+disparus entre-temps ne seraient plus jamais supprimés. Le snapshot
+remplace, désormais. Kraken a montré le même symptôme plus brièvement
+(79 046 $ pendant 25 minutes), sans cause visible — un message perdu
+suffit —, d'où un garde-fou général : un tel carnet est **croisé**, son
+meilleur bid dépasse son meilleur ask, ce qu'aucun marché ne cote.
+`OrderBook.crossed` le dit ; après chaque mise à jour, `_check_book`
+tolère un croisement fugace — les deux côtés d'un mouvement peuvent
+arriver dans deux messages — mais un croisement qui tient
+`CROSSED_GRACE` (2 s) lève `BookDesync`, que la boucle de reconnexion
+traite comme une panne : le carnet porte l'erreur le temps du backoff, la
+resouscription apporte un snapshot neuf. Et le moteur d'arbitrage
+(`ArbitrageEngine._evaluate`) écarte un carnet croisé comme il écarte un
+carnet vieux — l'écart qu'il montre n'existe
+pas. `tests/test_orderbook.py` rejoue les deux causes et les deux
+parades, messages au format des plateformes.
 
 ### 2.3 `sources` — collecteurs
 
@@ -1695,6 +1725,12 @@ sentir, aucun ne conditionnant les autres.
   Bybit dans le même fil, dix grandes paires ; le panneau étiquette la
   plateforme, le journal la conserve (colonne `exchange`, ajoutée par
   migration), et le badge nomme le lien qui manque.
+- ~~**Niveaux fantômes dans les carnets**~~ — constaté dans le journal de
+  séance, des épisodes d'arbitrage de plusieurs heures à prix d'achat
+  figé : un ask que le carnet n'avait jamais supprimé. Fait : le
+  snapshot Coinbase Advanced remplace le carnet au lieu de s'y
+  superposer, un carnet croisé qui persiste se resynchronise, et le
+  moteur l'écarte en attendant (§2.2).
 - ~~**Un lien ouvert mais muet**~~ — fait : le fil date, par lien, le
   dernier événement reçu et l'ouverture du lien, et `silent` nomme ceux
   qui tiennent sans rien livrer depuis plus d'un quart d'heure (§2.5).

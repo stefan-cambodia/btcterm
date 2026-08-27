@@ -297,7 +297,10 @@ du journal au démarrage, un panneau vide après un redémarrage se lisant comme
 une panne du flux, le badge des liquidations nomme le lien qui tient sans
 rien livrer, Bybit portant seul le panneau là où Binance se tait, et le
 service s'arrête en une seconde au lieu d'expirer sous SIGKILL — gunicorn
-attendait la fin des WebSockets, qui n'en ont pas.
+attendait la fin des WebSockets, qui n'en ont pas. Le journal de séance a
+aussi révélé des « arbitrages » de plusieurs heures à prix figé : un niveau
+fantôme dans un carnet nourri par deltas. Les carnets se resynchronisent
+désormais quand ils se croisent, et le moteur les écarte en attendant.
 
 ## Outils complémentaires
 
@@ -377,6 +380,7 @@ L'installation n'est d'ailleurs pas un prérequis : les scripts trouvent
 python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
 python tests/test_news_scoring.py        # scoring et collecte des news
 python tests/test_liquidations.py        # lecture du flux de liquidations
+python tests/test_orderbook.py           # carnets : niveaux fantômes, resynchronisation
 python tests/test_macrocal.py            # calendrier macro tenu à la main
 python tests/test_terminal_wiring.py     # panneaux posés et branchés
 python tests/test_grid_layout.py         # rangement configurable des panneaux

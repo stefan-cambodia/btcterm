@@ -18,6 +18,16 @@ Il fusionne les deux implémentations qui coexistaient dans
 Les paires ne sont pas identiques partout (BTC/USD sur le flux public
 Coinbase, BTC/USDT sur l'Advanced Trade) : chaque connecteur prend donc
 son produit en paramètre plutôt que de le coder en dur.
+
+Un carnet nourri par deltas ne se corrige jamais seul : une suppression
+manquée laisse un **niveau fantôme** — un ask à 78 880 $ quand le marché
+est à 80 600 $ — que `best_ask` remonte à chaque lecture, et le moteur
+d'arbitrage y voit pendant des heures un écart rentable qui n'existe
+pas. Un tel carnet est *croisé* (son meilleur bid dépasse son meilleur
+ask), ce qui se détecte : après chaque mise à jour, `_check_book`
+laisse passer un croisement fugace, mais un croisement qui tient
+`CROSSED_GRACE` secondes lève `BookDesync`, que la boucle de reconnexion
+traite comme une panne — resouscription, snapshot neuf, carnet propre.
 """
 
 from __future__ import annotations
@@ -34,6 +44,7 @@ import websockets
 __all__ = [
     "MAX_WS_SIZE",
     "OrderBook",
+    "BookDesync",
     "ExchangeConnector",
     "BinanceConnector",
     "KrakenConnector",
@@ -169,6 +180,18 @@ class OrderBook:
         return (bid + ask) / 2 if bid and ask else None
 
     @property
+    def crossed(self) -> bool:
+        """Vrai si le meilleur bid atteint le meilleur ask.
+
+        Un marché ne cote jamais ainsi : un carnet croisé porte un
+        niveau fantôme — une suppression manquée dans un flux de
+        deltas — et ne dit plus le marché.
+        """
+        with self._lock:
+            return bool(self.bids and self.asks
+                        and max(self.bids) >= min(self.asks))
+
+    @property
     def spread(self) -> Optional[float]:
         bid, ask = self.best_bid, self.best_ask
         return ask - bid if bid and ask else None
@@ -189,6 +212,10 @@ class OrderBook:
 # ─────────────────────────────────────────────────────────────
 # Connecteurs
 # ─────────────────────────────────────────────────────────────
+
+class BookDesync(RuntimeError):
+    """Le carnet ne reflète plus le flux : à resynchroniser."""
+
 
 class ExchangeConnector:
     """Base commune : boucle de connexion, reconnexion, état exposé.
@@ -215,9 +242,34 @@ class ExchangeConnector:
         self.max_retries = max_retries
         self.max_backoff = max_backoff
         self._running = True
+        self._crossed_since: Optional[float] = None
+
+    #: Durée pendant laquelle un carnet croisé est toléré avant
+    #: resynchronisation : les deux côtés d'une mise à jour peuvent
+    #: arriver dans deux messages, et se croiser entre les deux.
+    CROSSED_GRACE = 2.0
 
     def stop(self) -> None:
         self._running = False
+
+    def _check_book(self) -> None:
+        """Après une mise à jour : un carnet croisé qui persiste vaut panne.
+
+        Lève `BookDesync`, que `_connect_with_retry` traite comme toute
+        autre panne — le carnet porte l'erreur le temps du backoff, la
+        resouscription apporte un snapshot neuf. Sans cela, un niveau
+        fantôme survivrait jusqu'au prochain redémarrage : le journal
+        en a montré un de plus de neuf heures.
+        """
+        if self.book is None or not self.book.crossed:
+            self._crossed_since = None
+            return
+        now = time.monotonic()
+        if self._crossed_since is None:
+            self._crossed_since = now
+        elif now - self._crossed_since >= self.CROSSED_GRACE:
+            self._crossed_since = None
+            raise BookDesync("carnet croisé, resynchronisation")
 
     async def run(self) -> None:
         await self._connect_with_retry(self._stream)
@@ -305,31 +357,34 @@ class KrakenConnector(ExchangeConnector):
             async for raw in ws:
                 if not self._running:
                     break
-                data = json.loads(raw)
+                self._handle(json.loads(raw))
 
-                # Les messages utiles sont des listes ; les messages système
-                # (heartbeat, statut d'abonnement…) sont des dicts.
-                if not isinstance(data, list):
-                    continue
+    def _handle(self, data) -> None:
+        # Les messages utiles sont des listes ; les messages système
+        # (heartbeat, statut d'abonnement…) sont des dicts.
+        if not isinstance(data, list):
+            return
 
-                parts = [p for p in data[1:-2] if isinstance(p, dict)]
-                if not parts:
-                    continue
+        parts = [p for p in data[1:-2] if isinstance(p, dict)]
+        if not parts:
+            return
 
-                if any("as" in p or "bs" in p for p in parts):
-                    bids, asks = {}, {}
-                    for part in parts:
-                        bids.update({float(p): float(v) for p, v, *_ in part.get("bs", [])})
-                        asks.update({float(p): float(v) for p, v, *_ in part.get("as", [])})
-                    self.book.replace(bids, asks)
-                    continue
+        if any("as" in p or "bs" in p for p in parts):
+            bids, asks = {}, {}
+            for part in parts:
+                bids.update({float(p): float(v) for p, v, *_ in part.get("bs", [])})
+                asks.update({float(p): float(v) for p, v, *_ in part.get("as", [])})
+            self.book.replace(bids, asks)
+            self._check_book()
+            return
 
-                bid_updates, ask_updates = [], []
-                for part in parts:
-                    bid_updates += [(float(p), float(v)) for p, v, *_ in part.get("b", [])]
-                    ask_updates += [(float(p), float(v)) for p, v, *_ in part.get("a", [])]
-                if bid_updates or ask_updates:
-                    self.book.apply(bid_updates, ask_updates)
+        bid_updates, ask_updates = [], []
+        for part in parts:
+            bid_updates += [(float(p), float(v)) for p, v, *_ in part.get("b", [])]
+            ask_updates += [(float(p), float(v)) for p, v, *_ in part.get("a", [])]
+        if bid_updates or ask_updates:
+            self.book.apply(bid_updates, ask_updates)
+            self._check_book()
 
 
 class CoinbaseConnector(ExchangeConnector):
@@ -358,26 +413,36 @@ class CoinbaseConnector(ExchangeConnector):
             async for raw in ws:
                 if not self._running:
                     break
-                data = json.loads(raw)
-                kind = data.get("type")
+                self._handle(json.loads(raw))
 
-                if kind == "snapshot":
-                    self.book.replace(
-                        {float(p): float(q) for p, q in data.get("bids", [])},
-                        {float(p): float(q) for p, q in data.get("asks", [])},
-                    )
-                elif kind == "l2update":
-                    bid_updates, ask_updates = [], []
-                    for side, price, qty in data.get("changes", []):
-                        entry = (float(price), float(qty))
-                        (bid_updates if side == "buy" else ask_updates).append(entry)
-                    self.book.apply(bid_updates, ask_updates)
+    def _handle(self, data: dict) -> None:
+        kind = data.get("type")
+        if kind == "snapshot":
+            self.book.replace(
+                {float(p): float(q) for p, q in data.get("bids", [])},
+                {float(p): float(q) for p, q in data.get("asks", [])},
+            )
+        elif kind == "l2update":
+            bid_updates, ask_updates = [], []
+            for side, price, qty in data.get("changes", []):
+                entry = (float(price), float(qty))
+                (bid_updates if side == "buy" else ask_updates).append(entry)
+            self.book.apply(bid_updates, ask_updates)
+            self._check_book()
 
 
 class CoinbaseAdvancedConnector(ExchangeConnector):
-    """Flux Advanced Trade : uniquement des mises à jour de niveaux.
+    """Flux Advanced Trade : un snapshot à l'abonnement, puis des mises à jour.
 
     Nécessaire pour les paires en USDT, absentes du flux public Exchange.
+    Les deux formes ont le même format — une liste de niveaux — et ne se
+    distinguent que par le `type` de l'événement. Le connecteur les
+    appliquait toutes comme des mises à jour : correct à la première
+    connexion, sur un carnet vide, mais à chaque reconnexion le snapshot
+    neuf se posait **par-dessus** l'ancien carnet, dont les niveaux
+    disparus entre-temps ne seraient plus jamais supprimés. C'est ainsi
+    qu'un ask à 78 880 $ a tenu neuf heures dans le carnet pendant que
+    le marché cotait 80 600 $. Le snapshot remplace, désormais.
     """
 
     name = "Coinbase"
@@ -399,17 +464,22 @@ class CoinbaseAdvancedConnector(ExchangeConnector):
             async for raw in ws:
                 if not self._running:
                     break
-                data = json.loads(raw)
-                bid_updates, ask_updates = [], []
-                for event in data.get("events", []):
-                    for update in event.get("updates", []):
-                        entry = (float(update["price_level"]), float(update["new_quantity"]))
-                        if update["side"] == "bid":
-                            bid_updates.append(entry)
-                        else:
-                            ask_updates.append(entry)
-                if bid_updates or ask_updates:
-                    self.book.apply(bid_updates, ask_updates)
+                self._handle(json.loads(raw))
+
+    def _handle(self, data: dict) -> None:
+        for event in data.get("events", []):
+            bid_updates, ask_updates = [], []
+            for update in event.get("updates", []):
+                entry = (float(update["price_level"]), float(update["new_quantity"]))
+                if update["side"] == "bid":
+                    bid_updates.append(entry)
+                else:
+                    ask_updates.append(entry)
+            if event.get("type") == "snapshot":
+                self.book.replace(dict(bid_updates), dict(ask_updates))
+            elif bid_updates or ask_updates:
+                self.book.apply(bid_updates, ask_updates)
+            self._check_book()
 
 
 class BybitConnector(ExchangeConnector):
@@ -431,18 +501,21 @@ class BybitConnector(ExchangeConnector):
             async for raw in ws:
                 if not self._running:
                     break
-                data = json.loads(raw)
-                if not data.get("topic", "").startswith("orderbook"):
-                    continue
+                self._handle(json.loads(raw))
 
-                payload = data.get("data", {})
-                bids = [(float(p), float(q)) for p, q in payload.get("b", [])]
-                asks = [(float(p), float(q)) for p, q in payload.get("a", [])]
+    def _handle(self, data: dict) -> None:
+        if not data.get("topic", "").startswith("orderbook"):
+            return
 
-                if data.get("type") == "snapshot":
-                    self.book.replace(dict(bids), dict(asks))
-                else:
-                    self.book.apply(bids, asks)
+        payload = data.get("data", {})
+        bids = [(float(p), float(q)) for p, q in payload.get("b", [])]
+        asks = [(float(p), float(q)) for p, q in payload.get("a", [])]
+
+        if data.get("type") == "snapshot":
+            self.book.replace(dict(bids), dict(asks))
+        else:
+            self.book.apply(bids, asks)
+        self._check_book()
 
 
 class OKXConnector(ExchangeConnector):

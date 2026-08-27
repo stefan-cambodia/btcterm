@@ -117,6 +117,12 @@ class ArbitrageEngine:
         if buy_book.age_ms > self.max_age_ms or sell_book.age_ms > self.max_age_ms:
             return None
 
+        # Un carnet croisé porte un niveau fantôme : l'écart qu'il montre
+        # n'existe pas. Le connecteur le resynchronise ; d'ici là, il ne
+        # compte pas.
+        if buy_book.crossed or sell_book.crossed:
+            return None
+
         if sell_price <= buy_price:
             return None
 
