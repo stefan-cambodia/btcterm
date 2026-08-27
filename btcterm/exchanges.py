@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import threading
 import time
 from dataclasses import dataclass, field
@@ -58,6 +59,8 @@ __all__ = [
 
 # Le snapshot complet de Coinbase dépasse souvent la limite de message par
 # défaut de `websockets` (1 Mo), ce qui referme la connexion aussitôt.
+log = logging.getLogger("btcterm.exchanges")
+
 MAX_WS_SIZE = 20 * 1024 * 1024  # 20 Mo
 
 # Nombre de niveaux conservés de chaque côté. Sans cette troncature, un
@@ -281,6 +284,12 @@ class ExchangeConnector:
                 await coro_factory()
                 retries = 0  # la connexion a tenu : on repart de zéro
             except Exception as exc:  # noqa: BLE001 — toute panne vaut reconnexion
+                if isinstance(exc, BookDesync):
+                    # Une resynchronisation n'est pas une panne réseau :
+                    # elle dit qu'un carnet a menti, et le journal du
+                    # service doit pouvoir le compter.
+                    log.warning("%s : %s (bid %s, ask %s)", self.name, exc,
+                                self.book.best_bid, self.book.best_ask)
                 self._mark_disconnected(exc)
                 retries += 1
                 await asyncio.sleep(min(2 ** retries, self.max_backoff))
