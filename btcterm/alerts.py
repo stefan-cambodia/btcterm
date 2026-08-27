@@ -235,6 +235,27 @@ class AlertEngine:
         with self._lock:
             return sum(1 for a in self.alerts if now - a.time <= seconds)
 
+    def restore(self, alerts) -> int:
+        """Repeuple la mémoire de sonneries **déjà journalisées**, sans resonner.
+
+        La mémoire ne vit qu'ici : relancer le service la vidait, et le
+        panneau disait « aucune alerte » juste après une nuit qui avait
+        sonné — le journal, lui, gardait tout. Comme `restore` du fil
+        des liquidations : rien ne repasse par le journal, rien ne
+        touche l'état des règles (fronts, seuils armés), et le
+        navigateur ne fait sonner que ce qui est plus récent que sa
+        dernière trame — une sonnerie relue est plus ancienne, elle
+        s'affiche sans sonner. À appeler avant la boucle d'observation,
+        dans l'ordre chronologique ; la mémoire est bornée, les plus
+        anciennes sortent d'elles-mêmes.
+        """
+        kept = 0
+        with self._lock:
+            for alert in alerts:
+                self.alerts.append(alert)
+                kept += 1
+        return kept
+
     # ── Évaluation ──────────────────────────────────────────
 
     def evaluate(self, hub, opportunities=None,

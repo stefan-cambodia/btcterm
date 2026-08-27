@@ -20,7 +20,7 @@ from typing import Any, Callable, Optional
 import pandas as pd
 
 from . import sources
-from .alerts import AlertEngine
+from .alerts import Alert, AlertEngine
 from .arbitrage import ArbitrageEngine
 from .journal import Journal
 from .newsdb import NewsCollector
@@ -127,6 +127,9 @@ class MarketHub:
     #: Profondeur de la fenêtre de liquidations relue du journal au
     #: démarrage : une heure, celle des totaux du panneau.
     WARM_UP_SECONDS = 3600.0
+    #: Profondeur des sonneries relues au démarrage : la journée, celle
+    #: que le panneau journal relit — la cloche, elle, compte l'heure.
+    ALERTS_WARM_UP_SECONDS = 24 * 3600.0
 
     def __init__(
         self,
@@ -195,6 +198,7 @@ class MarketHub:
         # l'ordre, et un événement vivant qui arriverait pendant la
         # relecture s'y retrouverait avant des plus anciens.
         self._warm_liquidations()
+        self._warm_alerts()
         self._connectors = [
             BinanceConnector(self.books["Binance"], symbol="btcusdt", depth=20),
             KrakenConnector(self.books["Kraken"], pair="XBT/USDT", depth=25),
@@ -214,6 +218,27 @@ class MarketHub:
         self._observe_thread = threading.Thread(
             target=self._observe_loop, daemon=True, name="observe")
         self._observe_thread.start()
+
+    def _warm_alerts(self) -> int:
+        """Rend au moteur les sonneries de la journée, du journal.
+
+        Le pendant de `_warm_liquidations` pour le panneau alertes et la
+        cloche du bandeau : un service relancé — ou une machine qui se
+        réveille et relance son service — affichait « aucune alerte »
+        quand la nuit avait sonné dix fois. Même contrat : rien n'est
+        réécrit, une lecture qui échoue laisse la mémoire vide.
+        """
+        if self.journal is None:
+            return 0
+        now = time.time()
+        try:
+            rows = self.journal.alerts_between(
+                now - self.ALERTS_WARM_UP_SECONDS, now)
+        except Exception:
+            return 0
+        return self.alerts.restore(
+            Alert(time=row["ts"], kind=row["kind"], message=row["message"])
+            for row in rows)
 
     def _warm_liquidations(self) -> int:
         """Rend au fil les liquidations de la dernière heure, du journal.

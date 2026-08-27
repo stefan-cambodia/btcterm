@@ -570,6 +570,21 @@ lecture technique des chandeliers) ne tournent qu'à la minute. Chaque
 sonnerie part au journal (§2.7) — la relecture d'une séance inclut ce
 qui a sonné.
 
+**Les sonneries survivent au redémarrage.** La mémoire du moteur — les
+deux cents dernières sonneries, d'où le panneau tire sa liste et la
+cloche son compte de l'heure — ne vivait qu'en mémoire : un service
+relancé, ou une machine qui se réveille et le relance, affichait
+« aucune alerte » quand la nuit avait sonné dix fois, et le journal
+seul le savait. `MarketHub._warm_alerts`, appelé avec
+`_warm_liquidations` avant d'ouvrir la moindre connexion, relit la
+journée du journal (`ALERTS_WARM_UP_SECONDS`) et la rend au moteur par
+`restore` — même contrat que le fil des liquidations : rien n'est
+réécrit, l'état des règles (fronts, seuils armés) n'est pas touché, une
+lecture qui échoue laisse la mémoire vide. Le navigateur, lui, ne fait
+sonner que ce qui est plus récent que sa dernière trame
+(`_alertsLast`) : une sonnerie relue s'affiche sans sonner, page
+ouverte pendant le redémarrage ou non.
+
 Le moteur ne connaît pas Dash : il reçoit le hub en paramètre, comme
 les fonctions de rendu des panneaux, et `tests/test_alerts.py` le
 déroule au temps simulé sur un hub factice — hystérésis, fronts,
@@ -1750,6 +1765,11 @@ sentir, aucun ne conditionnant les autres.
   Bybit dans le même fil, dix grandes paires ; le panneau étiquette la
   plateforme, le journal la conserve (colonne `exchange`, ajoutée par
   migration), et le badge nomme le lien qui manque.
+- ~~**Les alertes après un redémarrage**~~ — constaté au balayage des
+  panneaux du service en marche : « aucune alerte — les seuils
+  veillent » quand le journal en comptait onze sur la journée. Fait :
+  `_warm_alerts` relit la journée au démarrage, comme les liquidations
+  (§2.8).
 - ~~**La séance interrompue**~~ — constaté dans le journal de séance,
   trente trous de plus de dix minutes en sept jours dans les instantanés
   de marché, dont un de 447 min ; le journal système a dit la cause —

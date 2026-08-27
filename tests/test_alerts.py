@@ -474,6 +474,34 @@ def test_sonneries_au_journal():
     print("  ✓ chaque sonnerie laisse sa ligne dans le journal")
 
 
+def test_les_sonneries_survivent_au_redemarrage():
+    """Un service relancé retrouve la journée sonnée, sans rien réécrire."""
+    import time
+    from btcterm.alerts import Alert
+    from btcterm.hub import MarketHub
+
+    with tempfile.TemporaryDirectory() as tmp:
+        journal = Journal(Path(tmp) / "journal.db")
+        now = time.time()
+        for age, kind, message in ((7200, "arb", "arbitrage A → B net +0.6 %"),
+                                   (1800, "liq", "rafale 3.2 M$ en 5 min"),
+                                   (90_000, "news", "d'avant-hier : hors fenêtre")):
+            journal.record_alert(Alert(time=now - age, kind=kind, message=message))
+
+        hub = MarketHub(collect_news=False, keep_journal=False)
+        hub.journal = journal
+        assert hub._warm_alerts() == 2
+        recentes = hub.alerts.recent(5)
+        assert [a.kind for a in recentes] == ["liq", "arb"], "la plus récente d'abord"
+        assert hub.alerts.count_since(3600) == 1, "la cloche compte l'heure"
+        # Rien n'a été réécrit : trois lignes, comme avant.
+        assert len(journal.alerts_between(0, now + 1)) == 3
+        # Sans journal : mémoire vide, sans erreur.
+        assert MarketHub(collect_news=False, keep_journal=False)._warm_alerts() == 0
+        journal.close()
+    print("  ✓ la journée sonnée revient au démarrage, le journal reste intact")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nMoteur d'alertes — {len(tests)} vérifications\n" + "─" * 60)

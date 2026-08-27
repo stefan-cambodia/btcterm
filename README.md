@@ -303,7 +303,9 @@ fantôme dans un carnet nourri par deltas. Les carnets se resynchronisent
 désormais quand ils se croisent, et le moteur les écarte en attendant. Et
 la machine qui dort n'est plus passée sous silence : le panneau journal
 compte les interruptions de séance, et les courbes journalisées s'y
-rompent au lieu de tirer un trait par-dessus.
+rompent au lieu de tirer un trait par-dessus. Enfin, les alertes de la
+journée sont relues au démarrage comme les liquidations : un service
+relancé n'affiche plus « aucune alerte » après une nuit qui a sonné.
 
 ## Outils complémentaires
 
