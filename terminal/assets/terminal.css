@@ -136,6 +136,23 @@ body {
     color: #22d3ee;
 }
 
+/* ── Cloche des alertes ────────────────────────────────────
+   Elle compte les sonneries et ouvre le panneau ; sa couleur, elle,
+   vient du callback des alertes — jaune quand l'heure a sonné, grise
+   sinon. Rien de coloré ici, qui serait écrasé au tour suivant : la
+   classe ne porte que ce qui dit « ceci se clique ». */
+
+.hdr-bell {
+    cursor: pointer;
+    user-select: none;
+    border-bottom: 1px solid transparent;
+    transition: border-color 0.12s;
+}
+
+.hdr-bell:hover {
+    border-bottom-color: currentColor;
+}
+
 /* ── Disposition de la grille ──────────────────────────────
    Le bouton ⚙ du bandeau ouvre un dialogue où chaque panneau se range
    dans une cellule. Les sélecteurs réutilisent le style `tf-radio` des

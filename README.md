@@ -248,7 +248,7 @@ le jour présent au démarrage tenu pour vu) et un réseau chargé, mempool
 gonflé ou blocs lents.
 Les règles sonnent sur le front montant, sous délai de garde — une condition
 qui dure ou qui clignote ne sonne pas en rafale. La cloche du bandeau compte
-la dernière heure ; le bip et les notifications navigateur (permission
+la dernière heure et ouvre le panneau d'un clic, où qu'il soit rangé ; le bip et les notifications navigateur (permission
 demandée d'un clic) retentissent même panneau replié ; chaque sonnerie part
 au journal et se relit avec la séance. Les seuils survivent au rechargement
 et réarment le moteur au chargement de la page.

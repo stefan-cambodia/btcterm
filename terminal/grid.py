@@ -164,6 +164,23 @@ def active_panel(area: str, tabs, placement: dict[str, tuple[str, ...]]) -> str:
     return active if active in panels else panels[0]
 
 
+def reveal(panel_id: str, tabs, placement) -> dict[str, str] | None:
+    """Le choix d'onglets qui amène `panel_id` à l'écran, ou `None`.
+
+    Un panneau n'a plus de cellule fixe depuis que le rangement est
+    configurable : qui veut le montrer — le clic sur la cloche des
+    alertes, aujourd'hui — doit d'abord demander à la grille où il a
+    atterri. `None` dit qu'il est déjà à l'écran, et vaut alors
+    `no_update` : réécrire le Store re-rendrait la cellule pour rien.
+    """
+    placement = normalize_placement(placement)
+    area = next(name for name, panels in placement.items()
+                if panel_id in panels)
+    if active_panel(area, tabs, placement) == panel_id:
+        return None
+    return {**(tabs or {}), area: panel_id}
+
+
 # ───────────────────────────── cellules ──────────────────────────────
 
 def _tabs(area: str, panels: tuple[str, ...], active: str):

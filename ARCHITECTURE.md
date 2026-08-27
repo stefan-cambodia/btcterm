@@ -495,7 +495,9 @@ défaut de tout le processus.
 Côté interface, le panneau ALERTES (onglet de la cellule news) affiche
 les sonneries et les réglages, qui vivent dans un Store persisté et
 réarment le moteur au chargement ; la cloche du bandeau compte la
-dernière heure ; un bip et une notification navigateur (permission
+dernière heure et **ouvre le panneau d'un clic** — elle demande à la
+grille (`reveal`) dans quelle cellule le panneau a été rangé, et quitte
+au passage un éventuel plein écran qui le masquerait ; un bip et une notification navigateur (permission
 demandée d'un geste) partent d'un callback clientside sur le fil global
 — la sonnerie retentit même panneau replié, et un rechargement ne
 rejoue rien.

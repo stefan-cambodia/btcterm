@@ -22,7 +22,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from terminal.grid import (AREA_LABELS, AREAS, CELLS,  # noqa: E402
                            DEFAULT_PLACEMENT, HOME_AREA, PANEL_REGISTRY,
-                           normalize_placement)
+                           active_panel, normalize_placement, reveal)
 from terminal.placement import (DIALOG_COLUMNS,  # noqa: E402
                                 placement_from_choices)
 
@@ -128,6 +128,34 @@ def test_le_dialogue_couvre_toutes_les_cellules():
     assert set(DIALOG_COLUMNS) == set(AREAS)
     assert set(AREA_LABELS) == set(AREAS)
     print("  ✓ chaque cellule a sa colonne et son nom")
+
+
+def test_montrer_un_panneau_le_trouve_ou_qu_il_soit():
+    """La cloche du bandeau ouvre le panneau alertes — encore faut-il
+    savoir dans quelle cellule il vit. Un rangement configurable peut
+    l'avoir déplacé, et rien ne doit dépendre de sa cellule d'origine."""
+    choix = reveal("alerts", None, None)
+    assert choix[HOME_AREA["alerts"]] == "alerts"
+
+    demenage = {area: [p for p in panels if p != "alerts"]
+                for area, panels in DEFAULT_PLACEMENT.items()}
+    demenage["arb"] = demenage["arb"] + ["alerts"]
+    choix = reveal("alerts", {"arb": "liq"}, demenage)
+    assert choix["arb"] == "alerts"
+    assert choix != {"arb": "liq"}, "l'onglet précédent n'a pas cédé"
+    print("  ✓ le panneau est retrouvé dans sa cellule du moment")
+
+
+def test_montrer_un_panneau_deja_visible_ne_change_rien():
+    """`None` vaut `no_update` : réécrire le Store re-rendrait la cellule
+    — et remonter un graphique lui fait perdre son zoom."""
+    assert reveal("alerts", {"news": "alerts"}, None) is None
+    # Un onglet retenu qui n'existe plus : la cellule montre son premier
+    # panneau, et `reveal` doit raisonner sur ce qui est *affiché*.
+    tabs = {"news": "fear-greed-2019"}
+    assert active_panel("news", tabs, dict(DEFAULT_PLACEMENT)) == "news"
+    assert reveal("news", tabs, None) is None
+    print("  ✓ panneau déjà à l'écran → aucun changement d'onglets")
 
 
 def test_cells_reste_la_reference():
