@@ -164,58 +164,79 @@ def register(app, hub) -> None:
 
     @sock.route("/push")
     def _push(ws):
-        state = dict(DEFAULT_STATE)
-        # Dernière sérialisation envoyée, par cible : c'est la comparaison
-        # de chaînes qui décide qu'un panneau repart — pas de comparaison
-        # d'arbres de composants, qui n'ont pas d'égalité utile.
-        sent: dict[str, str] = {}
-        next_send = time.monotonic()
-        # La cible prix a sa propre cadence, plus lente : ce jalon dit
-        # quand la recalculer. Zéro pour qu'elle parte dès la première
-        # trame — et reparte dès qu'un changement d'état l'exige.
-        price_due = 0.0
-        try:
-            while True:
-                # Entre deux trames, la boucle dort sur la réception :
-                # un changement d'état arrive ainsi sans retard, et un
-                # canal silencieux ne coûte qu'un réveil par cadence.
-                wait = next_send - time.monotonic()
-                if wait > 0:
-                    raw = ws.receive(timeout=wait)
-                    if raw is not None:
-                        previous = state
-                        state = _merge(state, raw)
-                        # Un état qui change rend les comparaisons
-                        # précédentes caduques pour les cibles qui en
-                        # dépendent ; tout effacer est plus simple et ne
-                        # coûte qu'une trame pleine.
-                        if state != previous:
-                            sent.clear()
-                            next_send = time.monotonic()
-                            price_due = 0.0
-                    continue
+        serve(hub, ws)
 
-                frame = _frame(hub, state)
-                if (state["price_interval"]
-                        and time.monotonic() >= price_due):
-                    frame["price-lwc"] = _price_target(
-                        hub, state["price_interval"])
-                    price_due = time.monotonic() + PUSH_PRICE_INTERVAL
-                changed = {
-                    target: blob
-                    for target, props in frame.items()
-                    if sent.get(target)
-                    != (blob := json.dumps(props, cls=PlotlyJSONEncoder))
-                }
-                if changed:
-                    # La trame est assemblée à la main : chaque valeur est
-                    # déjà une chaîne JSON, la re-sérialiser l'échapperait.
-                    ws.send("{" + ",".join(
-                        f"{json.dumps(target)}:{blob}"
-                        for target, blob in changed.items()) + "}")
-                    sent.update(changed)
-                next_send = time.monotonic() + PUSH_INTERVAL
-        except ConnectionClosed:
-            # Fin normale : le navigateur est parti, ou le repli sur
-            # l'horloge a pris le relais.
-            return
+
+def serve(hub, ws) -> None:
+    """Pousse les trames à un navigateur jusqu'à son départ — ou l'arrêt du hub.
+
+    La seconde sortie compte autant que la première : sous gunicorn,
+    chaque WebSocket occupe un thread du pool et compte comme une
+    requête en cours. Au SIGTERM, le worker attend la fin de ses
+    requêtes avant de sortir, et l'interpréteur joint ensuite les
+    threads du pool — une boucle qui ne rendrait la main qu'au départ
+    du navigateur bloquerait l'arrêt jusqu'au SIGKILL de systemd. La
+    boucle lit donc `hub.stopping` à chaque tour, et une cadence de
+    `PUSH_INTERVAL` borne le délai de sortie ; elle ferme la WebSocket
+    elle-même, pour que push.js bascule sur l'horloge sans attendre.
+    """
+    state = dict(DEFAULT_STATE)
+    # Dernière sérialisation envoyée, par cible : c'est la comparaison
+    # de chaînes qui décide qu'un panneau repart — pas de comparaison
+    # d'arbres de composants, qui n'ont pas d'égalité utile.
+    sent: dict[str, str] = {}
+    next_send = time.monotonic()
+    # La cible prix a sa propre cadence, plus lente : ce jalon dit
+    # quand la recalculer. Zéro pour qu'elle parte dès la première
+    # trame — et reparte dès qu'un changement d'état l'exige.
+    price_due = 0.0
+    try:
+        while not hub.stopping.is_set():
+            # Entre deux trames, la boucle dort sur la réception :
+            # un changement d'état arrive ainsi sans retard, et un
+            # canal silencieux ne coûte qu'un réveil par cadence.
+            wait = next_send - time.monotonic()
+            if wait > 0:
+                raw = ws.receive(timeout=wait)
+                if raw is not None:
+                    previous = state
+                    state = _merge(state, raw)
+                    # Un état qui change rend les comparaisons
+                    # précédentes caduques pour les cibles qui en
+                    # dépendent ; tout effacer est plus simple et ne
+                    # coûte qu'une trame pleine.
+                    if state != previous:
+                        sent.clear()
+                        next_send = time.monotonic()
+                        price_due = 0.0
+                continue
+
+            frame = _frame(hub, state)
+            if (state["price_interval"]
+                    and time.monotonic() >= price_due):
+                frame["price-lwc"] = _price_target(
+                    hub, state["price_interval"])
+                price_due = time.monotonic() + PUSH_PRICE_INTERVAL
+            changed = {
+                target: blob
+                for target, props in frame.items()
+                if sent.get(target)
+                != (blob := json.dumps(props, cls=PlotlyJSONEncoder))
+            }
+            if changed:
+                # La trame est assemblée à la main : chaque valeur est
+                # déjà une chaîne JSON, la re-sérialiser l'échapperait.
+                ws.send("{" + ",".join(
+                    f"{json.dumps(target)}:{blob}"
+                    for target, blob in changed.items()) + "}")
+                sent.update(changed)
+            next_send = time.monotonic() + PUSH_INTERVAL
+    except ConnectionClosed:
+        # Fin normale : le navigateur est parti, ou le repli sur
+        # l'horloge a pris le relais.
+        return
+    # Le hub s'arrête : c'est le serveur qui prend congé.
+    try:
+        ws.close()
+    except Exception:  # noqa: BLE001 — la connexion peut déjà être morte
+        pass

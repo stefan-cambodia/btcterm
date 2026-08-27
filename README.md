@@ -294,8 +294,10 @@ de news) ne font double emploi avec aucun panneau. Les dernières retouches
 viennent de l'usage plutôt que de la feuille de route : la cloche du bandeau
 ouvre le panneau alertes d'un clic, la fenêtre des liquidations est relue
 du journal au démarrage, un panneau vide après un redémarrage se lisant comme
-une panne du flux, et le badge des liquidations nomme le lien qui tient sans
-rien livrer, Bybit portant seul le panneau là où Binance se tait.
+une panne du flux, le badge des liquidations nomme le lien qui tient sans
+rien livrer, Bybit portant seul le panneau là où Binance se tait, et le
+service s'arrête en une seconde au lieu d'expirer sous SIGKILL — gunicorn
+attendait la fin des WebSockets, qui n'en ont pas.
 
 ## Outils complémentaires
 

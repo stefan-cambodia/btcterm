@@ -1142,13 +1142,36 @@ un Ctrl-C. Deux choix structurants :
   chaque WebSocket `/push` occupant un thread pour la durée de la
   connexion, le compte est pris large (32).
 
+**L'arrêt, et pourquoi `atexit` ne suffisait pas.** Le journal du
+service a montré deux arrêts sur cinq expirés — « stop-sigterm timed
+out », puis SIGKILL — et la lecture de gunicorn a dit pourquoi. Au
+SIGTERM, le worker gthread cesse d'accepter puis **attend la fin de ses
+requêtes en cours** (`graceful-timeout`, 30 s) avant de sortir ; or une
+WebSocket `/push` est une requête en cours qui ne finit qu'au départ du
+navigateur, et le délai d'arrêt de systemd est de 10 s. Sans navigateur
+attaché, la sortie de l'interpréteur joint de toute façon les threads du
+pool, où la même boucle bloquerait. `atexit`, lui, ne tourne qu'après —
+trop tard. Deux pièces s'y répondent : le hub porte un événement
+`stopping`, que `serve` (le corps de `/push`, §3.10) lit à chaque tour
+de boucle avant de fermer lui-même la WebSocket — push.js repasse à
+l'horloge et se reconnectera —, et `build` enveloppe les gestionnaires
+de signaux que gunicorn a posés avant de charger l'application
+(`_stop_on_signal`) : le signal lève l'événement, puis rend la main au
+gestionnaire en place. Les WebSockets se ferment en un quart de seconde,
+gunicorn n'a plus rien à attendre, et `atexit` referme le hub comme
+avant. Détail qui compte : `signal.signal` rend un signal interruptif,
+et gunicorn tient à ce que SIGTERM ne dérange pas les requêtes en cours
+(`siginterrupt`) — la fabrique le redit après lui.
+
 `terminal/systemd_service.conf` donne, en commentaires à adapter comme le
 gabarit de la collecte de news, l'unité utilisateur `btcterm.service` —
 `Restart=on-failure`, et `loginctl enable-linger` pour survivre à la
 déconnexion. gunicorn est l'extra `serve` du paquet
 (`pip install -e '.[serve]'`). `tests/test_wsgi.py` éprouve la fabrique
 sans réseau ni gunicorn : la traduction de l'environnement en arguments du
-hub, le démarrage, l'arrêt enregistré, la route `/push` posée.
+hub, le démarrage, l'arrêt enregistré, la route `/push` posée, et un
+SIGTERM réel qui lève `stopping` avant de passer au gestionnaire en
+place ; `tests/test_push.py` vérifie que la boucle sort à l'arrêt du hub.
 
 ### 3.12 La démo statique : le panneau prix sans serveur
 
@@ -1696,6 +1719,10 @@ sentir, aucun ne conditionnant les autres.
 - ~~**Service utilisateur**~~ — fait : `terminal/systemd_service.conf`
   donne l'unité `btcterm.service` sur le modèle du gabarit de la collecte
   de news, configurée par variables d'environnement (§3.11).
+- ~~**Arrêt qui expire**~~ — constaté dans le journal du service, deux
+  arrêts sur cinq tués par systemd : gunicorn attendait la fin des
+  WebSockets `/push`, qui n'en ont pas. Fait : le signal d'arrêt lève
+  `hub.stopping`, la boucle du pousseur le lit et prend congé (§3.11).
 
 **À trancher :**
 

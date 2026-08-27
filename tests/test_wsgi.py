@@ -12,6 +12,10 @@ enregistre ce que la fabrique lui transmet, et le test vérifie :
   rien n'est posé, drapeaux posés, et `=0` qui ne compte pas ;
 - que la fabrique démarre le hub et enregistre son arrêt (atexit) —
   c'est ce qui fait qu'un SIGTERM de systemd clôt le journal ;
+- qu'un signal d'arrêt, reçu pour de vrai par le processus, lève
+  `hub.stopping` avant de rendre la main au gestionnaire en place —
+  c'est ce qui fait sortir les WebSockets /push, sans quoi gunicorn
+  attendrait leur fin et systemd finirait par tuer le service ;
 - que l'objet rendu est l'application WSGI complète : la page répond,
   et la route /push du pousseur est posée.
 
@@ -20,6 +24,7 @@ Lancement :
 """
 
 import os
+import signal
 import sys
 import types
 from pathlib import Path
@@ -48,14 +53,17 @@ class HubFactice(MarketHub):
         self.stopped = True
 
 
-def _build(env):
+def _build(env, keep_signals=False):
     """Appelle la fabrique sous un environnement donné, atexit capturé.
 
-    L'environnement est remis en état quoi qu'il arrive : un test ne
-    doit pas léguer ses variables au suivant.
+    L'environnement et les gestionnaires de signaux sont remis en état
+    quoi qu'il arrive : un test ne doit pas léguer ses variables au
+    suivant, ni ses enveloppes de signaux au processus — sauf demande
+    (`keep_signals`), pour le test qui les éprouve.
     """
     saved = {name: os.environ.pop(name, None) for name in ENV_VARS}
     os.environ.update(env)
+    handlers = {s: signal.getsignal(s) for s in wsgi.STOP_SIGNALS}
     registered = []
     real_atexit = wsgi.atexit
     wsgi.atexit = types.SimpleNamespace(register=registered.append)
@@ -70,6 +78,9 @@ def _build(env):
         server = wsgi.build(hub_factory=factory)
     finally:
         wsgi.atexit = real_atexit
+        if not keep_signals:
+            for signum, handler in handlers.items():
+                signal.signal(signum, handler)
         for name, value in saved.items():
             os.environ.pop(name, None)
             if value is not None:
@@ -104,9 +115,32 @@ def test_pose_mais_faux():
     assert hub.kwargs["keep_journal"] is True
 
 
+def test_le_signal_previent_le_hub():
+    """Un SIGTERM réel lève `hub.stopping`, puis passe au gestionnaire en place."""
+    recus = []
+    originaux = {s: signal.getsignal(s) for s in wsgi.STOP_SIGNALS}
+    try:
+        # Le gestionnaire « de gunicorn » : un enregistreur, posé avant la
+        # fabrique comme gunicorn pose le sien avant de charger l'application.
+        signal.signal(signal.SIGTERM, lambda sig, frame: recus.append(sig))
+        _, hub, _ = _build({}, keep_signals=True)
+        assert not hub.stopping.is_set()
+        signal.raise_signal(signal.SIGTERM)
+        assert hub.stopping.is_set(), "le signal n'a pas prévenu le hub"
+        assert recus == [signal.SIGTERM], "le gestionnaire en place n'a pas eu la main"
+        # SIGINT et SIGQUIT sont enveloppés aussi : les trois signaux
+        # d'arrêt de gunicorn.
+        for signum in wsgi.STOP_SIGNALS:
+            assert signal.getsignal(signum) is not originaux[signum]
+    finally:
+        for signum, handler in originaux.items():
+            signal.signal(signum, handler)
+
+
 if __name__ == "__main__":
     test_defauts()
     test_drapeaux()
     test_pose_mais_faux()
+    test_le_signal_previent_le_hub()
     print("OK — fabrique WSGI : environnement traduit, hub démarré, "
-          "arrêt enregistré, route /push posée")
+          "arrêt enregistré, signal relayé, route /push posée")

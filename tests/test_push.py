@@ -24,6 +24,7 @@ Lancement :
 
 import json
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -233,6 +234,41 @@ def test_l_age_du_carnet_avance():
     deux = serialise(_frame(hub, etat))["book-table"]
     assert un != deux, "l'âge du flux n'avance pas"
     print("  ✓ l'âge du flux avance d'un rendu à l'autre")
+
+
+def test_la_boucle_sort_a_l_arret():
+    """Le hub qui s'arrête fait sortir la boucle sans attendre le navigateur.
+
+    Sous gunicorn, une boucle qui ne rendrait la main qu'au départ du
+    navigateur retiendrait le worker jusqu'au SIGKILL de systemd.
+    """
+    from terminal.push import serve
+
+    class WsFactice:
+        def __init__(self):
+            self.sent = []
+            self.closed = False
+
+        def receive(self, timeout=None):
+            time.sleep(min(timeout or 0, 0.05))
+            return None
+
+        def send(self, data):
+            self.sent.append(data)
+
+        def close(self):
+            self.closed = True
+
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    ws = WsFactice()
+    threading.Timer(0.3, hub.stop).start()   # `stop` lève `stopping`
+    debut = time.monotonic()
+    serve(hub, ws)
+    duree = time.monotonic() - debut
+    assert 0.3 <= duree < 2, f"la boucle a mis {duree:.1f} s à sortir"
+    assert ws.sent, "une première trame est partie avant l'arrêt"
+    assert ws.closed, "c'est le serveur qui prend congé du navigateur"
+    print("  ✓ la boucle /push sort à l'arrêt du hub et ferme la WebSocket")
 
 
 if __name__ == "__main__":

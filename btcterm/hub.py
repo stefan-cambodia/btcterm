@@ -157,6 +157,12 @@ class MarketHub:
 
         self._observe_stop = threading.Event()
         self._observe_thread: Optional[threading.Thread] = None
+        #: Levé quand le hub s'arrête — ou, en régime service, dès que
+        #: le signal d'arrêt arrive (terminal/wsgi.py), avant même que
+        #: `stop` ne tourne. Les boucles longues qui vivent hors du hub
+        #: (les WebSockets /push du pousseur) le lisent pour rendre la
+        #: main : c'est ce qui permet au processus de sortir.
+        self.stopping = threading.Event()
 
         # Le panneau news lisait une base que personne ne remplissait
         # dans le terminal ; le collecteur s'en charge en tâche de fond,
@@ -280,6 +286,7 @@ class MarketHub:
                     pass
 
     def stop(self) -> None:
+        self.stopping.set()
         for connector in self._connectors:
             connector.stop()
         self.news.stop()

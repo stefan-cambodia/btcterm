@@ -40,6 +40,8 @@ from __future__ import annotations
 
 import atexit
 import os
+import signal
+import threading
 
 from btcterm.hub import MarketHub
 
@@ -76,4 +78,52 @@ def build(hub_factory=MarketHub):
     )
     hub.start()
     atexit.register(hub.stop)
+    _stop_on_signal(hub)
     return create_app(hub).server
+
+
+#: Les signaux d'arrêt que gunicorn adresse à son worker : SIGTERM pour
+#: l'arrêt gracieux (celui de systemd), SIGINT et SIGQUIT pour l'arrêt
+#: immédiat.
+STOP_SIGNALS = (signal.SIGTERM, signal.SIGINT, signal.SIGQUIT)
+
+
+def _stop_on_signal(hub) -> None:
+    """Lève `hub.stopping` dès le signal d'arrêt, avant tout le reste.
+
+    `atexit` arrive trop tard : au SIGTERM, le worker gthread de gunicorn
+    attend d'abord la fin de ses requêtes en cours (`graceful-timeout`,
+    30 s), et les WebSockets /push en sont — des requêtes qui ne
+    finissent qu'au départ du navigateur. Le service dépassait ainsi
+    le délai d'arrêt de systemd (10 s) et finissait sous SIGKILL, le
+    journal ouvert. Les gestionnaires de gunicorn sont posés avant le
+    chargement de l'application : on les enveloppe, on lève l'événement
+    que le pousseur lit à chaque tour de boucle, et on leur rend la
+    main. Les WebSockets se ferment en un quart de seconde, gunicorn
+    n'a plus rien à attendre, et `atexit` referme le hub comme avant.
+
+    Un gestionnaire ne se pose que depuis le thread principal — c'est
+    là que gunicorn charge l'application ; ailleurs (un test qui bâtit
+    l'application dans un thread), on s'abstient.
+    """
+    if threading.current_thread() is not threading.main_thread():
+        return
+    for signum in STOP_SIGNALS:
+        previous = signal.getsignal(signum)
+
+        def handler(sig, frame, previous=previous):
+            hub.stopping.set()
+            if callable(previous):
+                previous(sig, frame)
+            elif previous == signal.SIG_DFL:
+                # Sans gunicorn (le gestionnaire par défaut), le signal
+                # doit garder son effet : on le rétablit et on se le
+                # renvoie.
+                signal.signal(sig, signal.SIG_DFL)
+                os.kill(os.getpid(), sig)
+
+        signal.signal(signum, handler)
+    # `signal.signal` rend le signal interruptif ; gunicorn tient à ce
+    # qu'un SIGTERM ne dérange pas les requêtes en cours, et l'avait
+    # dit par `siginterrupt` — on le redit après lui.
+    signal.siginterrupt(signal.SIGTERM, False)
