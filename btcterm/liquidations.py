@@ -32,7 +32,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Callable, Iterable, Optional
 
 from .exchanges import ExchangeConnector
 
@@ -74,7 +74,8 @@ class LiquidationFeed(ExchangeConnector):
     liquidations et leurs totaux, et ce qui sort de la fenêtre est
     oublié — l'indicateur de tension du moment. La persistance est
     l'affaire du rappel `on_event`, où le hub branche le journal
-    (btcterm/journal.py).
+    (btcterm/journal.py) — et du chemin inverse, `restore`, par lequel
+    le hub rend la fenêtre à un service qui redémarre.
 
     L'état de connexion est publié ici plutôt que dans un carnet — ce
     flux n'en alimente aucun — d'où la redéfinition des deux marqueurs.
@@ -227,6 +228,30 @@ class LiquidationFeed(ExchangeConnector):
                 # Le journal peut échouer (disque plein, base verrouillée) ;
                 # le fil, lui, doit continuer à nourrir le panneau.
                 pass
+
+    def restore(self, events: Iterable[Liquidation]) -> int:
+        """Repeuple la fenêtre d'événements **déjà connus**, sans les resignaler.
+
+        La fenêtre ne vit qu'en mémoire : redémarrer le service la vide,
+        et le panneau repartait de zéro alors que le journal gardait les
+        dernières heures sur disque — un panneau vide après un
+        redémarrage se lit comme une panne, ce qu'il n'est pas.
+
+        Contrairement à `record`, rien n'est signalé à `on_event` : ces
+        événements viennent du journal, les réémettre les y écrirait une
+        seconde fois. À appeler **avant** d'ouvrir les connexions, les
+        événements devant rester en ordre chronologique dans la
+        fenêtre ; les plus anciens sortent d'eux-mêmes si l'on en donne
+        plus qu'elle n'en tient.
+        """
+        kept = 0
+        with self._lock:
+            for event in events:
+                if event.price <= 0 or event.quantity <= 0:
+                    continue
+                self.events.append(event)
+                kept += 1
+        return kept
 
 
 class BybitLiquidationConnector(ExchangeConnector):

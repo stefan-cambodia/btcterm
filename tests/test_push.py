@@ -47,8 +47,14 @@ def hub_garni(levels: int = DEPTH_MAX + 2) -> MarketHub:
     Binance et Kraken reçoivent des niveaux discernables (60 000 contre
     50 000) : les tests peuvent lire dans la trame quelle plateforme a
     été rendue.
+
+    Sans journal, surtout : ce hub reçoit des liquidations fabriquées, et
+    le journal par défaut est celui de l'utilisateur (~/.btcterm) — les
+    faux événements s'y inscrivaient, et depuis que la fenêtre est relue
+    au démarrage (§ `_warm_liquidations`) ils ressortaient dans le
+    panneau du vrai terminal.
     """
-    hub = MarketHub(collect_news=False)
+    hub = MarketHub(collect_news=False, keep_journal=False)
     for name, base in (("Binance", 60_000.0), ("Kraken", 50_000.0)):
         hub.books[name].replace(
             bids={base - i: 1.0 + i for i in range(1, levels + 1)},
@@ -187,7 +193,8 @@ def test_frame_suit_l_etat():
 
 def test_carnets_vides_rendus_dits():
     """Un hub sans données doit le dire, pas produire une trame vide."""
-    frame = serialise(_frame(MarketHub(collect_news=False),
+    frame = serialise(_frame(MarketHub(collect_news=False,
+                                       keep_journal=False),
                              dict(DEFAULT_STATE)))
     assert set(json.loads("{" + ",".join(
         f'"{c}":{b}' for c, b in frame.items()) + "}")) == CIBLES

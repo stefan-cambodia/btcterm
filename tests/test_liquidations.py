@@ -17,6 +17,12 @@ La seconde source, Bybit, est vérifiée de la même façon : son champ
 l'inverse de Binance ; ses événements vont au même magasin, marqués de
 leur plateforme ; et l'état du fil se compose de ses deux liens.
 
+La relecture du journal au démarrage (`restore`, `_warm_liquidations`)
+est vérifiée sur une base temporaire : elle doit rendre la fenêtre sans
+rien réécrire — un événement relu qui repasserait par `on_event`
+s'inscrirait au journal une seconde fois, et chaque redémarrage
+doublerait l'historique.
+
 Aucun réseau n'est touché.
 
 Lancement :
@@ -29,8 +35,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+from btcterm.hub import MarketHub  # noqa: E402
+from btcterm.journal import Journal  # noqa: E402
 from btcterm.liquidations import (  # noqa: E402
-    BybitLiquidationConnector, LiquidationFeed)
+    BybitLiquidationConnector, Liquidation, LiquidationFeed)
 from terminal.panels import liquidations as panneau  # noqa: E402
 
 
@@ -211,6 +219,71 @@ def test_panneau_etiquette_la_plateforme():
         str(panneau._row(feed.latest(2)[0]))
     assert "BYB" in ligne_bybit and "BIN" in ligne_binance
     print("  ✓ chaque ligne dit sa plateforme")
+
+
+def test_restore_ne_resignale_rien():
+    """Les événements relus du journal ne repassent pas par `on_event`."""
+    feed = LiquidationFeed()
+    vus = []
+    feed.on_event = vus.append
+    maintenant = time.time()
+    rendus = feed.restore([
+        Liquidation(time=maintenant - 120, symbol="BTCUSDT", side="long",
+                    price=64000, quantity=0.5, exchange="Binance"),
+        # Un événement sans taille est écarté, comme dans `record`.
+        Liquidation(time=maintenant - 60, symbol="ETHUSDT", side="short",
+                    price=3000, quantity=0, exchange="Bybit"),
+        Liquidation(time=maintenant - 30, symbol="SOLUSDT", side="long",
+                    price=150, quantity=4, exchange="Bybit"),
+    ])
+    assert rendus == 2, rendus
+    assert vus == [], "un événement relu a été réécrit au journal"
+    assert feed.totals(3600)["count"] == 2
+    # L'ordre chronologique est celui de la fenêtre : la plus récente
+    # d'abord dans `latest`.
+    assert [e.symbol for e in feed.latest(2)] == ["SOLUSDT", "BTCUSDT"]
+    print("  ✓ fenêtre rendue, journal intact, ordre préservé")
+
+
+def test_le_hub_relit_la_derniere_heure():
+    """Un redémarrage retrouve la fenêtre au lieu d'un panneau vide."""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as dossier:
+        journal = Journal(Path(dossier) / "journal.db")
+        maintenant = time.time()
+        recents = [
+            Liquidation(time=maintenant - 300, symbol="BTCUSDT", side="long",
+                        price=64000, quantity=0.5, exchange="Binance"),
+            Liquidation(time=maintenant - 100, symbol="SOLUSDT", side="short",
+                        price=150, quantity=4, exchange="Bybit"),
+        ]
+        # Une liquidation d'avant-hier : hors fenêtre, elle ne revient pas.
+        vieille = Liquidation(time=maintenant - 200_000, symbol="XRPUSDT",
+                              side="long", price=2, quantity=1000,
+                              exchange="Bybit")
+        for event in recents + [vieille]:
+            journal.record_liquidation(event)
+
+        hub = MarketHub(keep_journal=False)
+        hub.journal = journal
+        assert hub._warm_liquidations() == 2
+        assert [e.symbol for e in hub.liquidations.latest(3)] == [
+            "SOLUSDT", "BTCUSDT"]
+        assert hub.liquidations.totals(3600)["count"] == 2
+        # Rien n'a été réécrit : le journal tient toujours trois lignes.
+        assert len(journal.liquidations_between(0, maintenant + 1)) == 3
+        journal.close()
+    print("  ✓ dernière heure rendue, plus ancien laissé au journal")
+
+
+def test_sans_journal_le_demarrage_ne_rend_rien():
+    """Un hub sans journal démarre sur une fenêtre vide, sans erreur."""
+    hub = MarketHub(keep_journal=False)
+    assert hub.journal is None
+    assert hub._warm_liquidations() == 0
+    assert hub.liquidations.totals(3600)["count"] == 0
+    print("  ✓ pas de journal, pas de relecture, pas d'erreur")
 
 
 if __name__ == "__main__":

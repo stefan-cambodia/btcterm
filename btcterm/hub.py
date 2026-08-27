@@ -24,7 +24,8 @@ from .alerts import AlertEngine
 from .arbitrage import ArbitrageEngine
 from .journal import Journal
 from .newsdb import NewsCollector
-from .liquidations import BybitLiquidationConnector, LiquidationFeed
+from .liquidations import (BybitLiquidationConnector, Liquidation,
+                           LiquidationFeed)
 from . import resolver
 from .exchanges import (
     BinanceConnector,
@@ -118,6 +119,10 @@ class MarketHub:
     SNAPSHOT_EVERY = 300.0
     SNAPSHOT_WARMUP = 60.0
 
+    #: Profondeur de la fenêtre de liquidations relue du journal au
+    #: démarrage : une heure, celle des totaux du panneau.
+    WARM_UP_SECONDS = 3600.0
+
     def __init__(
         self,
         symbol: str = "BTCUSDT",
@@ -134,7 +139,8 @@ class MarketHub:
         self.engine = ArbitrageEngine(self.books, min_profit_pct=min_profit_pct)
         #: Fil des liquidations forcées, toutes paires confondues : il
         #: partage le thread des connecteurs et ne garde qu'une fenêtre
-        #: glissante en mémoire.
+        #: glissante en mémoire — relue du journal au démarrage
+        #: (`_warm_liquidations`).
         self.liquidations = LiquidationFeed()
         self.started_at = time.time()
 
@@ -174,6 +180,10 @@ class MarketHub:
         # renvoie 127.0.0.1 pour Binance ou Bybit, la résolution de secours
         # par DNS sur HTTPS prend le relais (voir btcterm/resolver.py).
         resolver.install()
+        # Avant les connecteurs : la fenêtre doit être remplie dans
+        # l'ordre, et un événement vivant qui arriverait pendant la
+        # relecture s'y retrouverait avant des plus anciens.
+        self._warm_liquidations()
         self._connectors = [
             BinanceConnector(self.books["Binance"], symbol="btcusdt", depth=20),
             KrakenConnector(self.books["Kraken"], pair="XBT/USDT", depth=25),
@@ -193,6 +203,44 @@ class MarketHub:
         self._observe_thread = threading.Thread(
             target=self._observe_loop, daemon=True, name="observe")
         self._observe_thread.start()
+
+    def _warm_liquidations(self) -> int:
+        """Rend au fil les liquidations de la dernière heure, du journal.
+
+        La fenêtre glissante ne vit qu'en mémoire : sans cette relecture,
+        un redémarrage du service laisse le panneau vide même après une
+        cascade, ce qui se lit comme une panne du flux. L'heure relue est
+        celle des totaux du panneau — au-delà, la fenêtre montrerait des
+        montants que sa barre de titre ne compte pas.
+
+        Une conséquence assumée : si une rafale est encore dans les cinq
+        dernières minutes au redémarrage, l'alerte de rafale sonnera de
+        nouveau — la condition est vraie, et un opérateur qui relance son
+        terminal au milieu d'une cascade a plutôt intérêt à l'apprendre.
+
+        Rend le nombre d'événements rendus, pour les tests. Une lecture
+        qui échoue — base absente, verrouillée, schéma d'une version
+        antérieure — laisse simplement la fenêtre vide : le fil se
+        remplira des événements vivants.
+        """
+        if self.journal is None:
+            return 0
+        now = time.time()
+        try:
+            rows = self.journal.liquidations_between(
+                now - self.WARM_UP_SECONDS, now)
+        except Exception:
+            return 0
+        return self.liquidations.restore(
+            Liquidation(
+                time=row["ts"], symbol=row["symbol"], side=row["side"],
+                price=row["price"], quantity=row["quantity"],
+                # Les lignes d'avant la seconde source n'ont pas de
+                # plateforme : elles ne pouvaient venir que de Binance.
+                exchange=row["exchange"] or "Binance",
+            )
+            for row in rows
+        )
 
     def _observe_loop(self) -> None:
         """Observe le marché pour le journal et les alertes, à 1 s.

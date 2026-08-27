@@ -282,7 +282,7 @@ la fenêtre nourrit le panneau, le journal la séance. Le fil expose les dernier
 heure, et la part des paires Bitcoin dans ce total, qui distingue une
 cascade locale d'une cascade de marché.
 
-Trois points méritent attention.
+Quatre points méritent attention.
 
 **Le sens.** Une vente forcée ferme une position *longue*, un achat forcé
 une position *courte*. L'inverser donnerait un panneau qui raconte le
@@ -302,6 +302,20 @@ totaux — et l'alerte de rafale (§2.8) — additionnent les deux
 plateformes. Le fil publie son état **par lien** (`links`, `missing`) :
 `connected` vaut dès qu'un lien tient, et le badge du panneau nomme
 celui qui manque plutôt que d'annoncer un flux coupé.
+
+**Le redémarrage ne vide plus le panneau.** La fenêtre ne vivait qu'en
+mémoire : relancer le service la perdait, et l'on retrouvait un panneau
+vide juste après une cascade — ce qui se lit comme une panne du flux
+alors que le journal, lui, gardait tout. `MarketHub.start` appelle donc
+`_warm_liquidations` avant d'ouvrir la moindre connexion : la dernière
+heure du journal (`WARM_UP_SECONDS`, la fenêtre des totaux du panneau)
+est rendue au fil par `restore`, l'entrée jumelle de `record` qui
+n'appelle **pas** `on_event` — les réémettre les réinscrirait au
+journal, et chaque redémarrage doublerait l'historique. La relecture
+précède les connecteurs pour que la fenêtre reste chronologique. Une
+conséquence assumée : une rafale encore dans les cinq dernières minutes
+au redémarrage refait sonner l'alerte (§2.8), la condition étant
+réellement vraie.
 
 **La boucle de reconnexion est celle des connecteurs.** `LiquidationFeed`
 hérite d'`ExchangeConnector`, dont le carnet est devenu optionnel pour
@@ -548,8 +562,9 @@ profil de volume, signaux gradués et marqueurs.
 garantir : le flux des liquidations est épisodique, et le contrôle d'interface
 trouve presque toujours le panneau vide. Le test lui injecte des messages au
 format documenté par Binance et vérifie le sens des événements, les totaux, la
-fenêtre glissante, le rejet des messages aberrants et la mise en forme du
-panneau.
+fenêtre glissante, le rejet des messages aberrants, la mise en forme du
+panneau, et la relecture du journal au démarrage — sur une base temporaire,
+en s'assurant qu'aucun événement relu ne se réinscrit.
 
 `tests/test_macrocal.py` garde la liste de dates contre ses deux façons de se
 tromper : la faute de frappe silencieuse — un 30 février lèverait dès l'import,
