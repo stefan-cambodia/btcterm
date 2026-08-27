@@ -282,7 +282,7 @@ la fenêtre nourrit le panneau, le journal la séance. Le fil expose les dernier
 heure, et la part des paires Bitcoin dans ce total, qui distingue une
 cascade locale d'une cascade de marché.
 
-Quatre points méritent attention.
+Cinq points méritent attention.
 
 **Le sens.** Une vente forcée ferme une position *longue*, un achat forcé
 une position *courte*. L'inverser donnerait un panneau qui raconte le
@@ -302,6 +302,24 @@ totaux — et l'alerte de rafale (§2.8) — additionnent les deux
 plateformes. Le fil publie son état **par lien** (`links`, `missing`) :
 `connected` vaut dès qu'un lien tient, et le badge du panneau nomme
 celui qui manque plutôt que d'annoncer un flux coupé.
+
+**Un lien peut tenir sans rien livrer.** C'est précisément le cas de
+Binance depuis certains pays : le lien s'ouvre, s'abonne, et l'état de
+connexion n'a rien à redire — le badge disait « sans Bybit » quand Bybit
+tombait, et rien du tout quand Binance se taisait, Bybit portant le
+panneau seul. Le fil retient donc, par lien, l'heure du **dernier
+événement** (`last_seen`, nourri par `record` et par `restore` — un
+événement relu du journal dit aussi quand la plateforme a parlé pour la
+dernière fois) et celle de l'**ouverture** du lien (`since`, posée par
+`mark` au passage à connecté). `last_event_age(link)` compte le silence
+depuis le plus récent des deux — un lien qui vient de se rouvrir n'est
+pas muet, même si son dernier mot date — et `silent(threshold)` nomme
+les liens ouverts dont le silence dépasse le seuil. Le panneau le fixe
+à un quart d'heure (`SILENCE`) : Binance diffuse toutes ses paires, et
+quinze minutes sans une seule liquidation ne s'y voient pas en marché
+ouvert. Le badge écrit alors « Binance muet depuis 22 min » en jaune,
+pas en rouge — le fil vit encore par l'autre plateforme, et l'âge
+affiché laisse juger si c'est le pays ou le marché qui se tait.
 
 **Le redémarrage ne vide plus le panneau.** La fenêtre ne vivait qu'en
 mémoire : relancer le service la perdait, et l'on retrouvait un panneau
@@ -1654,14 +1672,13 @@ sentir, aucun ne conditionnant les autres.
   Bybit dans le même fil, dix grandes paires ; le panneau étiquette la
   plateforme, le journal la conserve (colonne `exchange`, ajoutée par
   migration), et le badge nomme le lien qui manque.
-- **Un lien ouvert mais muet** — le badge du panneau liquidations nomme
-  le lien qui *manque* ; il ne sait pas dire celui qui tient sans rien
-  livrer. Or c'est le cas de Binance depuis le Cambodge : le flux
-  futures s'ouvre, s'abonne et se tait (§2.9). Le journal ne contient
-  aucune liquidation Binance réelle — Bybit porte le panneau seul,
-  et rien à l'écran ne le signale. Un âge du dernier événement **par
-  lien** le rendrait visible ; `last_event_age` ne l'expose aujourd'hui
-  que pour le fil entier.
+- ~~**Un lien ouvert mais muet**~~ — fait : le fil date, par lien, le
+  dernier événement reçu et l'ouverture du lien, et `silent` nomme ceux
+  qui tiennent sans rien livrer depuis plus d'un quart d'heure (§2.5).
+  Le badge du panneau l'écrit en jaune — « Binance muet depuis 22 min » —
+  à côté du lien qui manque, s'il y en a un. C'était le cas de Binance
+  depuis le Cambodge : le flux futures s'ouvre, s'abonne et se tait
+  (§2.9), Bybit porte le panneau seul, et l'écran le dit désormais.
 
 **Hygiène technique :**
 

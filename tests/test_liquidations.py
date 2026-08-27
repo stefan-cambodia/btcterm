@@ -15,7 +15,9 @@ passe.
 La seconde source, Bybit, est vérifiée de la même façon : son champ
 `S` est le côté de la **position** — `Buy` pour un long liquidé —, à
 l'inverse de Binance ; ses événements vont au même magasin, marqués de
-leur plateforme ; et l'état du fil se compose de ses deux liens.
+leur plateforme ; et l'état du fil se compose de ses deux liens. Un lien
+qui tient sans rien livrer — Binance depuis certains pays — doit se
+lire dans le badge, sans qu'un lien fraîchement rouvert passe pour muet.
 
 La relecture du journal au démarrage (`restore`, `_warm_liquidations`)
 est vérifiée sur une base temporaire : elle doit rendre la fenêtre sans
@@ -209,6 +211,57 @@ def test_etat_par_lien():
     feed._mark_disconnected(RuntimeError("flux coupé"))
     assert "coupé" in str(panneau._badges(feed))
     print("  ✓ un lien suffit au fil ; le panneau nomme celui qui manque")
+
+
+def test_lien_ouvert_mais_muet():
+    """Un lien qui tient sans rien livrer se nomme ; un lien neuf, non."""
+    feed = LiquidationFeed()
+    bybit = BybitLiquidationConnector(feed)
+    maintenant = time.time()
+
+    # Les deux liens tiennent, mais seul Bybit livre : Binance s'est
+    # ouvert il y a vingt minutes et n'a rien dit depuis.
+    feed._mark_connected()
+    feed.since["Binance"] = maintenant - 1200
+    bybit._mark_connected()
+    bybit._handle(message_bybit())
+
+    assert feed.last_event_age("Bybit") < 5
+    assert 1195 < feed.last_event_age("Binance") < 1205
+    muets = feed.silent(900)
+    assert [nom for nom, _ in muets] == ["Binance"], muets
+    badges = str(panneau._badges(feed))
+    assert "Binance muet depuis 20 min" in badges, badges
+    assert "sans Binance" not in badges and "sans Bybit" not in badges
+
+    # Un lien qui vient de se rouvrir n'est pas muet, même si son
+    # dernier événement est vieux : le silence se compte depuis l'ouverture.
+    feed._mark_disconnected(RuntimeError("coupé"))
+    assert feed.last_event_age("Binance") is None, "un lien tombé n'a pas d'âge"
+    feed._mark_connected()
+    assert feed.last_event_age("Binance") < 5
+    assert feed.silent(900) == []
+
+    # Un événement Binance vieux d'une heure, relu du journal, ne rend pas
+    # le lien plus muet qu'il n'est — mais un lien ouvert depuis une heure
+    # dont le dernier mot a une heure, oui.
+    feed.restore([Liquidation(time=maintenant - 3600, symbol="BTCUSDT",
+                              side="long", price=64000, quantity=0.5)])
+    assert feed.last_seen["Binance"] == maintenant - 3600
+    assert feed.silent(900) == [], "le lien vient de se rouvrir"
+    feed.since["Binance"] = maintenant - 3600
+    assert [nom for nom, _ in feed.silent(900)] == ["Binance"]
+    # L'événement vieux ne rajeunit pas un dernier mot plus récent.
+    bybit._handle(message_bybit(when=maintenant - 7200))
+    assert feed.last_event_age("Bybit") < 5
+
+    # Un lien muet reste nommé quand la fenêtre est vide.
+    vide = LiquidationFeed()
+    vide._mark_connected()
+    vide.since["Binance"] = maintenant - 1000
+    assert "aucune liquidation" in str(panneau._badges(vide))
+    assert "Binance muet depuis 16 min" in str(panneau._badges(vide))
+    print("  ✓ un lien ouvert mais muet se nomme ; un lien neuf, non")
 
 
 def test_panneau_etiquette_la_plateforme():

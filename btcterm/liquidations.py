@@ -22,7 +22,9 @@ qu'aucune erreur ne le dise. Une seconde source, Bybit, alimente donc le
 (`BybitLiquidationConnector`) : son canal `allLiquidation` est par paire,
 sans joker, d'où une liste de paires plutôt que « toutes ». Chaque
 événement dit d'où il vient (`exchange`), et le fil publie l'état de
-chacun de ses liens — le panneau sait dire lequel manque.
+chacun de ses liens — le panneau sait dire lequel manque, et lequel
+tient sans rien livrer (`silent`) : un lien ouvert et muet ne se
+distingue d'un marché calme que par la durée du silence.
 """
 
 from __future__ import annotations
@@ -83,6 +85,12 @@ class LiquidationFeed(ExchangeConnector):
     connecteurs secondaires (Bybit) déclarent le leur par `attach` et le
     tiennent à jour par `mark`. `connected` vaut dès qu'un lien tient,
     `error` rapporte le premier lien tombé.
+
+    Un lien peut tenir sans rien livrer — c'est le cas de Binance depuis
+    certains pays —, et rien dans l'état de connexion ne le dit. Le fil
+    retient donc, par lien, l'heure du dernier événement reçu et celle
+    de l'ouverture du lien : `silent` nomme ceux qui tiennent sans avoir
+    rien livré depuis plus longtemps qu'un seuil.
     """
 
     name = "Liquidations"
@@ -97,6 +105,14 @@ class LiquidationFeed(ExchangeConnector):
         #: État par lien : nom → (connecté, dernière erreur).
         self.links: dict[str, tuple[bool, Optional[str]]] = {
             "Binance": (False, None)}
+        #: Heure du dernier événement reçu, par lien — nourrie par
+        #: `record` comme par `restore` : un événement relu du journal
+        #: dit aussi quand la plateforme a parlé pour la dernière fois.
+        self.last_seen: dict[str, float] = {}
+        #: Moment où chaque lien s'est ouvert, pour ceux qui tiennent :
+        #: le silence d'un lien se compte depuis son ouverture quand il
+        #: n'a encore rien livré, jamais depuis un événement d'avant.
+        self.since: dict[str, float] = {}
         self._lock = threading.Lock()
         #: Rappel appelé à chaque événement retenu — même convention que
         #: les collectes de newsdb : c'est l'appelant qui décide quoi en
@@ -112,8 +128,13 @@ class LiquidationFeed(ExchangeConnector):
 
     def mark(self, name: str, connected: bool,
              error: Optional[str] = None) -> None:
-        """Met à jour l'état d'un lien."""
+        """Met à jour l'état d'un lien, et date son ouverture."""
+        was_up = self.links.get(name, (False, None))[0]
         self.links[name] = (connected, None if connected else error)
+        if connected and not was_up:
+            self.since[name] = time.time()
+        elif not connected:
+            self.since.pop(name, None)
 
     @property
     def connected(self) -> bool:
@@ -131,6 +152,24 @@ class LiquidationFeed(ExchangeConnector):
     def missing(self) -> list[str]:
         """Les liens qui ne tiennent pas, dans l'ordre de déclaration."""
         return [name for name, (up, _) in self.links.items() if not up]
+
+    def silent(self, threshold: float) -> list[tuple[str, float]]:
+        """Les liens qui tiennent sans rien livrer depuis `threshold` secondes.
+
+        Chaque entrée dit le lien et la durée de son silence, comptée
+        depuis son dernier événement ou, s'il est plus récent, depuis
+        l'ouverture du lien : un lien qui vient de se rouvrir n'est pas
+        muet, même si son dernier événement date. Dans l'ordre de
+        déclaration.
+        """
+        muets = []
+        for name, (up, _) in self.links.items():
+            if not up:
+                continue
+            age = self.last_event_age(name)
+            if age is not None and age >= threshold:
+                muets.append((name, age))
+        return muets
 
     def _mark_connected(self) -> None:
         self.mark("Binance", True)
@@ -168,12 +207,28 @@ class LiquidationFeed(ExchangeConnector):
         return {"long": longs, "short": shorts, "btc": btc,
                 "count": len(evenements)}
 
-    def last_event_age(self) -> Optional[float]:
-        """Secondes écoulées depuis la dernière liquidation reçue."""
+    def last_event_age(self, link: Optional[str] = None) -> Optional[float]:
+        """Secondes écoulées depuis la dernière liquidation reçue.
+
+        Sans argument, pour le fil entier — la fenêtre d'événements,
+        quelle qu'en soit la source. Avec un nom de lien, pour ce lien
+        seul : depuis son dernier événement ou, s'il est plus récent,
+        depuis son ouverture ; `None` tant qu'il n'a ni parlé ni ouvert.
+        """
+        now = time.time()
+        if link is not None:
+            repere = max(filter(None, (self.last_seen.get(link),
+                                       self.since.get(link))), default=None)
+            return None if repere is None else max(0.0, now - repere)
         with self._lock:
             if not self.events:
                 return None
-            return time.time() - self.events[-1].time
+            return now - self.events[-1].time
+
+    def _seen(self, event: Liquidation) -> None:
+        """Date le dernier événement du lien dont il vient."""
+        if event.time > self.last_seen.get(event.exchange, 0.0):
+            self.last_seen[event.exchange] = event.time
 
     # ── Flux ────────────────────────────────────────────────
 
@@ -221,6 +276,7 @@ class LiquidationFeed(ExchangeConnector):
             return
         with self._lock:
             self.events.append(event)
+            self._seen(event)
         if self.on_event is not None:
             try:
                 self.on_event(event)
@@ -250,6 +306,7 @@ class LiquidationFeed(ExchangeConnector):
                 if event.price <= 0 or event.quantity <= 0:
                     continue
                 self.events.append(event)
+                self._seen(event)
                 kept += 1
         return kept
 

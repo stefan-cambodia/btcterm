@@ -9,9 +9,14 @@ qu'elles se lisent à côté du carnet, pas dans un onglet de navigateur.
 Panneau « rapide » : il ne fait aucun appel réseau, il lit la fenêtre
 glissante que le fil du hub entretient en mémoire.
 
-**Le silence est normal.** Le flux est épisodique : plusieurs minutes
-sans une seule liquidation ne signalent aucune panne, et le panneau
-distingue les deux — un flux coupé le dit, un flux calme aussi.
+**Le silence est normal — jusqu'à un point.** Le flux est épisodique :
+plusieurs minutes sans une seule liquidation ne signalent aucune panne,
+et le panneau distingue les deux — un flux coupé le dit, un flux calme
+aussi. Mais un lien qui tient sans rien livrer depuis un quart d'heure
+(`SILENCE`) n'est plus un marché calme : c'est Binance qui ouvre ses
+flux futures sans y verser quoi que ce soit depuis certains pays, et le
+badge le nomme — en jaune, pas en rouge, le fil vivant encore par
+l'autre plateforme.
 """
 
 from __future__ import annotations
@@ -29,6 +34,13 @@ ROWS_MAX = 24
 
 #: Fenêtre des totaux affichés dans la barre de titre.
 WINDOW = 3600
+
+#: Silence au-delà duquel un lien ouvert est dit muet. Binance diffuse
+#: toutes ses paires : un quart d'heure sans une seule liquidation ne
+#: s'y voit pas en marché ouvert. Bybit, sur dix paires, se tait plus
+#: volontiers, et le seuil est le même — le badge dit « muet », pas
+#: « en panne », et l'âge affiché laisse juger.
+SILENCE = 15 * 60
 
 SIDE_LABEL = {"long": ("LONG", C["red"]), "short": ("SHORT", C["green"])}
 
@@ -72,10 +84,19 @@ def _badges(feed):
                        title=feed.error or "lien non établi")]
             if manque else [])
 
+    # Un lien qui tient sans rien livrer se dit aussi : c'est le cas de
+    # Binance depuis certains pays, et rien d'autre ne le signalerait.
+    muets = [html.Span(f" · {name} muet depuis {int(age // 60)} min",
+                       style={"color": C["yellow"]},
+                       title="lien ouvert, mais aucune liquidation reçue — "
+                             "depuis certains pays, Binance ouvre ses flux "
+                             "futures sans rien y livrer")
+             for name, age in feed.silent(SILENCE)]
+
     totals = feed.totals(WINDOW)
     if not totals["count"]:
         return html.Span([html.Span("aucune liquidation depuis une heure",
-                                    style={"color": C["muted"]})] + sans,
+                                    style={"color": C["muted"]})] + sans + muets,
                          style={"fontFamily": MONO})
 
     return html.Span([
@@ -90,7 +111,7 @@ def _badges(feed):
         html.Span(" · dont BTC ", style={"color": C["muted"]}),
         html.Span(_montant(totals["btc"]), style={"color": C["yellow"]},
                   title="part des paires Bitcoin dans le total"),
-    ] + sans, style={"fontFamily": MONO})
+    ] + sans + muets, style={"fontFamily": MONO})
 
 
 def _row(event):

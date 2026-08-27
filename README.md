@@ -204,7 +204,9 @@ pays — la connexion s'ouvre, l'abonnement est acquitté, rien n'arrive. C'est
 pourquoi le fil des liquidations écoute aussi **Bybit** (canal
 `allLiquidation`, dix grandes paires) : les deux plateformes nourrissent le
 même panneau, chaque ligne dit la sienne (`BIN`/`BYB`), et le badge nomme le
-lien qui manque. Le panneau perpétuel (REST `fapi`) n'est pas concerné.
+lien qui manque — comme celui qui tient sans rien livrer depuis plus d'un
+quart d'heure (« Binance muet depuis 22 min »). Le panneau perpétuel (REST
+`fapi`) n'est pas concerné.
 
 **News** — le terminal **remplit** lui-même `~/.btc_news/news.db`, toutes les
 quinze minutes, avec les règles de scoring du tracker : plus besoin du timer
@@ -290,9 +292,10 @@ scripts qu'il remplace ont été supprimés — la TUI d'arbitrage, doublon du
 panneau du même nom, en dernier — et ceux qui restent (export ETF, tracker
 de news) ne font double emploi avec aucun panneau. Les dernières retouches
 viennent de l'usage plutôt que de la feuille de route : la cloche du bandeau
-ouvre le panneau alertes d'un clic, et la fenêtre des liquidations est relue
+ouvre le panneau alertes d'un clic, la fenêtre des liquidations est relue
 du journal au démarrage, un panneau vide après un redémarrage se lisant comme
-une panne du flux.
+une panne du flux, et le badge des liquidations nomme le lien qui tient sans
+rien livrer, Bybit portant seul le panneau là où Binance se tait.
 
 ## Outils complémentaires
 
