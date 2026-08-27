@@ -189,7 +189,10 @@ produit les vues triées à la lecture (`top`, `cumulative_depth`, `best_bid`,
 qu'un thread de rendu puisse lire pendant qu'un thread réseau écrit.
 
 `ExchangeConnector` fournit la boucle de reconnexion (backoff exponentiel
-plafonné, compteur remis à zéro après une connexion qui tient) et publie
+plafonné, compteur remis à zéro après une connexion qui a tenu
+`STABLE_AFTER` — le code ne le faisait qu'au retour normal du flux, qui
+ne revient jamais, si bien qu'après quelques pannes chaque reconnexion
+d'une longue séance attendait le plafond) et publie
 `connected` / `error` sur le carnet, ce qui permet à l'interface d'afficher
 l'état réel de chaque flux. Les sous-classes n'implémentent que `_stream()`.
 
@@ -464,6 +467,28 @@ règlements, étiquette à droite — le dernier relevé avant l'échéance
 reconstitue le taux réglé) pour une couture invisible. Une base
 antérieure à une colonne s'élargit par ALTER TABLE à l'ouverture :
 l'historique accumulé n'est jamais perdu.
+
+**La séance interrompue.** Sept jours de journal ont montré trente trous
+de plus de dix minutes entre deux instantanés, jusqu'à 447 minutes
+d'affilée — et pendant ces trous, ni épisode observé ni liquidation
+écrite : tout le processus s'arrêtait, pas un thread. Le journal
+système a nommé la cause, `systemd-sleep` : la machine dort, le
+terminal avec elle, et la séance reprend au réveil. Rien à réparer,
+mais quelque chose à dire — les courbes bâties sur les instantanés
+tiraient un trait par-dessus sept heures de sommeil, comme si le marché
+avait été observé. `interruptions_between` (et `find_gaps`) nomme les
+trous de plus de `SNAPSHOT_GAP` (trois cadences, un instantané manqué
+n'en est pas un) ; `market_snapshots()` insère une ligne de rupture —
+toutes valeurs à NaN, colonne `gap` — juste après le dernier instantané
+avant chaque trou, et la courbe de dominance la garde au lieu de
+l'écarter : plotly rompt le trait sur un NaN. Les séries prolongées
+gardent leurs tranches vides à NaN, que `frame_to_lines(…,
+whitespace=True)` sérialise en points blancs, `{time}` sans valeur — la
+forme que Lightweight Charts réserve aux trous. Le panneau journal
+compte les interruptions de la fenêtre et leur durée dans sa barre de
+titre. Et le réveil ne paie plus les pannes d'avant : le compteur de
+backoff des connecteurs repart de zéro après une connexion qui a tenu
+(§2.2).
 
 `tests/test_journal.py` déroule la vie d'un épisode au temps simulé —
 ouverture, meilleur profit, flottement toléré, clôture après la grâce —
@@ -1725,6 +1750,16 @@ sentir, aucun ne conditionnant les autres.
   Bybit dans le même fil, dix grandes paires ; le panneau étiquette la
   plateforme, le journal la conserve (colonne `exchange`, ajoutée par
   migration), et le badge nomme le lien qui manque.
+- ~~**La séance interrompue**~~ — constaté dans le journal de séance,
+  trente trous de plus de dix minutes en sept jours dans les instantanés
+  de marché, dont un de 447 min ; le journal système a dit la cause —
+  `systemd-sleep`, la machine dort — et les courbes journalisées tiraient
+  un trait par-dessus. Fait : le journal nomme les interruptions
+  (`interruptions_between`), `market_snapshots` y pose une ligne de
+  rupture, la dominance et les séries prolongées s'y rompent, le panneau
+  journal les compte (§2.7) ; et le backoff des connecteurs repart de
+  zéro après une connexion qui a tenu, pour que le réveil ne paie pas
+  les pannes d'avant (§2.2).
 - ~~**Niveaux fantômes dans les carnets**~~ — constaté dans le journal de
   séance, des épisodes d'arbitrage de plusieurs heures à prix d'achat
   figé : un ask que le carnet n'avait jamais supprimé. Fait : le

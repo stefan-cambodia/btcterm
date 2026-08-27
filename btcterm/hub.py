@@ -118,6 +118,11 @@ class MarketHub:
     #: au démarrage, les panneaux réchauffent déjà les mêmes caches.
     SNAPSHOT_EVERY = 300.0
     SNAPSHOT_WARMUP = 60.0
+    #: Au-delà de cet écart entre deux instantanés, la séance a été
+    #: interrompue — machine en veille, service arrêté — et les courbes
+    #: journalisées s'y rompent au lieu de tirer un trait par-dessus.
+    #: Trois cadences : un instantané manqué n'est pas une interruption.
+    SNAPSHOT_GAP = 3 * SNAPSHOT_EVERY
 
     #: Profondeur de la fenêtre de liquidations relue du journal au
     #: démarrage : une heure, celle des totaux du panneau.
@@ -433,10 +438,17 @@ class MarketHub:
         C'est la série que CoinGecko ne donne qu'en payant et que
         Binance tronque à trente jours : elle n'existe que par
         l'accumulation locale, et commence donc vide.
+
+        La séance s'interrompt — la machine dort, le service s'arrête —
+        et le journal le montre par un trou entre deux instantanés. Une
+        ligne de rupture (toutes valeurs à NaN, `gap` vrai) est insérée
+        juste après le dernier instantané avant chaque trou de plus de
+        `SNAPSHOT_GAP` : une courbe qui la traverse se rompt au lieu de
+        tirer un trait sur sept heures de sommeil.
         """
         columns = ["time", "btc_dominance", "stable_share",
                    "total_cap_usd", "total_volume_usd", "oi_usd",
-                   "funding_rate"]
+                   "funding_rate", "gap"]
         if self.journal is None:
             return pd.DataFrame(columns=columns)
         end = time.time()
@@ -445,7 +457,24 @@ class MarketHub:
             return pd.DataFrame(columns=columns)
         df = pd.DataFrame([dict(row) for row in rows])
         df["time"] = pd.to_datetime(df.pop("ts"), unit="s")
+        df["gap"] = False
+        holes = df.index[df["time"].diff().dt.total_seconds() > self.SNAPSHOT_GAP]
+        if len(holes):
+            breaks = pd.DataFrame({
+                "time": df.loc[holes - 1, "time"].to_numpy()
+                + pd.Timedelta(seconds=1),
+                "gap": True})
+            df = (pd.concat([df, breaks], ignore_index=True)
+                  .sort_values("time", kind="stable").reset_index(drop=True))
         return df[columns]
+
+    def market_interruptions(self, days: float = 1) -> list[tuple[float, float]]:
+        """Les interruptions de séance sur `days` jours : (avant, après)."""
+        if self.journal is None:
+            return []
+        end = time.time()
+        return self.journal.interruptions_between(end - days * 86_400, end,
+                                                  self.SNAPSHOT_GAP)
 
     def chain_chart(self, name: str = "hash-rate",
                     timespan: str = "1year") -> pd.DataFrame:
@@ -510,8 +539,11 @@ class MarketHub:
             history = history[history["time"] < base["time"].iloc[0]]
         if history.empty:
             return base
+        # Les tranches vides — la séance interrompue — restent à NaN :
+        # la sérialisation en fait des points blancs, et la courbe se
+        # rompt là où le journal n'a rien vu.
         resampled = (history.set_index("time")["oi_usd"]
-                     .resample("4h").last().dropna().reset_index())
+                     .resample("4h").last().reset_index())
         return pd.concat([resampled, base], ignore_index=True)
 
     def funding_history_extended(self, limit: int = 90) -> pd.DataFrame:
@@ -538,7 +570,7 @@ class MarketHub:
             return base
         resampled = (history.set_index("time")["funding_rate"]
                      .resample("8h", label="right", closed="left")
-                     .last().dropna().rename("rate").reset_index())
+                     .last().rename("rate").reset_index())
         if not base.empty:
             # L'étiquette droite peut retomber sur le premier règlement
             # de Binance : le règlement réel gagne.

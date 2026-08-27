@@ -117,6 +117,9 @@
                 if (seq !== state.seq || !state.chart) { return; }
                 var theme = state.conf.theme;
                 state.funding.setData(packet.funding.map(function (p) {
+                    // Un point sans valeur est un point blanc : la
+                    // séance était interrompue, la série s'y rompt.
+                    if (p.value === undefined) { return {time: p.time}; }
                     return {time: p.time, value: p.value,
                             color: p.value >= 0 ? theme.green : theme.red};
                 }));

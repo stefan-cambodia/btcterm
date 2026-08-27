@@ -137,6 +137,11 @@ _MIGRATIONS = {
 }
 
 
+def find_gaps(timestamps: list[float], gap: float) -> list[tuple[float, float]]:
+    """Les intervalles entre deux horodatages consécutifs distants de plus de `gap`."""
+    return [(a, b) for a, b in zip(timestamps, timestamps[1:]) if b - a > gap]
+
+
 class Journal:
     """Écritures au fil de l'eau, lectures par fenêtre de temps."""
 
@@ -324,6 +329,18 @@ class Journal:
             return self._connection().execute(
                 "SELECT * FROM market_snapshots WHERE ts BETWEEN ? AND ?"
                 " ORDER BY ts", (start, end)).fetchall()
+
+    def interruptions_between(self, start: float, end: float,
+                              gap: float) -> list[tuple[float, float]]:
+        """Les trous de plus de `gap` secondes entre deux instantanés.
+
+        Un instantané part toutes les cinq minutes tant que le service
+        tourne : un trou plus large dit que la machine dormait, ou que
+        le service était arrêté. Chaque entrée donne le dernier
+        instantané avant le trou et le premier après.
+        """
+        return find_gaps([row["ts"] for row in self.snapshots_between(start, end)],
+                         gap)
 
 
 def _relire(hours: float) -> None:

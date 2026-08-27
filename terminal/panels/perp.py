@@ -112,7 +112,7 @@ def _badges(snapshot: dict, open_interest, verbose: bool = False):
     if open_interest is not None and not open_interest.empty:
         children += [
             label(" · open interest "),
-            html.Span(f"OI {open_interest['oi_usd'].iloc[-1] / 1e9:.2f} Md$",
+            html.Span(f"OI {open_interest['oi_usd'].dropna().iloc[-1] / 1e9:.2f} Md$",
                       style={"color": C["cyan"]},
                       title="valeur des positions ouvertes sur le perpétuel"),
         ]

@@ -292,14 +292,17 @@ def build_dominance_chart(
                        tickfont=dict(size=9, color=C["muted"]))
 
     if trend:
-        btc = history.dropna(subset=["btc_dominance"])
+        # Les lignes de rupture (`gap`, § hub.market_snapshots) restent :
+        # un NaN dans la série interrompt le trait, c'est voulu.
+        rupture = history["gap"] if "gap" in history else False
+        btc = history[history["btc_dominance"].notna() | rupture]
         fig.add_trace(go.Scatter(
             x=btc["time"], y=btc["btc_dominance"], name="BTC",
             mode="lines", line=dict(color=C["yellow"], width=1.6),
             hovertemplate="BTC %{y:.1f} %<extra></extra>",
         ), row=2, col=1)
-        stables = history.dropna(subset=["stable_share"])
-        if not stables.empty:
+        stables = history[history["stable_share"].notna() | rupture]
+        if stables["stable_share"].notna().any():
             fig.add_trace(go.Scatter(
                 x=stables["time"], y=stables["stable_share"],
                 name="stables", mode="lines",

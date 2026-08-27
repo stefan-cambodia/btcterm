@@ -300,7 +300,10 @@ service s'arrête en une seconde au lieu d'expirer sous SIGKILL — gunicorn
 attendait la fin des WebSockets, qui n'en ont pas. Le journal de séance a
 aussi révélé des « arbitrages » de plusieurs heures à prix figé : un niveau
 fantôme dans un carnet nourri par deltas. Les carnets se resynchronisent
-désormais quand ils se croisent, et le moteur les écarte en attendant.
+désormais quand ils se croisent, et le moteur les écarte en attendant. Et
+la machine qui dort n'est plus passée sous silence : le panneau journal
+compte les interruptions de séance, et les courbes journalisées s'y
+rompent au lieu de tirer un trait par-dessus.
 
 ## Outils complémentaires
 

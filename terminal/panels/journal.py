@@ -59,6 +59,14 @@ def _montant(valeur: float) -> str:
     return f"{valeur:.0f} $"
 
 
+def _duree(secondes: float) -> str:
+    """Une durée lisible : « 35 min », « 2 h 31 »."""
+    minutes = int(secondes // 60)
+    if minutes < 60:
+        return f"{minutes} min"
+    return f"{minutes // 60} h {minutes % 60:02d}"
+
+
 def _quand(ts: float) -> str:
     """Heure seule dans la fenêtre du jour ; la date au-delà n'existe
     pas ici, la fenêtre fait vingt-quatre heures."""
@@ -165,6 +173,20 @@ def render(hub, expanded: bool):
                    html.Span(depuis, style={"color": C["cyan"]},
                              title="début de l'historique de marché "
                                    "accumulé localement (§ journal)")]
+    # La séance interrompue se dit : la machine a dormi, ou le service
+    # était arrêté, et les courbes journalisées portent le trou.
+    trous = journal.interruptions_between(start, end,
+                                          getattr(hub, "SNAPSHOT_GAP", 900))
+    if trous:
+        total = sum(b - a for a, b in trous)
+        pluriel = "s" if len(trous) > 1 else ""
+        badges += [html.Span(" · ", style={"color": C["muted"]}),
+                   html.Span(f"{len(trous)} interruption{pluriel} "
+                             f"({_duree(total)})",
+                             style={"color": C["yellow"]},
+                             title="instantanés absents : machine en "
+                                   "veille ou service arrêté — les "
+                                   "courbes journalisées s'y rompent")]
     return view, html.Span(badges, style={"fontFamily": MONO})
 
 

@@ -168,6 +168,67 @@ def test_instantanes_partiels_et_lecture():
     print("  ✓ instantané complet puis partiel, NULL où la source a manqué")
 
 
+def test_interruptions_de_seance():
+    """Un trou entre deux instantanés dit que la machine dormait.
+
+    Le journal les nomme, `market_snapshots` y pose une ligne de
+    rupture, et la dominance comme les séries prolongées s'y rompent
+    au lieu de tirer un trait par-dessus sept heures de sommeil.
+    """
+    import math
+    import time
+    import pandas as pd
+    from btcterm.hub import MarketHub
+    from terminal.charts import build_dominance_chart
+    from terminal.lwc import serialize_perp
+    from terminal.panels import journal as panneau
+
+    with tempfile.TemporaryDirectory() as tmp:
+        journal = Journal(Path(tmp) / "journal.db")
+        now = time.time()
+        # Cinq minutes de cadence, puis sept heures de veille, puis reprise.
+        marks = [now - 8 * 3600, now - 8 * 3600 + 300, now - 8 * 3600 + 600,
+                 now - 3600, now - 3300, now - 3000]
+        for ts in marks:
+            journal.record_market_snapshot(ts, btc_dominance=58.0,
+                                           stable_share=9.0,
+                                           total_cap_usd=2.7e12,
+                                           total_volume_usd=9e10,
+                                           oi_usd=8.4e9, funding_rate=6e-5)
+        trous = journal.interruptions_between(0, now, gap=900)
+        assert trous == [(marks[2], marks[3])], trous
+        assert journal.interruptions_between(0, now, gap=8 * 3600) == []
+
+        hub = MarketHub(keep_journal=False)
+        hub.journal = journal
+        assert hub.market_interruptions(days=1) == [(marks[2], marks[3])]
+        df = hub.market_snapshots()
+        assert len(df) == 7 and df["gap"].sum() == 1, df
+        rupture = df[df["gap"]].iloc[0]
+        assert math.isnan(rupture["btc_dominance"])
+        assert df.loc[2, "time"] < rupture["time"] < df.loc[4, "time"]
+
+        # La courbe de dominance passe par un NaN : le trait s'y rompt.
+        fig = build_dominance_chart({"BTC": 58.0, "USDT": 6.0}, history=df)
+        y = list(fig.data[1].y)
+        assert len(y) == 7 and sum(1 for v in y if v != v) == 1, y
+
+        # Les séries prolongées : une tranche vide devient un point blanc.
+        oi = pd.DataFrame({"time": pd.to_datetime([now - 8 * 3600, now - 3600], unit="s"),
+                           "oi_usd": [8.4e9, float("nan")]})
+        paquet = serialize_perp(pd.DataFrame(columns=["time", "rate"]), oi)
+        assert paquet["oi"][0]["value"] == 8.4e9
+        assert paquet["oi"][1] == {"time": int(now - 3600)}, paquet["oi"]
+
+        # Le panneau journal le dit, en durée lisible.
+        _, badges = panneau.render(hub, expanded=False)
+        texte = str(badges)
+        assert "1 interruption (6 h 50)" in texte, texte
+        assert panneau._duree(35 * 60) == "35 min"
+        journal.close()
+    print("  ✓ interruptions nommées, courbes rompues, badge posé")
+
+
 def test_instantanes_retention_longue():
     """La purge de séance épargne les instantanés : eux seuls font
     l'historique que les API refusent, les effacer au bout d'un mois

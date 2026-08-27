@@ -89,7 +89,7 @@ def frame_to_bars(df: pd.DataFrame) -> list[dict]:
 
 
 def frame_to_lines(
-    df: pd.DataFrame, columns: tuple[str, ...]
+    df: pd.DataFrame, columns: tuple[str, ...], whitespace: bool = False
 ) -> dict[str, list[dict]]:
     """Une liste `{time, value}` par colonne demandée, NaN filtrés.
 
@@ -97,17 +97,24 @@ def frame_to_lines(
     n'existe qu'à partir de la 200e bougie) : Lightweight Charts refuse
     les valeurs nulles, chaque ligne commence donc à son premier point
     défini. Une colonne absente du DataFrame est simplement omise.
+
+    Avec `whitespace`, un NaN devient un point blanc — `{time}` sans
+    valeur, la forme que Lightweight Charts réserve aux trous : la ligne
+    s'y rompt. C'est ce que demandent les séries prolongées par le
+    journal, où un NaN dit que la séance était interrompue.
     """
     present = [name for name in columns if name in df.columns]
     frame = _with_epoch(df, present)
-    return {
-        name: [
-            {"time": int(t), "value": _val(v)}
-            for t, v in frame.loc[:, ["time", name]].dropna()
-                             .itertuples(index=False)
-        ]
-        for name in present
-    }
+    out: dict[str, list[dict]] = {}
+    for name in present:
+        points = []
+        for t, v in frame.loc[:, ["time", name]].itertuples(index=False):
+            if pd.notna(v):
+                points.append({"time": int(t), "value": _val(v)})
+            elif whitespace:
+                points.append({"time": int(t)})
+        out[name] = points
+    return out
 
 
 def frame_to_volume(df: pd.DataFrame) -> list[dict]:
@@ -170,16 +177,20 @@ def serialize_perp(
     dollars bruts : c'est le client qui le met en milliards, une affaire
     de format d'axe, pas de données. Les deux séries passent par le même
     contrat que le reste (`frame_to_lines`) : epoch secondes, triées,
-    dédoublonnées, sans NaN.
+    dédoublonnées — et un NaN, qui ne vient que du prolongement par le
+    journal (§ hub.open_interest_extended), devient un point blanc où
+    la courbe se rompt.
     """
     points_funding: list[dict] = []
     if not funding.empty:
         pct = funding.assign(value=funding["rate"] * 100)
-        points_funding = frame_to_lines(pct, ("value",)).get("value", [])
+        points_funding = frame_to_lines(pct, ("value",),
+                                        whitespace=True).get("value", [])
     points_oi: list[dict] = []
     if not open_interest.empty:
         oi = open_interest.rename(columns={"oi_usd": "value"})
-        points_oi = frame_to_lines(oi, ("value",)).get("value", [])
+        points_oi = frame_to_lines(oi, ("value",),
+                                   whitespace=True).get("value", [])
     return {"funding": points_funding, "oi": points_oi}
 
 

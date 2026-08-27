@@ -252,6 +252,12 @@ class ExchangeConnector:
     #: arriver dans deux messages, et se croiser entre les deux.
     CROSSED_GRACE = 2.0
 
+    #: Une connexion qui a tenu au moins ce temps avant de tomber n'est
+    #: pas la panne précédente qui se répète : le backoff repart de son
+    #: premier palier. Sans cela, chaque coupure d'une longue séance —
+    #: le réveil après une veille, typiquement — attendait le plafond.
+    STABLE_AFTER = 60.0
+
     def stop(self) -> None:
         self._running = False
 
@@ -280,10 +286,13 @@ class ExchangeConnector:
     async def _connect_with_retry(self, coro_factory: Callable[[], Awaitable[None]]) -> None:
         retries = 0
         while self._running and (self.max_retries is None or retries < self.max_retries):
+            started = time.monotonic()
             try:
                 await coro_factory()
                 retries = 0  # la connexion a tenu : on repart de zéro
             except Exception as exc:  # noqa: BLE001 — toute panne vaut reconnexion
+                if time.monotonic() - started >= self.STABLE_AFTER:
+                    retries = 0  # une connexion qui a tenu : pas la même panne
                 if isinstance(exc, BookDesync):
                     # Une resynchronisation n'est pas une panne réseau :
                     # elle dit qu'un carnet a menti, et le journal du

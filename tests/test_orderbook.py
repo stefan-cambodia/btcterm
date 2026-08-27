@@ -140,6 +140,46 @@ def test_le_moteur_ecarte_le_carnet_croise():
     print("  ✓ le moteur d'arbitrage ignore un carnet croisé")
 
 
+def test_le_backoff_repart_apres_une_connexion_qui_a_tenu():
+    """Une coupure après une longue connexion n'hérite pas du backoff.
+
+    Le compteur ne se remettait à zéro qu'au retour normal du flux —
+    qui ne revient jamais : après quelques pannes sur une séance, chaque
+    reconnexion attendait le plafond de 30 s, réveil après veille compris.
+    """
+    import asyncio
+    import time
+    from btcterm import exchanges
+
+    connector = KrakenConnector(OrderBook(exchange="Kraken"))
+    connector.STABLE_AFTER = 0.05
+    attentes = []
+    coupures = iter([0.0, 0.0, 0.1, 0.0])   # deux courtes, une qui tient, une courte
+
+    async def flux():
+        duree = next(coupures, None)
+        if duree is None:
+            connector.stop()          # la séance s'arrête là
+        elif duree:
+            await sommeil_reel(duree)
+        raise RuntimeError("coupé")
+
+    sommeil_reel = asyncio.sleep
+
+    async def sommeil_note(secondes):
+        attentes.append(secondes)
+
+    exchanges.asyncio.sleep = sommeil_note
+    try:
+        asyncio.run(connector._connect_with_retry(flux))
+    finally:
+        exchanges.asyncio.sleep = sommeil_reel
+    # 2, 4 : le backoff monte ; la troisième connexion a tenu, la
+    # quatrième coupure repart donc à 2 au lieu de monter à 16.
+    assert attentes[:4] == [2, 4, 2, 4], attentes
+    print("  ✓ le backoff repart de zéro après une connexion qui a tenu")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCarnets et connecteurs — {len(tests)} vérifications\n" + "─" * 60)
