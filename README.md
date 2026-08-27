@@ -288,7 +288,11 @@ marché à terme, les news, le calendrier macro, la dominance, la chaîne et le
 contexte macro : la couverture visée par la feuille de route est atteinte. Les
 scripts qu'il remplace ont été supprimés — la TUI d'arbitrage, doublon du
 panneau du même nom, en dernier — et ceux qui restent (export ETF, tracker
-de news) ne font double emploi avec aucun panneau.
+de news) ne font double emploi avec aucun panneau. Les dernières retouches
+viennent de l'usage plutôt que de la feuille de route : la cloche du bandeau
+ouvre le panneau alertes d'un clic, et la fenêtre des liquidations est relue
+du journal au démarrage, un panneau vide après un redémarrage se lisant comme
+une panne du flux.
 
 ## Outils complémentaires
 

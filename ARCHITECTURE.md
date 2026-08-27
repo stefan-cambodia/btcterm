@@ -1458,6 +1458,23 @@ déjà :
    en sortie, et un réseau chargé (mempool gonflé, blocs lents). Onze
    règles, toutes réglées du panneau ALERTES.
 
+Deux corrections tirées de l'usage ont suivi, sans ouvrir de chantier —
+nées l'une et l'autre d'un panneau qui semblait en panne sans l'être :
+
+- **La cloche ouvre le panneau alertes** (§2.8) — elle comptait les
+  sonneries de l'heure sans offrir le moindre chemin vers elles, la
+  liste vivant derrière le troisième onglet d'une cellule. Le clic
+  demande maintenant à la grille où le panneau a été rangé (`reveal`,
+  §3.6) et quitte au passage un plein écran qui le masquerait.
+- **La fenêtre des liquidations survit au redémarrage** (§2.5) — elle ne
+  vivait qu'en mémoire, et relancer le service laissait un panneau vide
+  juste après une cascade, ce qui se lit comme une panne du flux.
+  `_warm_liquidations` relit la dernière heure du journal avant
+  d'ouvrir les connexions. Le premier essai a révélé au passage que les
+  fixtures de `test_push.py` s'écrivaient dans le journal de
+  l'utilisateur depuis le 20 août — son hub d'essai était construit
+  avec le journal par défaut ; il n'en tient plus.
+
 Comme à chaque clôture, plus rien n'est *en cours* : les prochains
 chantiers s'ouvriront à l'usage.
 
@@ -1637,6 +1654,14 @@ sentir, aucun ne conditionnant les autres.
   Bybit dans le même fil, dix grandes paires ; le panneau étiquette la
   plateforme, le journal la conserve (colonne `exchange`, ajoutée par
   migration), et le badge nomme le lien qui manque.
+- **Un lien ouvert mais muet** — le badge du panneau liquidations nomme
+  le lien qui *manque* ; il ne sait pas dire celui qui tient sans rien
+  livrer. Or c'est le cas de Binance depuis le Cambodge : le flux
+  futures s'ouvre, s'abonne et se tait (§2.9). Le journal ne contient
+  aucune liquidation Binance réelle — Bybit porte le panneau seul,
+  et rien à l'écran ne le signale. Un âge du dernier événement **par
+  lien** le rendrait visible ; `last_event_age` ne l'expose aujourd'hui
+  que pour le fil entier.
 
 **Hygiène technique :**
 
