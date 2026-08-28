@@ -108,7 +108,7 @@ class TTLCache:
         if first:
             age = f"{time.time() - entry[0]:.0f} s" if entry else "aucune"
             log.warning("source %s en panne : %s — dernière valeur : %s",
-                        key, str(exc)[:120] or type(exc).__name__, age)
+                        key, sources.brief_error(exc), age)
 
     def _note_recovery(self, key: str) -> None:
         with self._lock:

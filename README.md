@@ -307,8 +307,9 @@ rompent au lieu de tirer un trait par-dessus. Enfin, les alertes de la
 journée sont relues au démarrage comme les liquidations : un service
 relancé n'affiche plus « aucune alerte » après une nuit qui a sonné. Et
 une source REST qui tombe se lit dans `journalctl` — première panne,
-rétablissement, durée — au lieu de laisser des trous muets dans
-l'historique : l'instantané journalisé n'écrit que des valeurs fraîches.
+rétablissement, durée, et la cause en clair plutôt qu'une URL tronquée —
+au lieu de laisser des trous muets dans l'historique : l'instantané
+journalisé n'écrit que des valeurs fraîches.
 Ce même journal a ensuite compté cinquante-quatre resynchronisations
 Kraken en une matinée, et nommé la cause qu'on croyait fortuite : le flux
 décrit une fenêtre de vingt-cinq niveaux, le carnet en gardait cent, et

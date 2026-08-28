@@ -33,6 +33,7 @@ __all__ = [
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
     "fetch_fear_greed_history", "FEAR_GREED_DAYS",
+    "brief_error",
 ]
 
 BINANCE_REST = "https://api.binance.com/api/v3"
@@ -100,6 +101,36 @@ RSS_FEEDS: list[dict[str, str]] = [
     {"name": "The Block", "url": "https://www.theblock.co/rss.xml"},
     {"name": "CryptoSlate", "url": "https://cryptoslate.com/feed/"},
 ]
+
+
+# ─────────────────────────────────────────────────────────────
+# Erreurs réseau, en une ligne lisible
+# ─────────────────────────────────────────────────────────────
+
+_ERROR_HOST = re.compile(r"host='([^']+)'")
+_ERROR_CAUSE = re.compile(r"Caused by (\w+)\(")
+_ERROR_AFTER_POOL = re.compile(r"port=\d+\): ([^(]+?)\.? ?\(")
+
+
+def brief_error(exc: BaseException, limit: int = 120) -> str:
+    """Résume une erreur `requests` pour le journal du service.
+
+    `str(exc)` d'une erreur de connexion commence par le pool et l'URL
+    complète et finit par la cause — `NameResolutionError`,
+    `ConnectTimeoutError` — qui seule dit ce qui s'est passé ; tronquée
+    à la longueur d'une ligne de journal, il n'en restait que le
+    début, identique d'une panne à l'autre. Ici : l'hôte, puis la
+    cause ; sinon le message, borné.
+    """
+    text = str(exc) or type(exc).__name__
+    host = _ERROR_HOST.search(text)
+    if host is None:
+        return text[:limit]
+    cause = _ERROR_CAUSE.search(text)
+    if cause is not None:
+        return f"{host.group(1)} : {cause.group(1)}"
+    tail = _ERROR_AFTER_POOL.search(text)
+    return f"{host.group(1)} : {tail.group(1) if tail else text[:limit]}"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -410,7 +441,7 @@ def fetch_perp_snapshot(symbol: str = "BTCUSDT") -> dict[str, Any]:
         snapshot["funding_rate"] = float(data["lastFundingRate"])
         snapshot["next_funding"] = int(data["nextFundingTime"])
     except Exception as exc:  # noqa: BLE001 — partie manquante, pas panne
-        errors.append(f"premiumIndex : {str(exc)[:60] or type(exc).__name__}")
+        errors.append(f"premiumIndex : {brief_error(exc, 60)}")
 
     try:
         response = requests.get(
@@ -422,7 +453,7 @@ def fetch_perp_snapshot(symbol: str = "BTCUSDT") -> dict[str, Any]:
         snapshot["long_account"] = float(row["longAccount"])
         snapshot["long_short_ratio"] = float(row["longShortRatio"])
     except Exception as exc:  # noqa: BLE001 — partie manquante, pas panne
-        errors.append(f"ratio : {str(exc)[:60] or type(exc).__name__}")
+        errors.append(f"ratio : {brief_error(exc, 60)}")
 
     if not snapshot:
         raise RuntimeError("Binance Futures injoignable — " + " ; ".join(errors))

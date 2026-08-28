@@ -158,6 +158,43 @@ def test_le_vide_vaut_panne():
     print("  ✓ open interest vide et perpétuel sans réponse lèvent")
 
 
+def test_la_panne_se_lit_en_une_ligne():
+    """`brief_error` garde l'hôte et la cause, pas l'URL ni le pool."""
+    dns = RuntimeError(
+        "HTTPSConnectionPool(host='fapi.binance.com', port=443): Max retries "
+        "exceeded with url: /fapi/v1/premiumIndex?symbol=BTCUSDT (Caused by "
+        "NameResolutionError(\"HTTPSConnection(host='fapi.binance.com', "
+        "port=443): Failed to resolve 'fapi.binance.com' ([Errno -2] Name or "
+        "service not known)\"))")
+    assert sources.brief_error(dns) == "fapi.binance.com : NameResolutionError"
+    timeout = RuntimeError(
+        "HTTPSConnectionPool(host='farside.co.uk', port=443): Read timed out. "
+        "(read timeout=15)")
+    assert sources.brief_error(timeout) == "farside.co.uk : Read timed out"
+    http = RuntimeError("503 Server Error: Service Unavailable for url: "
+                        "https://api.blockchain.info/stats")
+    assert sources.brief_error(http, 30) == "503 Server Error: Service Unav"
+    assert sources.brief_error(RuntimeError("")) == "RuntimeError"
+
+    # Le perpétuel en compose deux : chacune reste lisible.
+    class Panne:
+        def raise_for_status(self): raise dns
+        def json(self): return {}
+    original = sources.requests.get
+    sources.requests.get = lambda *a, **k: Panne()
+    try:
+        sources.fetch_perp_snapshot("BTCUSDT")
+    except RuntimeError as exc:
+        assert str(exc) == ("Binance Futures injoignable — premiumIndex : "
+                            "fapi.binance.com : NameResolutionError ; "
+                            "ratio : fapi.binance.com : NameResolutionError"), exc
+    else:
+        raise AssertionError("les deux endpoints en panne doivent lever")
+    finally:
+        sources.requests.get = original
+    print("  ✓ hôte et cause, sans l'URL ni le pool")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCache du hub — {len(tests)} vérifications\n" + "─" * 60)

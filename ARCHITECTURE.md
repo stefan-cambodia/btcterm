@@ -1348,7 +1348,14 @@ la valeur servie) puis son rétablissement avec la durée — une ligne
 chacun, pas une par lecture —, et un collecteur qui n'a rien obtenu
 lève au lieu de rendre un vide : `fetch_perp_snapshot` rendait `{}`
 quand ses deux endpoints tombaient, et le cache le stockait comme une
-lecture réussie, invisible au secours. **Le secours ne s'écrit pas.** Une
+lecture réussie, invisible au secours. L'erreur y tient en une ligne
+lisible : `str()` d'une erreur `requests` commence par le pool et l'URL
+complète et finit par la cause — `NameResolutionError`,
+`ConnectTimeoutError` —, si bien que les premières lignes de panne du
+journal, tronquées, disaient toutes « Max retries exceeded » et rien de
+ce qui s'était passé ; `sources.brief_error` garde l'hôte et la cause
+(`fapi.binance.com : NameResolutionError`), que le perpétuel compose
+aussi pour ses deux endpoints. **Le secours ne s'écrit pas.** Une
 valeur datée servie à un panneau est un moindre mal ; écrite dans
 l'historique comme si elle datait de l'instant, c'est un mensonge sur
 des heures. Le cache tient donc, par clé, si la dernière lecture a été
