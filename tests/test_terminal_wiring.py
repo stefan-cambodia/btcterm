@@ -153,6 +153,19 @@ def test_pousseur_branche():
     print("  ✓ route /push posée, relais d'état branchés")
 
 
+def test_la_page_connait_son_serveur():
+    """La page emporte le jeton du serveur qui l'a servie, et /api/boot
+    dit celui du serveur qui répond : c'est leur différence qui fait
+    recharger un onglet d'avant le redémarrage (terminal/push.py)."""
+    client = APP.server.test_client()
+    boot = client.get("/api/boot").get_json()["boot"]
+    assert len(boot) == 32, boot
+    page = client.get("/").get_data(as_text=True)
+    assert f'name="btcterm-boot" content="{boot}"' in page, \
+        "la page ne porte pas le jeton de son serveur"
+    print("  ✓ /api/boot et la balise meta portent le même jeton")
+
+
 def test_panneau_prix_lwc_cable():
     """Le rendu Lightweight Charts du panneau prix est posé, branché et
     servi : div, Stores, relais clientside et routes d'API.

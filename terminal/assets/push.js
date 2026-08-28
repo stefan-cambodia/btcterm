@@ -7,6 +7,11 @@
 // rompu — l'horloge est rallumée et le terminal continue en
 // interrogation, pendant que la reconnexion retente en arrière-plan.
 // Le bandeau dit toujours le canal en vigueur : « push » ou « poll ».
+//
+// Avant chaque connexion, la page demande à /api/boot quel serveur
+// répond : si ce n'est plus celui qui l'a servie — redémarré entre-temps,
+// souvent pendant que la machine dormait —, elle se recharge au lieu de
+// lui parler avec un graphe de callbacks qu'il ne connaît plus.
 (function () {
     "use strict";
 
@@ -15,6 +20,9 @@
 
     var socket = null;
     var retry = RETRY_MIN;
+    // Le jeton du serveur qui a servi cette page (terminal/push.py).
+    var bootMeta = document.querySelector("meta[name=btcterm-boot]");
+    var boot = bootMeta ? bootMeta.content : null;
     // L'état annoncé au serveur. Il est alimenté par les callbacks
     // clientside que pose terminal/push.py — pas lu dans le DOM, où la
     // plateforme choisie n'existe pas toujours (onglet profondeur).
@@ -72,7 +80,28 @@
         }
     }
 
+    // Le serveur qui répond est-il celui qui a servi la page ? Sinon,
+    // rechargement ; s'il ne répond pas, on laisse la connexion échouer
+    // et retenter — c'est elle qui porte le backoff.
+    function checkBoot(then) {
+        if (!boot) { then(); return; }
+        fetch("/api/boot", {cache: "no-store"})
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.boot && data.boot !== boot) {
+                    location.reload();
+                } else {
+                    then();
+                }
+            })
+            .catch(then);
+    }
+
     function connect() {
+        checkBoot(open);
+    }
+
+    function open() {
         var proto = location.protocol === "https:" ? "wss://" : "ws://";
         socket = new WebSocket(proto + location.host + "/push");
         socket.onopen = function () {

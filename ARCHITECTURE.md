@@ -1171,6 +1171,17 @@ Trois décisions structurent le canal :
   pendant qu'une reconnexion retente en arrière-plan (backoff plafonné à 30 s).
   Le bandeau dit toujours le canal en vigueur : « push » ou « poll ». Un
   serveur sans la route laisse simplement le terminal en interrogation.
+- **La page connaît son serveur.** `push.BOOT`, tiré au chargement du
+  module, identifie le processus : la page l'emporte dans une balise
+  meta, `/api/boot` dit celui du serveur qui répond, et push.js les
+  compare avant chaque connexion — s'ils diffèrent, la page se recharge.
+  Sans cela, un onglet chargé avant un redémarrage continuait d'appeler
+  le nouveau serveur avec le graphe de callbacks de l'ancien : le journal
+  du service en a montré la rafale — `InvalidCallbackReturnValue`,
+  `KeyError: None` sur le carnet — au réveil de la machine, quatre
+  heures après un redémarrage que l'onglet, endormi avec elle, n'avait
+  pas vu. La vérification passe par HTTP, pas par le canal : elle vaut
+  aussi en régime d'interrogation, à chaque retentative.
 
 Le rendu dépend d'un état qui vit côté navigateur — plateforme du carnet,
 panneau agrandi. Deux callbacks clientside le relaient à push.js, qui l'annonce
@@ -1869,6 +1880,12 @@ sentir, aucun ne conditionnant les autres.
   arrêts sur cinq tués par systemd : gunicorn attendait la fin des
   WebSockets `/push`, qui n'en ont pas. Fait : le signal d'arrêt lève
   `hub.stopping`, la boucle du pousseur le lit et prend congé (§3.11).
+- ~~**L'onglet d'avant le redémarrage**~~ — constaté dans le journal du
+  service : cinq tracebacks Dash en cinq secondes au réveil de la
+  machine, un onglet chargé avant le redémarrage de la nuit appelant le
+  nouveau serveur avec l'ancien graphe de callbacks. Fait : la page
+  emporte le jeton de son serveur, le compare à `/api/boot` avant chaque
+  connexion et se recharge s'il a changé (§3.10).
 
 **À trancher :**
 

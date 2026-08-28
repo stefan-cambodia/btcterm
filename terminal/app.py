@@ -80,6 +80,10 @@ def create_app(hub: MarketHub) -> dash.Dash:
         title="₿ BTC Terminal",
         update_title=None,          # pas de « Updating… » clignotant à 250 ms
         suppress_callback_exceptions=True,
+        # Le jeton du serveur qui a servi la page : push.js le compare à
+        # `/api/boot` avant chaque connexion et recharge un onglet
+        # d'avant le redémarrage (terminal/push.py).
+        meta_tags=[{"name": "btcterm-boot", "content": push.BOOT}],
     )
 
     app.layout = html.Div([

@@ -37,8 +37,10 @@ from __future__ import annotations
 
 import json
 import time
+import uuid
 
 from dash import Input, Output
+from flask import jsonify
 from flask_sock import ConnectionClosed, Sock
 from plotly.utils import PlotlyJSONEncoder
 
@@ -63,6 +65,15 @@ PUSH_PRICE_INTERVAL = 2.0
 #: dit — les mêmes défauts que la page au chargement. `price_interval`
 #: n'a pas de défaut : seul le rendu Lightweight Charts l'annonce, et
 #: sans lui le pousseur ne calcule rien pour le panneau prix.
+#: Jeton du serveur en marche, tiré au chargement du module — un par
+#: processus. La page l'emporte dans une balise meta, `/api/boot` dit
+#: celui du serveur qui répond : un onglet chargé avant un redémarrage
+#: les trouve différents et se recharge. Sans cela, il continue
+#: d'appeler le nouveau serveur avec le graphe de callbacks de l'ancien
+#: — le journal du service en a montré la rafale de tracebacks au réveil
+#: de la machine, quatre heures après le redémarrage.
+BOOT = uuid.uuid4().hex
+
 DEFAULT_STATE = {"exchange": "Binance", "expanded": None,
                  "price_interval": None}
 
@@ -159,6 +170,10 @@ def register(app, hub) -> None:
         Output("push-sink-exchange", "data"),
         Input("book-exchange", "value"),
     )
+
+    @app.server.get("/api/boot")
+    def _boot():
+        return jsonify({"boot": BOOT})
 
     sock = Sock(app.server)
 

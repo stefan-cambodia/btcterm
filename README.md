@@ -314,7 +314,11 @@ Ce même journal a ensuite compté cinquante-quatre resynchronisations
 Kraken en une matinée, et nommé la cause qu'on croyait fortuite : le flux
 décrit une fenêtre de vingt-cinq niveaux, le carnet en gardait cent, et
 ce que Kraken cesse de suivre devient fantôme — le carnet est désormais
-borné à sa fenêtre.
+borné à sa fenêtre. Et un onglet chargé avant un redémarrage — souvent
+pendant que la machine dormait — se recharge de lui-même au lieu de
+parler au nouveau serveur avec l'ancien graphe de callbacks : la page
+emporte le jeton de son serveur et le compare à `/api/boot` avant chaque
+connexion.
 
 ## Outils complémentaires
 
