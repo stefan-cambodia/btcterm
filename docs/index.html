@@ -22,6 +22,8 @@
                 border: 1px solid #1e2639; border-radius: 6px;
                 padding: 8px 10px; display: flex; flex-direction: column;
                 overflow: hidden; }
+  /* Un seul panneau, toute la largeur : le rappel du geste a sa place. */
+  .demo-panel .lwc-zoom-hint { display: inline; }
   .demo-title { display: flex; justify-content: space-between; align-items: center;
                 flex-shrink: 0; margin-bottom: 6px; color: #4b5563;
                 font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
@@ -38,7 +40,7 @@
 <div class="demo-header">
   <span class="demo-brand">₿ BTC TERMINAL</span>
   <span>démo statique du panneau prix</span>
-  <span class="demo-note">instantané figé du 25/08/2026 16:55 UTC · aucune donnée en direct</span>
+  <span class="demo-note">instantané figé du 28/08/2026 15:07 UTC · aucune donnée en direct</span>
   <span style="margin-left:auto"><a href="https://github.com/stefan-cambodia/btcterm">le dépôt sur GitHub</a></span>
 </div>
 <div class="demo-main">
@@ -60,11 +62,12 @@
   avec treize autres panneaux — carnet, profondeur, arbitrage, liquidations,
   ETF, perpétuel, news, calendrier, alertes, journal, macro, dominance,
   chaîne. Ici, seul le panneau prix, sur 1000 bougies par intervalle
-  figées le 25/08/2026 16:55 UTC : zoom à la molette, pan à la souris (l'historique se
+  figées le 28/08/2026 15:07 UTC : zoom à la molette ou au cadre (Maj + glisser,
+  double-clic pour la vue entière), pan à la souris (l'historique se
   charge en glissant vers le passé), crosshair, $/€, échelle log, panes.
 </div>
 <script src="demo/vendor/lightweight-charts.standalone.production.js"></script>
-<script>window.DEMO_CONF = {"theme": {"bg": "#080b12", "panel": "#0e1117", "card": "#111827", "border": "#1e2639", "text": "#e2e8f0", "muted": "#4b5563", "green": "#00d4aa", "red": "#ff3d6b", "orange": "#f59e0b", "blue": "#3b82f6", "purple": "#a78bfa", "yellow": "#fbbf24", "cyan": "#22d3ee", "grid": "#111827", "ma9": "#00d4aa", "ma26": "#f59e0b", "ma200": "#a78bfa", "bb": "#3b82f6", "buy": "#00ff99", "sell": "#ff2255", "poc": "#fbbf24", "va": "rgba(251,191,36,0.07)"}, "mono": "'JetBrains Mono', 'Fira Code', monospace", "intervals": {"15m": 300, "30m": 300, "1h": 350, "4h": 350, "6h": 300, "12h": 300, "1d": 365, "1w": 260, "1M": 120}, "default_interval": "1d", "default_extras": ["rsi", "volume", "profile"], "frozen_at": 1787676919.4000473};</script>
+<script>window.DEMO_CONF = {"theme": {"bg": "#080b12", "panel": "#0e1117", "card": "#111827", "border": "#1e2639", "text": "#e2e8f0", "muted": "#4b5563", "green": "#00d4aa", "red": "#ff3d6b", "orange": "#f59e0b", "blue": "#3b82f6", "purple": "#a78bfa", "yellow": "#fbbf24", "cyan": "#22d3ee", "grid": "#111827", "ma9": "#00d4aa", "ma26": "#f59e0b", "ma200": "#a78bfa", "bb": "#3b82f6", "buy": "#00ff99", "sell": "#ff2255", "poc": "#fbbf24", "va": "rgba(251,191,36,0.07)"}, "mono": "'JetBrains Mono', 'Fira Code', monospace", "intervals": {"15m": 300, "30m": 300, "1h": 350, "4h": 350, "6h": 300, "12h": 300, "1d": 365, "1w": 260, "1M": 120}, "default_interval": "1d", "default_extras": ["rsi", "volume", "profile"], "frozen_at": 1787929630.225778};</script>
 <script src="demo/shim.js"></script>
 <script src="demo/lwc-price.js"></script>
 <script src="demo/page.js"></script>

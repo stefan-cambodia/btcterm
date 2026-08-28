@@ -848,7 +848,21 @@ moyennes, RSI et CRSI dans leurs panes, crosshair aimanté et ligne du
 dernier prix — comportements natifs de la bibliothèque — plus ce qu'elle
 n'offre pas : le profil de volume de la plage visible (POC et Value Area,
 recalculés quand la fenêtre bouge), les signaux, les seuils d'alerte
-(§2.8) et le bandeau de démonstration (§4.3).
+(§2.8), le bandeau de démonstration (§4.3) et le zoom rectangulaire.
+Lightweight Charts ne zoome qu'à la molette ; Maj + glisser trace un cadre
+sur le pane du cours, et le relâcher y ajuste la fenêtre — le temps par
+l'échelle logique, le prix par l'échelle de droite, qui quitte alors
+l'auto-ajustement. Les écouteurs sont posés en phase de capture sur le div
+du panneau : avec Maj, l'événement n'atteint pas le canvas de la
+bibliothèque, qui sinon panoterait ; sans Maj, rien ne change. Le
+double-clic rend la vue entière et l'auto-ajustement — le geste de Plotly,
+que les autres panneaux gardent. En échelle log, la plage se pose en mode
+linéaire puis le mode log est remis : `setVisibleRange` prend la plage
+telle quelle alors que l'axe log travaille en valeurs transformées, et
+c'est la bascule de mode qui convertit. `ui_smoke.py` joue le geste à la
+vraie souris (actions WebDriver, pas des `MouseEvent` synthétisés : la
+bibliothèque reconnaît ses clics sur `<html>`, qu'un événement dispatché
+sur `document` n'atteint pas).
 
 Les réglages de la barre de titre passent par un unique callback
 clientside qui relaie l'état des sélecteurs à `window.lwcPrice` : un

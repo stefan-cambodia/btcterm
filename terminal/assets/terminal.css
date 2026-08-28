@@ -338,3 +338,25 @@ body {
     z-index: 7;
     pointer-events: none;
 }
+
+/* Le cadre du zoom rectangulaire (Maj + glisser) sur le pane du cours ;
+   la couleur de bordure vient du thème, posée par lwc-price.js. */
+.lwc-zoom-box {
+    position: absolute;
+    z-index: 9;
+    border: 1px dashed;
+    background: rgba(34, 211, 238, 0.12);
+    pointer-events: none;
+}
+
+/* Le rappel du geste n'a sa place qu'en plein écran : dans la grille,
+   la légende et le bandeau de démonstration se partagent déjà la
+   largeur. Sa couleur est dite, pas héritée : le gris du panneau se
+   perd dans la grille du graphique. */
+.lwc-zoom-hint {
+    display: none;
+    color: #94a3b8;
+}
+.cell-max .lwc-zoom-hint {
+    display: inline;
+}

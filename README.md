@@ -40,9 +40,10 @@ Captures produites par `tests/ui_smoke.py --capture` et
 
 **Démo à manipuler** — le panneau prix se dessine entièrement dans le
 navigateur : il est servi en page statique, sur un instantané figé, à
-**https://stefan-cambodia.github.io/btcterm/** — zoom, crosshair, pan vers
-le passé (l'historique se charge en glissant), bascule $/€, échelle log,
-panes RSI/CRSI, profil de volume de la plage visible. Mille bougies par
+**https://stefan-cambodia.github.io/btcterm/** — zoom (molette, ou un
+cadre avec Maj + glisser), crosshair, pan vers le passé (l'historique se
+charge en glissant), bascule $/€, échelle log, panes RSI/CRSI, profil de
+volume de la plage visible. Mille bougies par
 intervalle, datées dans le bandeau ; rien n'y est en direct. La page se
 regénère par `python -m terminal.demo docs` (voir « Outils
 complémentaires »).
@@ -161,7 +162,9 @@ en [Lightweight Charts](https://tradingview.github.io/lightweight-charts/)
 (vendoré, aucun CDN) : crosshair aimanté, ligne du dernier prix, bougie
 courante mise à jour en temps réel par le canal push, historique antérieur
 chargé à la volée quand on remonte le graphique, profil de volume recalculé
-sur la plage visible. Le serveur ne sert que des données (`/api/klines`,
+sur la plage visible. Au-delà de la molette, **Maj + glisser** trace un
+cadre sur le cours et y ajuste temps et prix — l'axe des prix cesse alors
+de s'auto-ajuster — ; un **double-clic** rend la vue entière. Le serveur ne sert que des données (`/api/klines`,
 `/api/profile`) et reste la seule source de vérité des indicateurs. Le
 panneau perpétuel dessine de la même façon (`/api/perp`) — financement en
 histogramme signé, open interest en ligne — ; les autres panneaux sont des
@@ -320,7 +323,10 @@ parler au nouveau serveur avec l'ancien graphe de callbacks : la page
 emporte le jeton de son serveur et le compare à `/api/boot` avant chaque
 connexion. Enfin, la boucle d'observation attend le réseau au démarrage —
 l'unité utilisateur part avant que la machine ne soit connectée — au lieu
-de déclarer cinq sources en panne deux secondes après le boot.
+de déclarer cinq sources en panne deux secondes après le boot. Côté
+analyse, le panneau prix a reçu le geste que Lightweight Charts n'offre
+pas : un cadre tracé avec Maj + glisser y ajuste temps et prix, et le
+double-clic rend la vue entière.
 
 ## Outils complémentaires
 

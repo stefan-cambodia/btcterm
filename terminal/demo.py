@@ -79,6 +79,8 @@ PAGE = """<!DOCTYPE html>
                 border: 1px solid __BORDER__; border-radius: 6px;
                 padding: 8px 10px; display: flex; flex-direction: column;
                 overflow: hidden; }
+  /* Un seul panneau, toute la largeur : le rappel du geste a sa place. */
+  .demo-panel .lwc-zoom-hint { display: inline; }
   .demo-title { display: flex; justify-content: space-between; align-items: center;
                 flex-shrink: 0; margin-bottom: 6px; color: __MUTED__;
                 font-size: 10px; letter-spacing: 0.12em; text-transform: uppercase;
@@ -117,7 +119,8 @@ PAGE = """<!DOCTYPE html>
   avec treize autres panneaux — carnet, profondeur, arbitrage, liquidations,
   ETF, perpétuel, news, calendrier, alertes, journal, macro, dominance,
   chaîne. Ici, seul le panneau prix, sur __BARS__ bougies par intervalle
-  figées le __DATE__ : zoom à la molette, pan à la souris (l'historique se
+  figées le __DATE__ : zoom à la molette ou au cadre (Maj + glisser,
+  double-clic pour la vue entière), pan à la souris (l'historique se
   charge en glissant vers le passé), crosshair, $/€, échelle log, panes.
 </div>
 <script src="demo/vendor/lightweight-charts.standalone.production.js"></script>

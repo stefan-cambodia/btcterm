@@ -289,6 +289,73 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         browser.js("document.querySelector('#price-scale input').click();")
         time.sleep(2.2)
 
+        print("\nZoom rectangulaire")
+        # Maj + glisser sur le pane du cours : le geste que la
+        # bibliothèque n'offre pas, joué à la vraie souris — c'est aussi
+        # ce qui prouve que lwc-price.js capte l'événement avant le
+        # canvas, qui sinon panoterait. La sonde dit le résultat
+        # effectif : l'échelle des prix a quitté l'auto-ajustement et
+        # les deux plages se sont resserrées.
+        check("le rappel du geste est visible en plein écran", browser.js(
+            "const h = document.querySelector('#price-lwc .lwc-zoom-hint');"
+            "return !!h && getComputedStyle(h).display !== 'none';"))
+        avant = browser.js("return window.lwcPrice.debug();")
+        check("l'axe des prix s'auto-ajuste au départ",
+              avant["autoScale"] is True)
+        cadre = browser.js(
+            "const r = document.getElementById('price-lwc')"
+            ".getBoundingClientRect();"
+            "return {left: r.left, top: r.top, width: r.width,"
+            " height: r.height};")
+        # Le cadre entoure la dernière clôture — ±5 % de la plage
+        # visible, en coordonnées du pane : le cours est seul, l'axe du
+        # temps prend le bas du panneau. Un cadre posé dans le vide
+        # au-dessus des bougies zoomerait tout autant, mais ne montrerait
+        # rien.
+        plage = avant["priceRange"]
+        pane = cadre["height"] - 28
+        def y(price):
+            return int(cadre["top"] + (plage["to"] - price)
+                       / (plage["to"] - plage["from"]) * pane)
+        marge = 0.05 * (plage["to"] - plage["from"])
+        browser.shift_drag(int(cadre["left"] + cadre["width"] * 0.55),
+                           y(avant["lastClose"] + marge),
+                           int(cadre["left"] + cadre["width"] * 0.85),
+                           y(avant["lastClose"] - marge))
+        time.sleep(1)
+        apres = browser.js("return window.lwcPrice.debug();")
+        check("le cadre fixe l'axe des prix", apres["autoScale"] is False)
+        check("la plage de prix s'est resserrée",
+              apres["priceRange"] is not None
+              and (apres["priceRange"]["to"] - apres["priceRange"]["from"])
+              < 0.9 * (avant["priceRange"]["to"] - avant["priceRange"]["from"]),
+              f"{avant['priceRange']} → {apres['priceRange']}")
+        check("la fenêtre de temps s'est resserrée",
+              (apres["range"]["to"] - apres["range"]["from"])
+              < 0.9 * (avant["range"]["to"] - avant["range"]["from"]),
+              f"{avant['range']} → {apres['range']}")
+        check("le cadre ne reste pas à l'écran", browser.js(
+            "return document.querySelector('#price-lwc .lwc-zoom-box')"
+            ".style.display === 'none';"))
+        if capture_dir:
+            browser.screenshot(str(capture_dir / "zoom-cadre.png"))
+        # Double-clic sur le graphique : la vue entière, l'axe rendu à
+        # l'auto-ajustement — le geste de Plotly, que les autres panneaux
+        # gardent.
+        browser.double_click(int(cadre["left"] + cadre["width"] * 0.5),
+                             int(cadre["top"] + 200))
+        time.sleep(1)
+        entier = browser.js("return window.lwcPrice.debug();")
+        check("double-clic : l'axe des prix s'auto-ajuste de nouveau",
+              entier["autoScale"] is True)
+        # Mesuré contre la série d'avant le geste : la vue entière
+        # touche le bord gauche, ce qui demande la page antérieure — et
+        # les bougies qui arrivent entre-temps ne sont pas dans la vue.
+        check("double-clic : toute la série en largeur",
+              entier["range"]["to"] - entier["range"]["from"]
+              >= 0.95 * apres["bars"],
+              f"{entier['range']} pour {apres['bars']} bougies")
+
         print("\nRetour à la grille")
         browser.js("document.dispatchEvent("
                    "new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));")

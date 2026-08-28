@@ -6,7 +6,7 @@ le navigateur avec `--marionette`, on ouvre une socket, et on échange des
 messages `longueur:[type, id, commande, paramètres]`.
 
 Une soixantaine de lignes suffisent pour ce dont le terminal a besoin —
-naviguer, exécuter du JavaScript, cliquer, capturer l'écran — ce qui
+naviguer, exécuter du JavaScript, cliquer, glisser, capturer l'écran — ce qui
 évite d'installer une pile de test navigateur complète.
 
 Utilisé par `ui_smoke.py`.
@@ -93,6 +93,49 @@ class Firefox:
         with open(path, "wb") as f:
             f.write(base64.b64decode(data))
         return path
+
+    # ── Gestes de souris ────────────────────────────────────
+    #
+    # Des événements de confiance, produits par le navigateur lui-même
+    # (WebDriver:PerformActions), pas des MouseEvent dispatchés depuis
+    # JavaScript : Lightweight Charts reconnaît ses gestes à partir de
+    # mousedown/mouseup écoutés sur <html>, et un événement synthétisé sur
+    # `document` ne redescend jamais jusque-là. Coordonnées en pixels de
+    # la fenêtre d'affichage (viewport).
+
+    SHIFT = "\ue008"
+
+    def _actions(self, *sources):
+        self.send("WebDriver:PerformActions", {"actions": list(sources)})
+        self.send("WebDriver:ReleaseActions", {})
+
+    def shift_drag(self, x0, y0, x1, y1):
+        """Maj enfoncée pendant tout le glisser de (x0, y0) à (x1, y1)."""
+        pause = {"type": "pause", "duration": 0}
+        self._actions(
+            {"type": "key", "id": "kb", "actions": [
+                {"type": "keyDown", "value": self.SHIFT},
+                pause, pause, pause, pause,
+                {"type": "keyUp", "value": self.SHIFT}]},
+            {"type": "pointer", "id": "mouse",
+             "parameters": {"pointerType": "mouse"}, "actions": [
+                pause,
+                {"type": "pointerMove", "x": x0, "y": y0, "origin": "viewport"},
+                {"type": "pointerDown", "button": 0},
+                {"type": "pointerMove", "x": x1, "y": y1, "origin": "viewport",
+                 "duration": 100},
+                {"type": "pointerUp", "button": 0},
+                pause]})
+
+    def double_click(self, x, y):
+        self._actions(
+            {"type": "pointer", "id": "mouse",
+             "parameters": {"pointerType": "mouse"}, "actions": [
+                {"type": "pointerMove", "x": x, "y": y, "origin": "viewport"},
+                {"type": "pointerDown", "button": 0},
+                {"type": "pointerUp", "button": 0},
+                {"type": "pointerDown", "button": 0},
+                {"type": "pointerUp", "button": 0}]})
 
     def wait_for(self, expression, timeout=45, interval=0.4):
         deadline = time.time() + timeout

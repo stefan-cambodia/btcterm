@@ -4,7 +4,8 @@
 // Le serveur ne sert que des données (/api/klines) ; tout le dessin vit
 // ici : chandeliers, moyennes, Bollinger, volume, RSI et CRSI en panes,
 // crosshair aimanté et ligne du dernier prix — les comportements natifs
-// de la bibliothèque, vendorée dans vendor/ (v5.2.1).
+// de la bibliothèque, vendorée dans vendor/ (v5.2.1) — plus le zoom
+// rectangulaire (Maj + glisser) qu'elle n'offre pas.
 //
 // Le point d'entrée est window.lwcPrice.configure(cfg, conf), appelé par
 // le callback clientside de panels/price.py à chaque changement de
@@ -28,7 +29,9 @@
         loading: false,    // une page d'historique en vol, une seule
         exhausted: false,  // plus rien avant : la source l'a dit
         banner: null,
-        legend: null
+        legend: null,
+        zoomBox: null,  // le cadre du zoom rectangulaire, caché au repos
+        drag: null      // la sélection en cours : {x0, y0, x1, y1, area}
     };
 
     var INTRADAY = {"15m": 1, "30m": 1, "1h": 1, "4h": 1, "6h": 1, "12h": 1};
@@ -202,6 +205,7 @@
         state.series = series;
         buildLegend(styles);
         buildBanner();
+        buildBoxZoom();
         updateAlertLines();
 
         // Profil de volume : un canvas en surimpression à droite du
@@ -231,8 +235,156 @@
             item.style.color = styles[name].color;
             div.appendChild(item);
         }
+        // Le geste ne se devine pas : le rappeler là où il y a la
+        // place, en plein écran (terminal.css ne l'affiche que là).
+        var hint = document.createElement("span");
+        hint.className = "lwc-zoom-hint";
+        hint.textContent = "Maj + glisser : zoom · double-clic : vue entière";
+        div.appendChild(hint);
         state.el.appendChild(div);
         state.legend = div;
+    }
+
+    // ── Zoom rectangulaire ──────────────────────────────────
+
+    // Lightweight Charts n'a pas de zoom à la boîte — la molette et le
+    // pan seulement. Maj + glisser trace un cadre sur le pane du cours ;
+    // le relâcher cadre la fenêtre dessus : le temps par l'échelle
+    // logique, le prix par l'échelle de droite, qui quitte alors
+    // l'auto-ajustement. Le double-clic sur le graphique rend la vue
+    // entière — le geste de Plotly, que les autres panneaux gardent.
+    //
+    // Les écouteurs sont posés en phase de capture sur le div du
+    // panneau : avec Maj enfoncée, l'événement est arrêté avant
+    // d'atteindre le canvas de la bibliothèque, qui sinon panoterait.
+    // Sans Maj, rien ne change au comportement natif.
+    function buildBoxZoom() {
+        var box = document.createElement("div");
+        box.className = "lwc-zoom-box";
+        box.style.borderColor = state.conf.theme.cyan;
+        box.style.display = "none";
+        state.el.appendChild(box);
+        state.zoomBox = box;
+        state.el.addEventListener("mousedown", zoomStart, true);
+        state.chart.subscribeDblClick(resetView);
+    }
+
+    // Le pane du cours : tout le div moins l'axe des prix à droite,
+    // haut de la première rangée seulement — les panes RSI/CRSI et
+    // l'axe du temps sont hors cadre.
+    function paneArea() {
+        return {
+            width: state.el.clientWidth
+                - state.chart.priceScale("right").width(),
+            height: state.chart.panes()[0].getHeight()
+        };
+    }
+
+    function pointIn(ev) {
+        var rect = state.el.getBoundingClientRect();
+        return {x: ev.clientX - rect.left, y: ev.clientY - rect.top};
+    }
+
+    function zoomStart(ev) {
+        if (!ev.shiftKey || ev.button !== 0 || !state.chart) { return; }
+        var p = pointIn(ev);
+        var area = paneArea();
+        if (p.x < 0 || p.x > area.width || p.y < 0 || p.y > area.height) {
+            return;
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+        state.drag = {x0: p.x, y0: p.y, x1: p.x, y1: p.y, area: area};
+        drawBox();
+        document.addEventListener("mousemove", zoomMove, true);
+        document.addEventListener("mouseup", zoomEnd, true);
+        document.addEventListener("keydown", zoomKey, true);
+    }
+
+    function zoomMove(ev) {
+        var drag = state.drag;
+        if (!drag) { return; }
+        var p = pointIn(ev);
+        drag.x1 = Math.max(0, Math.min(drag.area.width, p.x));
+        drag.y1 = Math.max(0, Math.min(drag.area.height, p.y));
+        drawBox();
+    }
+
+    // Échap pendant le tracé abandonne la sélection — et ne quitte pas
+    // le plein écran en même temps (terminal.js écoute la même touche).
+    function zoomKey(ev) {
+        if (ev.key === "Escape" && state.drag) {
+            ev.stopPropagation();
+            zoomStop();
+        }
+    }
+
+    function zoomStop() {
+        state.drag = null;
+        if (state.zoomBox) { state.zoomBox.style.display = "none"; }
+        document.removeEventListener("mousemove", zoomMove, true);
+        document.removeEventListener("mouseup", zoomEnd, true);
+        document.removeEventListener("keydown", zoomKey, true);
+    }
+
+    function drawBox() {
+        var drag = state.drag;
+        var box = state.zoomBox;
+        if (!drag || !box) { return; }
+        box.style.left = Math.min(drag.x0, drag.x1) + "px";
+        box.style.top = Math.min(drag.y0, drag.y1) + "px";
+        box.style.width = Math.abs(drag.x1 - drag.x0) + "px";
+        box.style.height = Math.abs(drag.y1 - drag.y0) + "px";
+        box.style.display = "block";
+    }
+
+    function zoomEnd(ev) {
+        var drag = state.drag;
+        if (!drag) { return; }
+        ev.stopPropagation();
+        zoomStop();
+        // Un cadre de quelques pixels est un clic avec Maj, pas un zoom.
+        if (Math.abs(drag.x1 - drag.x0) < 4
+                || Math.abs(drag.y1 - drag.y0) < 4) {
+            return;
+        }
+        applyBox(Math.min(drag.x0, drag.x1), Math.min(drag.y0, drag.y1),
+                 Math.max(drag.x0, drag.x1), Math.max(drag.y0, drag.y1));
+    }
+
+    // Cadre la fenêtre sur le rectangle (coordonnées du pane du cours).
+    function applyBox(left, top, right, bottom) {
+        if (!state.chart || !state.series) { return; }
+        var ts = state.chart.timeScale();
+        var from = ts.coordinateToLogical(left);
+        var to = ts.coordinateToLogical(right);
+        if (from !== null && to !== null && to - from >= 1) {
+            ts.setVisibleLogicalRange({from: from, to: to});
+        }
+        var candles = state.series.candles;
+        var high = candles.coordinateToPrice(top);
+        var low = candles.coordinateToPrice(bottom);
+        if (high === null || low === null || !(high > low)) { return; }
+        var scale = candles.priceScale();
+        // setVisibleRange pose la plage telle quelle, alors qu'en
+        // échelle log l'axe travaille en valeurs transformées : passer
+        // par le mode linéaire, que la bascule de mode convertit
+        // elle-même — coordinateToPrice, lui, rend toujours des prix.
+        var LWC = LightweightCharts;
+        var log = scale.options().mode === LWC.PriceScaleMode.Logarithmic;
+        if (log) { scale.applyOptions({mode: LWC.PriceScaleMode.Normal}); }
+        scale.setVisibleRange({from: low, to: high});
+        if (log) {
+            scale.applyOptions({mode: LWC.PriceScaleMode.Logarithmic});
+        }
+    }
+
+    // Vue entière : toute la série en largeur, l'axe des prix rendu à
+    // l'auto-ajustement — ce que le zoom à la boîte lui avait retiré.
+    function resetView() {
+        if (!state.chart || !state.series) { return; }
+        state.series.candles.priceScale().setAutoScale(true);
+        state.chart.timeScale().fitContent();
     }
 
     // ── Profil de volume ────────────────────────────────────
@@ -394,6 +546,11 @@
     }
 
     function teardown() {
+        zoomStop();
+        if (state.el) {
+            state.el.removeEventListener("mousedown", zoomStart, true);
+        }
+        state.zoomBox = null;
         if (state.chart) { state.chart.remove(); }
         state.chart = null;
         state.series = null;
@@ -793,6 +950,10 @@
                 eur_rate: state.packet.eur_rate,
                 log: state.series.candles.priceScale().options().mode
                     === LightweightCharts.PriceScaleMode.Logarithmic,
+                autoScale: state.series.candles.priceScale().options()
+                    .autoScale,
+                priceRange: state.series.candles.priceScale()
+                    .getVisibleRange(),
                 lastClose: last ? last.close : null,
                 firstTime: n ? state.packet.bars[0].time : null,
                 exhausted: state.exhausted,
