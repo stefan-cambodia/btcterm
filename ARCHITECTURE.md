@@ -1955,7 +1955,11 @@ sentir, aucun ne conditionnant les autres.
   dont la validation valait vingt des vingt-trois millisecondes du
   rendu — un banc en processus, cible par cible, l'a montré là où
   py-spy, à deux cents secondes de retard sur un processus à vingt
-  threads, ne montrait plus rien.
+  threads, ne montrait plus rien. Le contrôle Firefox de cette séance a
+  échoué trois fois au même endroit — puis, rejoué sur le code d'avant,
+  de la même façon : la machine portait un autre calcul à cinquante-huit
+  threads, charge 22 pour 22 cœurs. `ui_smoke.py` le dit désormais en
+  tête dès que la charge dépasse la moitié des cœurs.
 
 **À trancher :**
 

@@ -21,6 +21,7 @@ Ignoré si Firefox est absent.
 """
 
 import argparse
+import os
 import shutil
 import sys
 import time
@@ -699,6 +700,17 @@ if __name__ == "__main__":
         args.capture.mkdir(parents=True, exist_ok=True)
 
     print("\nContrôle de l'interface — " + args.url + "\n" + "─" * 60)
+    # Les contrôles attendent l'interface à délai fixe — une seconde et
+    # demie pour un agrandissement, quarante-cinq pour une série. Une
+    # machine saturée par un autre calcul les fait échouer sans que
+    # l'interface soit en cause : le dire avant, plutôt que de laisser
+    # chercher une régression qui n'existe pas. Le seuil est la moitié des
+    # cœurs : à ce point, le navigateur attend déjà son tour.
+    charge, coeurs = os.getloadavg()[0], os.cpu_count() or 1
+    if charge > coeurs / 2:
+        print(f"  ⚠ machine chargée — charge {charge:.0f} pour {coeurs} "
+              "cœurs : les contrôles à délai peuvent échouer sans que "
+              "l'interface soit en cause")
     failures = run(args.capture, args.url)
     print("\n" + "─" * 60)
     print("Interface conforme.\n" if not failures else f"{failures} contrôle(s) en échec.\n")
