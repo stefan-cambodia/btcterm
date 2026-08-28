@@ -323,7 +323,9 @@ parler au nouveau serveur avec l'ancien graphe de callbacks : la page
 emporte le jeton de son serveur et le compare à `/api/boot` avant chaque
 connexion. Enfin, la boucle d'observation attend le réseau au démarrage —
 l'unité utilisateur part avant que la machine ne soit connectée — au lieu
-de déclarer cinq sources en panne deux secondes après le boot. Côté
+de déclarer cinq sources en panne deux secondes après le boot — et le
+réveil de la machine, qui rejouait la même salve sept fois par jour,
+est traité comme un boot. Côté
 analyse, le panneau prix a reçu le geste que Lightweight Charts n'offre
 pas : un cadre tracé avec Maj + glisser y ajuste temps et prix, et le
 double-clic rend la vue entière.

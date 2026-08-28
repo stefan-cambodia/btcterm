@@ -239,6 +239,43 @@ def test_la_boucle_attend_le_reseau():
     print("  ✓ la boucle d'observation attend le réseau, et le dit une fois")
 
 
+def test_le_reveil_rattend_le_reseau():
+    """Un tour dont l'heure murale a sauté est un réveil de la machine :
+    la boucle rattend le réseau, comme au démarrage, et le dit avec la
+    durée du sommeil ; un tour ordinaire ne sonde rien."""
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    hub.NETWORK_PROBE_EVERY = 0.01
+    sondes = []
+
+    def sonde():
+        sondes.append(1)
+        return len(sondes) >= 2
+    hub._network_reachable = sonde
+
+    capture = Capture()
+    hub_module.log.addHandler(capture)
+    try:
+        # Un tour ordinaire, une seconde après le précédent : rien.
+        avant = time.time()
+        assert hub._after_sleep(avant - 1.0) >= avant
+        assert sondes == [] and capture.lignes == []
+
+        # Trente-deux minutes sans tour : la machine dormait.
+        assert hub._after_sleep(time.time() - 32 * 60) >= avant
+        assert len(sondes) == 2
+        assert [l for l in capture.lignes
+                if "au réveil, après 32 min de sommeil" in l], capture.lignes
+        assert [l for l in capture.lignes if l.startswith("réseau présent après")]
+
+        # Réveil avec le réseau déjà là : la boucle reprend sans un mot.
+        capture.lignes.clear(); sondes.clear(); sondes.extend([1, 1])
+        hub._after_sleep(time.time() - 3600)
+        assert capture.lignes == []
+    finally:
+        hub_module.log.removeHandler(capture)
+    print("  ✓ le réveil de la machine rattend le réseau, et dit combien elle a dormi")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCache du hub — {len(tests)} vérifications\n" + "─" * 60)

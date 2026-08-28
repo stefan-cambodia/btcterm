@@ -185,6 +185,13 @@ class MarketHub:
     NETWORK_WAIT = 60.0
     NETWORK_PROBE_EVERY = 2.0
     NETWORK_PROBE = ("1.1.1.1", 443)
+    #: Le réveil de la machine rejoue le boot : la boucle dort sur une
+    #: horloge monotone, qui ne court pas pendant le sommeil, et son
+    #: premier tour partait à la seconde même du réveil — sept salves de
+    #: « cinq sources en panne » en une journée, une par réveil. Un tour
+    #: dont l'heure murale a sauté de plus de `RESUME_GAP` est un réveil,
+    #: et la boucle rattend le réseau avant de reprendre.
+    RESUME_GAP = 30.0
     #: Profondeur des sonneries relues au démarrage : la journée, celle
     #: que le panneau journal relit — la cloche, elle, compte l'heure.
     ALERTS_WARM_UP_SECONDS = 24 * 3600.0
@@ -343,16 +350,18 @@ class MarketHub:
         except OSError:
             return False
 
-    def _wait_for_network(self) -> bool:
+    def _wait_for_network(self, moment: str = "au démarrage") -> bool:
         """Attend le réseau, au plus `NETWORK_WAIT` ; vrai s'il est là.
 
         Journalise une fois l'attente et une fois sa fin — ou son
         expiration, auquel cas la boucle part quand même : ses sources
-        diront elles-mêmes ce qui manque.
+        diront elles-mêmes ce qui manque. `moment` dit d'où vient
+        l'attente : le démarrage, ou un réveil.
         """
         if self._network_reachable():
             return True
-        log.warning("réseau absent au démarrage : la boucle d'observation attend")
+        log.warning("réseau absent %s : la boucle d'observation attend",
+                    moment)
         started = time.monotonic()
         while time.monotonic() - started < self.NETWORK_WAIT:
             if self._observe_stop.wait(self.NETWORK_PROBE_EVERY):
@@ -379,7 +388,9 @@ class MarketHub:
             self.journal.purge()
         self._wait_for_network()
         next_snapshot = time.monotonic() + self.SNAPSHOT_WARMUP
+        last_tick = time.time()
         while not self._observe_stop.wait(1.0):
+            last_tick = self._after_sleep(last_tick)
             # Un tour raté — balayage, base verrouillée, disque — ne
             # doit pas arrêter d'observer : le suivant retentera.
             try:
@@ -402,6 +413,22 @@ class MarketHub:
                     self.record_market_snapshot()
                 except Exception:
                     pass
+
+    def _after_sleep(self, last_tick: float) -> float:
+        """Rattend le réseau si la machine a dormi depuis `last_tick`.
+
+        Rend l'heure murale du tour qui commence. `Event.wait` compte en
+        temps monotone, que le sommeil n'avance pas : le tour qui suit
+        un réveil part à la seconde même, avant que la machine ne soit
+        reconnectée — et déclarait toutes les sources en panne.
+        """
+        now = time.time()
+        slept = now - last_tick
+        if slept > self.RESUME_GAP:
+            self._wait_for_network(
+                f"au réveil, après {slept / 60:.0f} min de sommeil")
+            now = time.time()
+        return now
 
     def stop(self) -> None:
         self.stopping.set()

@@ -449,7 +449,15 @@ n'engage rien dans un gestionnaire utilisateur —, et le premier tour
 déclarait cinq sources en panne deux secondes après le boot, dix lignes
 de journal pour une minute de réseau absent. L'attente et sa fin
 tiennent en une ligne chacune ; passé le délai, la boucle part quand
-même, ses sources disant elles-mêmes ce qui manque.
+même, ses sources disant elles-mêmes ce qui manque. Le réveil de la
+machine rejoue le boot : la boucle dort sur `Event.wait`, en temps
+monotone, que le sommeil n'avance pas, et son premier tour partait à la
+seconde même du réveil — sept salves de « sources en panne » en une
+journée, chacune à l'heure exacte où `systemd-sleep` dégelait
+`user.slice`. Un tour dont l'heure murale a sauté de plus de
+`RESUME_GAP` (trente secondes) est un réveil, et `_after_sleep` rattend
+le réseau de la même façon, la ligne de journal disant combien la
+machine a dormi.
 
 La base n'existe qu'à la première écriture : construire un `Journal` —
 ce que fait tout `MarketHub`, démarré ou non — ne crée aucun fichier,
@@ -1914,6 +1922,13 @@ sentir, aucun ne conditionnant les autres.
   boucle d'observation déclarait cinq sources en panne deux secondes
   après le boot, rétablies une minute plus tard. Fait : la boucle
   attend le réseau avant son premier tour, une minute au plus (§2.7).
+- ~~**Cinq pannes au réveil**~~ — constaté dans le journal du service
+  le jour même du correctif précédent : la même salve, sept fois dans
+  la journée, à la seconde exacte de chaque réveil de la machine. La
+  boucle dort en temps monotone, que le sommeil n'avance pas, et son
+  premier tour partait avant que la machine ne soit reconnectée. Fait :
+  un tour dont l'heure murale a sauté est un réveil, et la boucle
+  rattend le réseau comme au démarrage (§2.7).
 
 **À trancher :**
 
