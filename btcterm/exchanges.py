@@ -353,6 +353,14 @@ class KrakenConnector(ExchangeConnector):
     Kraken répartit parfois les deux côtés d'une mise à jour sur plusieurs
     éléments du message ; on balaie donc tous les dictionnaires utiles
     plutôt que le seul `data[1]`.
+
+    Le flux décrit une **fenêtre** de `depth` niveaux par côté, pas le
+    carnet entier : un niveau qu'une insertion pousse hors de la fenêtre
+    en sort sans message, et Kraken ne dira plus rien de lui — pas même
+    sa disparition. Un carnet qui en garderait davantage accumulerait
+    donc des fantômes, que le prix finirait par croiser : le journal du
+    service en comptait cinquante-quatre resynchronisations en une
+    matinée. Le carnet est donc borné à la fenêtre.
     """
 
     name = "Kraken"
@@ -360,6 +368,9 @@ class KrakenConnector(ExchangeConnector):
     def __init__(self, book: OrderBook, pair: str = "XBT/USD",
                  depth: int = 100, **kwargs):
         super().__init__(book, **kwargs)
+        # Pas plus de niveaux que la fenêtre : `apply` élague ce qu'une
+        # insertion en chasse, comme Kraken le fait de son côté.
+        book.max_levels = min(book.max_levels, depth)
         self.url = "wss://ws.kraken.com"
         self.subscription = {
             "event": "subscribe",

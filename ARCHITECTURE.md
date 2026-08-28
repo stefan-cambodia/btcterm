@@ -251,6 +251,20 @@ carnet vieux — l'écart qu'il montre n'existe
 pas. `tests/test_orderbook.py` rejoue les deux causes et les deux
 parades, messages au format des plateformes.
 
+Le garde-fou a ensuite nommé la cause Kraken, qu'on croyait fortuite :
+cinquante-quatre resynchronisations dans le journal du service en une
+matinée, toutes de Kraken, une toutes les deux minutes quand le marché
+bougeait. Le flux `book` de Kraken décrit une **fenêtre** de `depth`
+niveaux par côté, pas le carnet : un niveau qu'une insertion pousse
+hors de la fenêtre en sort sans message, et Kraken n'en dira plus rien —
+pas même sa disparition. Le hub souscrivait vingt-cinq niveaux et le
+carnet en gardait cent : les soixante-quinze de trop étaient des
+fantômes en attente, que le prix croisait dès qu'il revenait sur eux.
+`KrakenConnector` borne désormais `max_levels` à sa fenêtre, et `apply`
+élague ce qu'une insertion en chasse, comme Kraken le fait de son côté.
+Le test rejoue le contrat : un ask sorti de la fenêtre puis annulé hors
+d'elle, le marché qui monte, et un carnet qui ne se croise pas.
+
 ### 2.3 `sources` — collecteurs
 
 | Domaine | Fonctions |
@@ -1814,6 +1828,12 @@ sentir, aucun ne conditionnant les autres.
   snapshot Coinbase Advanced remplace le carnet au lieu de s'y
   superposer, un carnet croisé qui persiste se resynchronise, et le
   moteur l'écarte en attendant (§2.2).
+- ~~**Kraken se resynchronise toutes les deux minutes**~~ — constaté
+  dans le journal du service dès que le garde-fou précédent a su
+  compter : cinquante-quatre resynchronisations en une matinée, toutes
+  de Kraken. Le flux décrit une fenêtre de vingt-cinq niveaux et le
+  carnet en gardait cent — soixante-quinze fantômes en puissance. Fait :
+  le carnet Kraken est borné à sa fenêtre (§2.2).
 - ~~**Un lien ouvert mais muet**~~ — fait : le fil date, par lien, le
   dernier événement reçu et l'ouverture du lien, et `silent` nomme ceux
   qui tiennent sans rien livrer depuis plus d'un quart d'heure (§2.5).

@@ -122,6 +122,32 @@ def test_bybit_aussi():
     print("  ✓ même garde-fou sur les deltas Bybit")
 
 
+def test_kraken_ne_garde_pas_ce_qui_sort_de_la_fenetre():
+    """Kraken décrit une fenêtre de `depth` niveaux : ce qu'une insertion
+    en chasse en sort sans message, et le flux n'en dira plus rien — pas
+    même sa disparition. Un carnet qui le garderait finirait croisé."""
+    book = OrderBook(exchange="Kraken")
+    assert book.max_levels > 3
+    connector = KrakenConnector(book, depth=3)
+    assert book.max_levels == 3, "le carnet est borné à la fenêtre"
+
+    connector._handle(kraken(**{"as": [(100, 1), (101, 1), (102, 1)],
+                                "bs": [(99, 1), (98, 1), (97, 1)]}))
+    # Un ask s'insère dans la fenêtre : 102 en sort, chez Kraken comme ici.
+    connector._handle(kraken(a=[(100.5, 1)]))
+    assert sorted(book.asks) == [100, 100.5, 101], "102 est sorti de la fenêtre"
+
+    # Le marché monte : les asks de la fenêtre partent, d'autres y
+    # entrent (republiés). 102, annulé entre-temps hors fenêtre, n'est
+    # mentionné nulle part — c'est le contrat du flux.
+    connector._handle(kraken(a=[(100, 0), (100.5, 0), (101, 0),
+                                (103, 1), (104, 1), (105, 1)]))
+    connector._handle(kraken(b=[(102.5, 1), (102.2, 1), (102.1, 1)]))
+    assert book.best_bid == 102.5 and book.best_ask == 103
+    assert not book.crossed, "le fantôme à 102 aurait croisé le carnet"
+    print("  ✓ Kraken : le carnet ne garde pas ce qui sort de la fenêtre")
+
+
 def test_le_moteur_ecarte_le_carnet_croise():
     books = {"A": OrderBook(exchange="A"), "B": OrderBook(exchange="B")}
     for book in books.values():
