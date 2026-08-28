@@ -318,7 +318,9 @@ borné à sa fenêtre. Et un onglet chargé avant un redémarrage — souvent
 pendant que la machine dormait — se recharge de lui-même au lieu de
 parler au nouveau serveur avec l'ancien graphe de callbacks : la page
 emporte le jeton de son serveur et le compare à `/api/boot` avant chaque
-connexion.
+connexion. Enfin, la boucle d'observation attend le réseau au démarrage —
+l'unité utilisateur part avant que la machine ne soit connectée — au lieu
+de déclarer cinq sources en panne deux secondes après le boot.
 
 ## Outils complémentaires
 

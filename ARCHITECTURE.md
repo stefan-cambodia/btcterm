@@ -440,7 +440,16 @@ propre à cadence lente (1 s) : aucun callback d'interface ne pouvait
 s'en charger — il n'en tourne aucun sans navigateur ouvert, et le
 journal doit couvrir la séance entière. L'arrêt du hub clôt et écrit
 les épisodes encore ouverts ; une panne d'écriture ne remonte jamais
-jusqu'au flux ni à la boucle, qui retentera au balayage suivant.
+jusqu'au flux ni à la boucle, qui retentera au balayage suivant. Au
+démarrage, la boucle attend le réseau avant son premier tour
+(`_wait_for_network`, au plus une minute, sondé toutes les deux
+secondes vers une adresse plutôt qu'un nom) : l'unité utilisateur part
+avant que la machine ne soit connectée — `network-online.target`
+n'engage rien dans un gestionnaire utilisateur —, et le premier tour
+déclarait cinq sources en panne deux secondes après le boot, dix lignes
+de journal pour une minute de réseau absent. L'attente et sa fin
+tiennent en une ligne chacune ; passé le délai, la boucle part quand
+même, ses sources disant elles-mêmes ce qui manque.
 
 La base n'existe qu'à la première écriture : construire un `Journal` —
 ce que fait tout `MarketHub`, démarré ou non — ne crée aucun fichier,
@@ -1886,6 +1895,11 @@ sentir, aucun ne conditionnant les autres.
   nouveau serveur avec l'ancien graphe de callbacks. Fait : la page
   emporte le jeton de son serveur, le compare à `/api/boot` avant chaque
   connexion et se recharge s'il a changé (§3.10).
+- ~~**Cinq pannes au boot**~~ — constaté dans le journal du service :
+  l'unité utilisateur démarre avant le réseau, et le premier tour de la
+  boucle d'observation déclarait cinq sources en panne deux secondes
+  après le boot, rétablies une minute plus tard. Fait : la boucle
+  attend le réseau avant son premier tour, une minute au plus (§2.7).
 
 **À trancher :**
 

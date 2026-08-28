@@ -195,6 +195,50 @@ def test_la_panne_se_lit_en_une_ligne():
     print("  ✓ hôte et cause, sans l'URL ni le pool")
 
 
+def test_la_boucle_attend_le_reseau():
+    """Au boot, la boucle d'observation attend le réseau au lieu de
+    déclarer toutes les sources en panne au premier tour ; l'attente et
+    sa fin tiennent en une ligne chacune, et l'arrêt du hub l'interrompt."""
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    hub.NETWORK_PROBE_EVERY = 0.01
+    hub.NETWORK_WAIT = 1.0
+    sondes = []
+
+    def sonde():
+        sondes.append(1)
+        return len(sondes) >= 3
+    hub._network_reachable = sonde
+
+    capture = Capture()
+    hub_module.log.addHandler(capture)
+    try:
+        assert hub._wait_for_network() is True
+        assert len(sondes) == 3
+        assert [l for l in capture.lignes if "absent au démarrage" in l], capture.lignes
+        assert [l for l in capture.lignes if l.startswith("réseau présent après")]
+
+        # Réseau présent d'emblée : rien à dire.
+        capture.lignes.clear(); sondes.clear()
+        sondes.extend([1, 1])
+        assert hub._wait_for_network() is True and capture.lignes == []
+
+        # Jamais de réseau : la boucle part quand même, et le dit.
+        capture.lignes.clear()
+        hub._network_reachable = lambda: False
+        assert hub._wait_for_network() is False
+        assert [l for l in capture.lignes if "part sans lui" in l], capture.lignes
+
+        # L'arrêt du hub coupe l'attente sans attendre l'expiration.
+        hub.NETWORK_WAIT = 60.0
+        hub._observe_stop.set()
+        debut = time.monotonic()
+        assert hub._wait_for_network() is False
+        assert time.monotonic() - debut < 1.0
+    finally:
+        hub_module.log.removeHandler(capture)
+    print("  ✓ la boucle d'observation attend le réseau, et le dit une fois")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCache du hub — {len(tests)} vérifications\n" + "─" * 60)

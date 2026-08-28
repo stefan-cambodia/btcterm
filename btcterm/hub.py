@@ -14,6 +14,7 @@ que l'interface — quelle qu'elle soit — garde le thread principal.
 from __future__ import annotations
 
 import logging
+import socket
 import threading
 import time
 from typing import Any, Callable, Optional
@@ -173,6 +174,17 @@ class MarketHub:
     #: Profondeur de la fenêtre de liquidations relue du journal au
     #: démarrage : une heure, celle des totaux du panneau.
     WARM_UP_SECONDS = 3600.0
+
+    #: Au démarrage, la boucle d'observation attend le réseau avant son
+    #: premier tour — au plus une minute, sondé toutes les deux
+    #: secondes. L'unité utilisateur part avant que la machine ne soit
+    #: connectée (`network-online.target` n'engage rien dans un
+    #: gestionnaire utilisateur), et le premier tour déclarait cinq
+    #: sources en panne deux secondes après le boot. La sonde vise une
+    #: adresse, pas un nom : le DNS n'est pas ce qu'on veut tester.
+    NETWORK_WAIT = 60.0
+    NETWORK_PROBE_EVERY = 2.0
+    NETWORK_PROBE = ("1.1.1.1", 443)
     #: Profondeur des sonneries relues au démarrage : la journée, celle
     #: que le panneau journal relit — la cloche, elle, compte l'heure.
     ALERTS_WARM_UP_SECONDS = 24 * 3600.0
@@ -324,6 +336,35 @@ class MarketHub:
             for row in rows
         )
 
+    def _network_reachable(self) -> bool:
+        try:
+            socket.create_connection(self.NETWORK_PROBE, timeout=2).close()
+            return True
+        except OSError:
+            return False
+
+    def _wait_for_network(self) -> bool:
+        """Attend le réseau, au plus `NETWORK_WAIT` ; vrai s'il est là.
+
+        Journalise une fois l'attente et une fois sa fin — ou son
+        expiration, auquel cas la boucle part quand même : ses sources
+        diront elles-mêmes ce qui manque.
+        """
+        if self._network_reachable():
+            return True
+        log.warning("réseau absent au démarrage : la boucle d'observation attend")
+        started = time.monotonic()
+        while time.monotonic() - started < self.NETWORK_WAIT:
+            if self._observe_stop.wait(self.NETWORK_PROBE_EVERY):
+                return False
+            if self._network_reachable():
+                log.warning("réseau présent après %.0f s",
+                            time.monotonic() - started)
+                return True
+        log.warning("réseau toujours absent après %.0f s : la boucle "
+                    "d'observation part sans lui", self.NETWORK_WAIT)
+        return False
+
     def _observe_loop(self) -> None:
         """Observe le marché pour le journal et les alertes, à 1 s.
 
@@ -336,6 +377,7 @@ class MarketHub:
         """
         if self.journal is not None:
             self.journal.purge()
+        self._wait_for_network()
         next_snapshot = time.monotonic() + self.SNAPSHOT_WARMUP
         while not self._observe_stop.wait(1.0):
             # Un tour raté — balayage, base verrouillée, disque — ne
