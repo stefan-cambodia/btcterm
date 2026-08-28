@@ -59,53 +59,63 @@ def prepare_price_frame(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
-def build_depth_chart(books: dict, uirevision: str = "depth") -> go.Figure:
+def build_depth_chart(books: dict, uirevision: str = "depth") -> dict:
     """Profondeur cumulée superposée, une couleur par plateforme.
 
     Les carnets sont recentrés en pourcentage d'écart au prix médian : les
     plateformes ne cotent pas exactement le même prix, et les superposer
     en valeur absolue rendrait la comparaison illisible.
+
+    La figure est un dictionnaire brut, pas un `go.Figure` : Dash comme
+    l'encodeur JSON de Plotly la prennent telle quelle, et c'est la
+    validation de `go.Figure` — chaque propriété de chaque trace — qui
+    coûtait vingt millisecondes par rendu, sur une figure que le
+    pousseur et l'horloge rebâtissent sans cesse (§3.10).
     """
     palette = [C["yellow"], C["blue"], C["purple"], C["cyan"], C["green"]]
-    fig = go.Figure()
+    data = []
 
     for (name, book), color in zip(books.items(), palette):
         mid = book.mid
         if mid is None:
             continue
-        for side, dash in (("bids", "solid"), ("asks", "solid")):
+        for side in ("bids", "asks"):
             prices, cumulated = book.cumulative_depth(side)
             if not prices:
                 continue
-            fig.add_trace(go.Scatter(
-                x=[(p - mid) / mid * 100 for p in prices],
-                y=cumulated,
-                name=f"{name} {side}",
-                line=dict(color=color, width=1.4, dash=dash, shape="hv"),
-                fill="tozeroy",
-                fillcolor="rgba(255,255,255,0.03)",
-                showlegend=(side == "bids"),
-                legendgroup=name,
-                hovertemplate=f"{name} · %{{x:.3f}} %<br>%{{y:.3f}} BTC<extra></extra>",
-            ))
+            data.append({
+                "type": "scatter",
+                "x": [(p - mid) / mid * 100 for p in prices],
+                "y": list(cumulated),
+                "name": f"{name} {side}",
+                "line": {"color": color, "width": 1.4, "dash": "solid",
+                         "shape": "hv"},
+                "fill": "tozeroy",
+                "fillcolor": "rgba(255,255,255,0.03)",
+                "showlegend": side == "bids",
+                "legendgroup": name,
+                "hovertemplate": f"{name} · %{{x:.3f}} %<br>%{{y:.3f}} BTC"
+                                 "<extra></extra>",
+            })
 
-    axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["border"],
-                       tickfont=dict(size=9, color=C["muted"]))
-    fig.update_layout(
-        paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
-        font=dict(family=MONO, color=C["text"], size=10),
-        margin=dict(l=8, r=8, t=4, b=4),
-        showlegend=True,
-        legend=dict(orientation="h", y=1.12, x=0, font=dict(size=9),
-                    bgcolor="rgba(0,0,0,0)"),
-        hovermode="x unified",
-        hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
-                        font_color=C["text"], font_size=10),
-        uirevision=uirevision,
-    )
-    fig.update_xaxes(title_text="écart au prix médian (%)", **axis_common)
-    fig.update_yaxes(title_text="volume cumulé (BTC)", **axis_common)
-    return fig
+    axis_common = {"gridcolor": C["grid"], "zerolinecolor": C["border"],
+                   "tickfont": {"size": 9, "color": C["muted"]}}
+    layout = {
+        "paper_bgcolor": C["panel"], "plot_bgcolor": C["panel"],
+        "font": {"family": MONO, "color": C["text"], "size": 10},
+        "margin": {"l": 8, "r": 8, "t": 4, "b": 4},
+        "showlegend": True,
+        "legend": {"orientation": "h", "y": 1.12, "x": 0,
+                   "font": {"size": 9}, "bgcolor": "rgba(0,0,0,0)"},
+        "hovermode": "x unified",
+        "hoverlabel": {"bgcolor": "#1a2035", "bordercolor": C["border"],
+                       "font": {"color": C["text"], "size": 10}},
+        "uirevision": uirevision,
+        "xaxis": {"title": {"text": "écart au prix médian (%)"},
+                  **axis_common},
+        "yaxis": {"title": {"text": "volume cumulé (BTC)"}, **axis_common},
+    }
+    return {"data": data, "layout": layout}
 
 
 # ─────────────────────────────────────────────────────────────

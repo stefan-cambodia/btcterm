@@ -1180,9 +1180,13 @@ carnet prend du retard. Le chantier laissé conditionnel à l'étape 2 est
 désormais fait : `terminal/push.py` pose une route WebSocket `/push` sur le serveur Flask qui porte Dash (flask-sock), et
 pousse le rendu des six cibles rapides — carnet, profondeur, arbitrage et son
 compteur, liquidations et leurs badges — à une cadence de 100 ms ; la
-profondeur seule part à la seconde, une figure Plotly entière que des
-carnets jamais immobiles faisaient repartir à chaque trame — la moitié
-du temps processeur d'un onglet ouvert, au profil. Une septième
+profondeur seule part à la seconde, une figure entière que des carnets
+jamais immobiles faisaient repartir à chaque trame — la moitié du temps
+processeur d'un onglet ouvert, au profil. Mesuré cible par cible sur un
+hub réel : le carnet coûte 1,4 ms rendu et sérialisation compris,
+l'arbitrage 1 ms, les liquidations rien ; la profondeur en coûtait 23,6
+— dont vingt de validation `go.Figure` — et 0,9 depuis qu'elle est un
+dictionnaire brut, que Dash et l'encodeur prennent tel quel. Une septième
 cible s'y est jointe avec la voie A, à la cadence de l'horloge lente qu'elle
 double : la bougie courante du panneau prix et ses derniers points
 d'indicateurs, jamais la série entière — le navigateur tient la série, le
@@ -1945,8 +1949,13 @@ sentir, aucun ne conditionnant les autres.
   instance) a mis la moitié des échantillons dans `build_depth_chart` :
   le pousseur rebâtissait et sérialisait la figure de profondeur dix
   fois par seconde, et des carnets jamais immobiles la faisaient
-  repartir à chaque trame. Fait : la profondeur a sa cadence propre,
-  une seconde, comme le prix avait la sienne (§3.10).
+  repartir à chaque trame. Fait, en deux coupes : la profondeur a sa
+  cadence propre, une seconde, comme le prix avait la sienne (§3.10) ;
+  et la figure est bâtie en dictionnaire brut plutôt qu'en `go.Figure`,
+  dont la validation valait vingt des vingt-trois millisecondes du
+  rendu — un banc en processus, cible par cible, l'a montré là où
+  py-spy, à deux cents secondes de retard sur un processus à vingt
+  threads, ne montrait plus rien.
 
 **À trancher :**
 

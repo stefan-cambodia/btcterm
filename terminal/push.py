@@ -66,8 +66,10 @@ PUSH_PRICE_INTERVAL = 2.0
 #: immobiles, font repartir à chaque trame. À 100 ms, elle valait la
 #: moitié du temps processeur d'un onglet ouvert (profil py-spy : 50
 #: échantillons sur 101 dans build_depth_chart), pour une courbe que
-#: l'œil ne lit pas dix fois par seconde. Le carnet et l'arbitrage,
-#: eux, gardent la cadence du canal.
+#: l'œil ne lit pas dix fois par seconde. La figure a depuis perdu sa
+#: validation Plotly (charts.py) et ne coûte plus qu'une milliseconde ;
+#: la cadence reste, pour le repli par interrogation comme pour le
+#: canal. Le carnet et l'arbitrage, eux, gardent la cadence du canal.
 PUSH_DEPTH_INTERVAL = 1.0
 
 #: L'état que le navigateur annonce, et ses valeurs tant qu'il n'a rien
