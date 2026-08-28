@@ -35,7 +35,8 @@ from plotly.utils import PlotlyJSONEncoder  # noqa: E402
 from btcterm.hub import MarketHub  # noqa: E402
 from terminal.panels.liquidations import ROWS_MAX  # noqa: E402
 from terminal.panels.orderbook import DEPTH, DEPTH_MAX  # noqa: E402
-from terminal.push import (DEFAULT_STATE, _frame, _merge,  # noqa: E402
+from terminal.push import (DEFAULT_STATE, PUSH_DEPTH_INTERVAL,  # noqa: E402
+                           PUSH_PRICE_INTERVAL, _frame, _merge,
                            _price_target)
 
 CIBLES = {"book-table", "depth-chart", "arb-table", "arb-count",

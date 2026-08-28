@@ -61,6 +61,15 @@ PUSH_INTERVAL = 0.1
 #: reste : un point identique ne repart pas.
 PUSH_PRICE_INTERVAL = 2.0
 
+#: Cadence de la profondeur : une figure Plotly entière — cinq courbes
+#: cumulées, construites puis sérialisées — que les carnets, jamais
+#: immobiles, font repartir à chaque trame. À 100 ms, elle valait la
+#: moitié du temps processeur d'un onglet ouvert (profil py-spy : 50
+#: échantillons sur 101 dans build_depth_chart), pour une courbe que
+#: l'œil ne lit pas dix fois par seconde. Le carnet et l'arbitrage,
+#: eux, gardent la cadence du canal.
+PUSH_DEPTH_INTERVAL = 1.0
+
 #: L'état que le navigateur annonce, et ses valeurs tant qu'il n'a rien
 #: dit — les mêmes défauts que la page au chargement. `price_interval`
 #: n'a pas de défaut : seul le rendu Lightweight Charts l'annonce, et
@@ -78,25 +87,28 @@ DEFAULT_STATE = {"exchange": "Binance", "expanded": None,
                  "price_interval": None}
 
 
-def _frame(hub, state: dict) -> dict[str, dict]:
+def _frame(hub, state: dict, depth: bool = True) -> dict[str, dict]:
     """Le rendu des panneaux rapides, ciblé par identifiant de composant.
 
     Exactement ce que les callbacks Dash produiraient pour le même état :
     les fonctions `render` sont partagées, seul le canal change. Les six
-    cibles sont toujours rendues — c'est la trame qui écarte celles qui
-    n'ont pas changé, et le navigateur celles qui ne sont pas à l'écran.
+    cibles sont rendues — c'est la trame qui écarte celles qui n'ont pas
+    changé, et le navigateur celles qui ne sont pas à l'écran — sauf la
+    profondeur, que la boucle ne demande qu'à sa cadence (`depth`).
     """
     arb_table, arb_count = arbitrage.render(hub)
     liq_table, liq_badges = liquidations.render(hub, state["expanded"] == "liq")
-    return {
+    frame = {
         "book-table": {"children": orderbook.render_book(
             hub, state["exchange"], state["expanded"] == "book")},
-        "depth-chart": {"figure": orderbook.render_depth(hub)},
         "arb-table": {"children": arb_table},
         "arb-count": {"children": arb_count},
         "liq-table": {"children": liq_table},
         "liq-badges": {"children": liq_badges},
     }
+    if depth:
+        frame["depth-chart"] = {"figure": orderbook.render_depth(hub)}
+    return frame
 
 
 def _price_target(hub, interval: str) -> dict:
@@ -205,6 +217,7 @@ def serve(hub, ws) -> None:
     # quand la recalculer. Zéro pour qu'elle parte dès la première
     # trame — et reparte dès qu'un changement d'état l'exige.
     price_due = 0.0
+    depth_due = 0.0
     try:
         while not hub.stopping.is_set():
             # Entre deux trames, la boucle dort sur la réception :
@@ -223,10 +236,13 @@ def serve(hub, ws) -> None:
                     if state != previous:
                         sent.clear()
                         next_send = time.monotonic()
-                        price_due = 0.0
+                        price_due = depth_due = 0.0
                 continue
 
-            frame = _frame(hub, state)
+            depth = time.monotonic() >= depth_due
+            frame = _frame(hub, state, depth=depth)
+            if depth:
+                depth_due = time.monotonic() + PUSH_DEPTH_INTERVAL
             if (state["price_interval"]
                     and time.monotonic() >= price_due):
                 frame["price-lwc"] = _price_target(

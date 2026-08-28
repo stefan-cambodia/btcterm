@@ -1179,7 +1179,10 @@ complet : sur un tunnel SSH lointain, la latence s'ajoute à la période et le
 carnet prend du retard. Le chantier laissé conditionnel à l'étape 2 est
 désormais fait : `terminal/push.py` pose une route WebSocket `/push` sur le serveur Flask qui porte Dash (flask-sock), et
 pousse le rendu des six cibles rapides — carnet, profondeur, arbitrage et son
-compteur, liquidations et leurs badges — à une cadence de 100 ms. Une septième
+compteur, liquidations et leurs badges — à une cadence de 100 ms ; la
+profondeur seule part à la seconde, une figure Plotly entière que des
+carnets jamais immobiles faisaient repartir à chaque trame — la moitié
+du temps processeur d'un onglet ouvert, au profil. Une septième
 cible s'y est jointe avec la voie A, à la cadence de l'horloge lente qu'elle
 double : la bougie courante du panneau prix et ses derniers points
 d'indicateurs, jamais la série entière — le navigateur tient la série, le
@@ -1935,6 +1938,15 @@ sentir, aucun ne conditionnant les autres.
   qui écrit un dogecoin `0.2345` et un bitcoin en notation
   scientifique. Fait : le nombre de décimales suit la taille du prix
   (`_prix`), et le contrôle refuse un `e+` dans le tableau.
+- ~~**Un onglet ouvert coûte un sixième de cœur**~~ — constaté dans le
+  journal du service, une instance à 22 % de processeur là où les
+  autres tenaient en 2 % ; mesuré ensuite sur le worker, 2 % sans
+  client, 16 % avec un onglet. Le profil (py-spy sur une seconde
+  instance) a mis la moitié des échantillons dans `build_depth_chart` :
+  le pousseur rebâtissait et sérialisait la figure de profondeur dix
+  fois par seconde, et des carnets jamais immobiles la faisaient
+  repartir à chaque trame. Fait : la profondeur a sa cadence propre,
+  une seconde, comme le prix avait la sienne (§3.10).
 
 **À trancher :**
 

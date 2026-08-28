@@ -326,7 +326,10 @@ l'unité utilisateur part avant que la machine ne soit connectée — au lieu
 de déclarer cinq sources en panne deux secondes après le boot — et le
 réveil de la machine, qui rejouait la même salve sept fois par jour,
 est traité comme un boot. Le tableau des liquidations écrit ses prix
-selon leur taille — un bitcoin à 79 090 $ s'y lisait `7.909e+04`. Côté
+selon leur taille — un bitcoin à 79 090 $ s'y lisait `7.909e+04`. Et un onglet ouvert
+coûtait un sixième de cœur au serveur — la moitié en figures de
+profondeur rebâties dix fois par seconde ; la profondeur part désormais
+à la seconde. Côté
 analyse, le panneau prix a reçu le geste que Lightweight Charts n'offre
 pas : un cadre tracé avec Maj + glisser y ajuste temps et prix, et le
 double-clic rend la vue entière.
