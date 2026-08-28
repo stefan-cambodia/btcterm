@@ -127,6 +127,14 @@ def test_rendu_du_panneau():
     assert len(lignes) == 2
     assert all(len(ligne.children) == 6 for ligne in lignes), "colonnes manquantes"
 
+    # Le prix suit sa taille : un bitcoin ne s'écrit pas 6.4e+04.
+    textes = str(lignes)
+    assert "e+" not in textes and "64,000" in textes and "3,000" in textes
+    assert panneau._prix(79090.5) == "79,090"
+    assert panneau._prix(4321.5) == "4,322"
+    assert panneau._prix(180.254) == "180.25"
+    assert panneau._prix(0.23456) == "0.2346"
+
     assert panneau._montant(1_250_000) == "1.25 M$"
     assert panneau._montant(64_000) == "64 k$"
     assert panneau._montant(120) == "120 $"

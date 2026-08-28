@@ -1929,6 +1929,12 @@ sentir, aucun ne conditionnant les autres.
   premier tour partait avant que la machine ne soit reconnectée. Fait :
   un tour dont l'heure murale a sauté est un réveil, et la boucle
   rattend le réseau comme au démarrage (§2.7).
+- ~~**Un bitcoin à `7.909e+04`**~~ — constaté dans la sortie du contrôle
+  d'interface, qui recopie la première ligne du tableau des
+  liquidations : quatre chiffres significatifs pour tous les prix, ce
+  qui écrit un dogecoin `0.2345` et un bitcoin en notation
+  scientifique. Fait : le nombre de décimales suit la taille du prix
+  (`_prix`), et le contrôle refuse un `e+` dans le tableau.
 
 **À trancher :**
 

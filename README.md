@@ -325,7 +325,8 @@ connexion. Enfin, la boucle d'observation attend le réseau au démarrage —
 l'unité utilisateur part avant que la machine ne soit connectée — au lieu
 de déclarer cinq sources en panne deux secondes après le boot — et le
 réveil de la machine, qui rejouait la même salve sept fois par jour,
-est traité comme un boot. Côté
+est traité comme un boot. Le tableau des liquidations écrit ses prix
+selon leur taille — un bitcoin à 79 090 $ s'y lisait `7.909e+04`. Côté
 analyse, le panneau prix a reçu le geste que Lightweight Charts n'offre
 pas : un cadre tracé avec Maj + glisser y ajuste temps et prix, et le
 double-clic rend la vue entière.

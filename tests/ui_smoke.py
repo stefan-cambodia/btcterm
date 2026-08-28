@@ -447,6 +447,7 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         # mais il doit alors le dire — et jamais rester muet.
         check("le fil dit son état", len(liq["badges"]) > 8, liq["badges"][:44])
         check("le tableau dit le sien", len(liq["table"]) > 4, liq["table"][:44])
+        check("les prix s'y écrivent en clair", "e+" not in liq["table"])
 
         print("\nOnglet alertes")
         browser.js("""

@@ -114,6 +114,18 @@ def _badges(feed):
     ] + sans + muets, style={"fontFamily": MONO})
 
 
+def _prix(valeur: float) -> str:
+    """Un prix lisible d'un bout à l'autre du fil : un bitcoin à 79 090 $,
+    un ether à 4 322 $, un solana à 180.25 $, un dogecoin à 0.2345 $ — le
+    nombre de décimales suit la taille du prix. Quatre chiffres
+    significatifs pour tout le monde écrivaient le bitcoin `7.909e+04`."""
+    if valeur >= 1000:
+        return f"{valeur:,.0f}"
+    if valeur >= 1:
+        return f"{valeur:.2f}"
+    return f"{valeur:.4g}"
+
+
 def _row(event):
     """Une liquidation : heure, plateforme, paire, côté liquidé, prix, montant."""
     label, color = SIDE_LABEL.get(event.side, ("?", C["muted"]))
@@ -127,7 +139,7 @@ def _row(event):
         html.Td(event.symbol.replace("USDT", ""),
                 style={**cell, "color": C["text"]}),
         html.Td(label, style={**cell, "color": color, "fontWeight": "600"}),
-        html.Td(f"{event.price:,.4g}",
+        html.Td(_prix(event.price),
                 style={**cell, "color": C["muted"], "textAlign": "right"}),
         html.Td(_montant(event.notional),
                 style={**cell, "color": color, "textAlign": "right"}),
