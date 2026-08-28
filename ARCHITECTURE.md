@@ -1324,6 +1324,25 @@ Chaque source distante a une stratégie de repli explicite :
 | flux RSS (`news`) | le feed en échec est sauté, les autres continuent |
 | CryptoPanic sans clé | source simplement désactivée |
 
+Deux précautions encadrent le premier repli. **Le secours se dit.** Le
+journal de séance a montré six heures et demie d'instantanés sans
+financement ni open interest — Binance Futures muet après un réveil,
+CoinGecko répondant à côté — sans une ligne dans le journal du service :
+le cache servait sa dernière valeur, et rien ne le disait. `TTLCache`
+journalise désormais la première panne d'une source (clé, erreur, âge de
+la valeur servie) puis son rétablissement avec la durée — une ligne
+chacun, pas une par lecture —, et un collecteur qui n'a rien obtenu
+lève au lieu de rendre un vide : `fetch_perp_snapshot` rendait `{}`
+quand ses deux endpoints tombaient, et le cache le stockait comme une
+lecture réussie, invisible au secours. **Le secours ne s'écrit pas.** Une
+valeur datée servie à un panneau est un moindre mal ; écrite dans
+l'historique comme si elle datait de l'instant, c'est un mensonge sur
+des heures. Le cache tient donc, par clé, si la dernière lecture a été
+servie de secours (`stale`) — il ne disqualifie que ce qu'il a vu
+tomber —, et `record_market_snapshot` n'écrit pas le secours : NULL,
+qui dit vrai. `tests/test_cache.py` couvre
+les trois.
+
 Le repli sur données de démonstration mérite une précaution : un graphique
 synthétique qu'on ne distingue pas d'un vrai est pire que pas de graphique du
 tout. `generate_demo_ohlcv` marque donc sa sortie d'un `attrs["demo"]`, que
@@ -1765,6 +1784,15 @@ sentir, aucun ne conditionnant les autres.
   Bybit dans le même fil, dix grandes paires ; le panneau étiquette la
   plateforme, le journal la conserve (colonne `exchange`, ajoutée par
   migration), et le badge nomme le lien qui manque.
+- ~~**Une source en panne, en silence**~~ — constaté dans le journal de
+  séance : six heures et demie d'instantanés sans financement ni open
+  interest, Binance Futures muet après un réveil pendant que CoinGecko
+  répondait, sans une ligne dans le journal du service ; et le
+  collecteur du perpétuel rendait un vide que le cache stockait comme
+  une lecture réussie. Fait : le cache journalise la première panne
+  d'une source et son rétablissement, tient par clé si la dernière
+  lecture était fraîche ou de secours, l'instantané n'écrit que le
+  frais, et un collecteur sans rien lève (§4.3).
 - ~~**Les alertes après un redémarrage**~~ — constaté au balayage des
   panneaux du service en marche : « aucune alerte — les seuils
   veillent » quand le journal en comptait onze sur la journée. Fait :

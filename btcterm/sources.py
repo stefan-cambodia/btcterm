@@ -374,7 +374,10 @@ def fetch_open_interest(
 
     df = pd.DataFrame(response.json())
     if df.empty:
-        return pd.DataFrame(columns=["time", "oi", "oi_usd"])
+        # Binance ne répond jamais vide pour une paire vivante : un
+        # tableau vide est une réponse de restriction, pas une donnée.
+        # Lever laisse le cache servir la dernière valeur, et le dire.
+        raise ValueError("réponse vide de Binance Futures")
     return pd.DataFrame({
         "time": pd.to_datetime(df["timestamp"], unit="ms"),
         "oi": df["sumOpenInterest"].astype(float),
@@ -389,9 +392,12 @@ def fetch_perp_snapshot(symbol: str = "BTCUSDT") -> dict[str, Any]:
     prochain financement, `globalLongShortAccountRatio` pour la part des
     comptes longs. Chaque partie manquante est simplement absente du
     résultat : un ratio indisponible ne doit pas priver le panneau du
-    financement.
+    financement. Mais un résultat vide — les deux en panne — lève : un
+    vide rendu comme une valeur se ferait mettre en cache et passerait
+    pour une lecture réussie, six heures durant s'il le faut.
     """
     snapshot: dict[str, Any] = {}
+    errors: list[str] = []
     try:
         response = requests.get(
             f"{BINANCE_FUTURES}/fapi/v1/premiumIndex",
@@ -403,8 +409,8 @@ def fetch_perp_snapshot(symbol: str = "BTCUSDT") -> dict[str, Any]:
         snapshot["index_price"] = float(data["indexPrice"])
         snapshot["funding_rate"] = float(data["lastFundingRate"])
         snapshot["next_funding"] = int(data["nextFundingTime"])
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — partie manquante, pas panne
+        errors.append(f"premiumIndex : {str(exc)[:60] or type(exc).__name__}")
 
     try:
         response = requests.get(
@@ -415,9 +421,11 @@ def fetch_perp_snapshot(symbol: str = "BTCUSDT") -> dict[str, Any]:
         row = response.json()[0]
         snapshot["long_account"] = float(row["longAccount"])
         snapshot["long_short_ratio"] = float(row["longShortRatio"])
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001 — partie manquante, pas panne
+        errors.append(f"ratio : {str(exc)[:60] or type(exc).__name__}")
 
+    if not snapshot:
+        raise RuntimeError("Binance Futures injoignable — " + " ; ".join(errors))
     return snapshot
 
 

@@ -13,6 +13,7 @@ que l'interface — quelle qu'elle soit — garde le thread principal.
 
 from __future__ import annotations
 
+import logging
 import threading
 import time
 from typing import Any, Callable, Optional
@@ -40,6 +41,8 @@ from .exchanges import (
 __all__ = ["MarketHub", "TTLCache"]
 
 
+log = logging.getLogger("btcterm.hub")
+
 class TTLCache:
     """Cache mémoire à durée de vie, sûr entre threads.
 
@@ -48,10 +51,26 @@ class TTLCache:
     En cas d'échec de rafraîchissement, la dernière valeur connue est
     conservée : un panneau qui affiche une donnée un peu datée vaut mieux
     qu'un panneau vide.
+
+    Mais une valeur datée n'est pas une valeur fraîche, et une source en
+    panne n'a pas à l'être en silence. Le journal de séance a montré six
+    heures et demie sans financement ni open interest — Binance Futures
+    muet après un réveil, pendant que CoinGecko répondait — sans une
+    ligne dans le journal du service. Le cache tient donc, par clé, si
+    la dernière lecture a été servie de secours (`stale`) — l'instantané
+    journalisé n'écrit pas le secours —, et il journalise la première
+    panne d'une source comme son rétablissement, avec la durée.
     """
 
     def __init__(self):
         self._entries: dict[str, tuple[float, Any]] = {}
+        #: Clé → vrai si la dernière lecture a été servie de secours
+        #: (source en panne), ou a échoué sans rien à servir. Une clé
+        #: jamais lue n'y est pas : le cache ne disqualifie que ce qu'il
+        #: a vu tomber.
+        self._stale: dict[str, bool] = {}
+        #: Clé → instant de la première panne encore en cours.
+        self._failing: dict[str, float] = {}
         self._lock = threading.Lock()
 
     def get(self, key: str, ttl: float, producer: Callable[[], Any]) -> Any:
@@ -62,14 +81,41 @@ class TTLCache:
 
         try:
             value = producer()
-        except Exception:
+        except Exception as exc:
+            self._note_failure(key, exc, entry)
+            with self._lock:
+                self._stale[key] = True
             if entry:
                 return entry[1]
             raise
 
+        self._note_recovery(key)
         with self._lock:
             self._entries[key] = (time.time(), value)
+            self._stale[key] = False
         return value
+
+    def stale(self, key: str) -> bool:
+        """Vrai si la dernière lecture de `key` a été servie de secours."""
+        with self._lock:
+            return self._stale.get(key, False)
+
+    def _note_failure(self, key: str, exc: Exception, entry) -> None:
+        with self._lock:
+            first = key not in self._failing
+            if first:
+                self._failing[key] = time.time()
+        if first:
+            age = f"{time.time() - entry[0]:.0f} s" if entry else "aucune"
+            log.warning("source %s en panne : %s — dernière valeur : %s",
+                        key, str(exc)[:120] or type(exc).__name__, age)
+
+    def _note_recovery(self, key: str) -> None:
+        with self._lock:
+            since = self._failing.pop(key, None)
+        if since is not None:
+            log.warning("source %s de nouveau servie après %.0f min",
+                        key, (time.time() - since) / 60)
 
     def peek(self, key: str) -> Optional[Any]:
         with self._lock:
@@ -433,9 +479,19 @@ class MarketHub:
         """
         if self.journal is None:
             return
+        # Le cache sert sa dernière valeur quand la source tombe — bien
+        # pour un panneau, faux pour un historique : une valeur de
+        # secours écrite comme fraîche mentirait sur des heures. Chaque
+        # source ne s'écrit que si sa dernière lecture était fraîche.
         agregats = self.market_global()
+        if self._cache.stale("global"):
+            agregats = {}
         oi = self.open_interest()
+        if self._cache.stale("oi:4h:180"):
+            oi = pd.DataFrame(columns=["time", "oi", "oi_usd"])
         perp = self.perp_snapshot()
+        if self._cache.stale("perp"):
+            perp = {}
 
         shares = agregats.get("shares") or {}
         fields = {

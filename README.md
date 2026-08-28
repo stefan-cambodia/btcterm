@@ -305,7 +305,10 @@ la machine qui dort n'est plus passée sous silence : le panneau journal
 compte les interruptions de séance, et les courbes journalisées s'y
 rompent au lieu de tirer un trait par-dessus. Enfin, les alertes de la
 journée sont relues au démarrage comme les liquidations : un service
-relancé n'affiche plus « aucune alerte » après une nuit qui a sonné.
+relancé n'affiche plus « aucune alerte » après une nuit qui a sonné. Et
+une source REST qui tombe se lit dans `journalctl` — première panne,
+rétablissement, durée — au lieu de laisser des trous muets dans
+l'historique : l'instantané journalisé n'écrit que des valeurs fraîches.
 
 ## Outils complémentaires
 
@@ -386,6 +389,7 @@ python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
 python tests/test_news_scoring.py        # scoring et collecte des news
 python tests/test_liquidations.py        # lecture du flux de liquidations
 python tests/test_orderbook.py           # carnets : niveaux fantômes, resynchronisation
+python tests/test_cache.py               # cache du hub : secours, fraîcheur, pannes dites
 python tests/test_macrocal.py            # calendrier macro tenu à la main
 python tests/test_terminal_wiring.py     # panneaux posés et branchés
 python tests/test_grid_layout.py         # rangement configurable des panneaux
