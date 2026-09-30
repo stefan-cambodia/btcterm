@@ -150,6 +150,15 @@ def register(app, hub):
         State("lwc-config", "data"),
     )
 
+    # La devise choisie ici vaut aussi pour le cours du bandeau : on la
+    # relaie au Store global `currency`, que le bandeau lit même quand
+    # ce panneau n'est pas à l'écran.
+    app.clientside_callback(
+        "function (currency) { return currency || 'USD'; }",
+        Output("currency", "data"),
+        Input("price-currency", "value"),
+    )
+
     # Repli poll : au rythme de l'horloge lente, le client recharge la
     # dernière page. lwc-price.js s'abstient tant que le WebSocket /push
     # tient : c'est le badge « push / poll » du bandeau qui dit le canal

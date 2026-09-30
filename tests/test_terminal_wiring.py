@@ -25,6 +25,7 @@ import pkgutil  # noqa: E402
 from btcterm.hub import MarketHub  # noqa: E402
 from terminal.app import create_app  # noqa: E402
 from terminal.grid import CELLS, DEFAULT_PLACEMENT, body  # noqa: E402
+from terminal.header import price_text  # noqa: E402
 from terminal.panels import PANELS  # noqa: E402
 
 
@@ -192,6 +193,27 @@ def test_entete_branche():
         assert component_id in APP_IDS, f"{component_id} absent de l'en-tête"
         assert f"{component_id}." in CALLBACK_KEYS, f"{component_id} sans callback"
     print("  ✓ bandeau supérieur")
+
+
+def test_entete_suit_la_devise():
+    """Le cours du bandeau suit la bascule $/€ du panneau prix.
+
+    Il restait en dollars quand le graphique passait en euros : le
+    bandeau ne connaissait pas le sélecteur. Il passe par le Store
+    global `currency`, toujours dans la page, parce que le sélecteur,
+    lui, disparaît avec le panneau prix quand celui-ci est caché.
+    """
+    assert "currency" in APP_IDS, "Store currency absent de la page"
+    assert "currency." in CALLBACK_KEYS, "Store currency sans relais"
+    lecteurs = [cb for cb in APP.callback_map.values()
+                if any(i["id"] == "currency" for i in cb["inputs"])]
+    assert lecteurs, "le bandeau ne lit pas la devise"
+
+    assert price_text(100_000.0, "USD", 0.9) == "100,000.00 $"
+    assert price_text(100_000.0, None, 0.9) == "100,000.00 $"
+    assert price_text(100_000.0, "EUR", 0.9) == "90,000.00 €"
+    assert price_text(None, "EUR", 0.9) == "—"
+    print("  ✓ le cours du bandeau suit la devise du panneau prix")
 
 
 if __name__ == "__main__":

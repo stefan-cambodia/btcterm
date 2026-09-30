@@ -28,6 +28,19 @@ STAT = {"fontFamily": MONO, "fontSize": "11px", "color": C["text"],
         "marginRight": "18px"}
 
 
+def price_text(live: float | None, currency: str | None, rate: float) -> str:
+    """Le cours du bandeau, dans la devise choisie au panneau prix.
+
+    `rate` est le taux USD→EUR du hub ; il est ignoré en dollars, devise
+    par défaut tant que le navigateur n'a rien choisi.
+    """
+    if not live:
+        return "—"
+    if currency == "EUR":
+        return f"{live * rate:,.2f} €"
+    return f"{live:,.2f} $"
+
+
 def layout():
     return html.Div([
         html.Span("₿ BTC TERMINAL", style={
@@ -77,11 +90,17 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         Output("hdr-spread", "children"),
         Output("hdr-status", "children"),
         Input("tick-slow", "n_intervals"),
+        # En Input et non en State : basculer $/€ se voit tout de suite,
+        # sans attendre le tour d'horloge suivant.
+        Input("currency", "data"),
     )
-    def _refresh(_tick):
+    def _refresh(_tick, currency):
         ticker = hub.ticker()
         live = hub.reference_price()
-        price_txt = f"{live:,.2f} $" if live else "—"
+        # Le taux n'est demandé qu'en euros : il vient d'un appel réseau,
+        # mis en cache une heure par le hub.
+        rate = hub.eur_rate() if currency == "EUR" and live else 1.0
+        price_txt = price_text(live, currency, rate)
 
         change = float(ticker.get("priceChangePercent", 0) or 0)
         change_style = {**STAT, "color": C["green"] if change >= 0 else C["red"]}

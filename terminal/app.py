@@ -71,6 +71,11 @@ def _shared_stores() -> list:
         dcc.Store(id="alerts-feed"),
         dcc.Store(id="alerts-feed-sink"),
         dcc.Store(id="alert-config-sink"),
+        # Devise d'affichage : choisie dans le panneau prix, lue par le
+        # bandeau. Persistée à part du sélecteur, parce que le panneau
+        # prix peut être caché ou retiré de la grille — son sélecteur
+        # n'est alors pas dans la page, et le bandeau doit la connaître.
+        dcc.Store(id="currency", storage_type="local"),
     ]
 
 
