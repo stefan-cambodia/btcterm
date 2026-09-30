@@ -155,13 +155,18 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         etat = browser.js("return window.lwcPrice.debug();")
         check("la série initiale est chargée", etat["bars"] > 200,
               f"{etat['bars']} bougies")
-        # Le bandeau de démonstration dit exactement ce que le paquet
-        # dit — visible en repli hors ligne, absent sur données réelles.
+        # Le bandeau d'avertissement dit exactement ce que le paquet
+        # dit — visible en repli hors ligne, ou en euros sur un taux de
+        # secours ; absent sur données réelles.
         banniere = browser.js(
             "return getComputedStyle(document.querySelector("
             "'.lwc-demo-banner')).display === 'block';")
-        check("le bandeau démo suit le paquet", banniere == etat["demo"],
-              f"paquet {etat['demo']}, bandeau {banniere}")
+        attendu = etat["demo"] or (etat["currency"] == "EUR"
+                                   and etat["eur_stale"])
+        check("le bandeau d'avertissement suit le paquet",
+              banniere == attendu,
+              f"démo {etat['demo']}, taux de secours {etat['eur_stale']}, "
+              f"bandeau {banniere}")
 
         # Changement d'intervalle : un refetch, une nouvelle série.
         browser.js("""
@@ -173,8 +178,10 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             " && window.lwcPrice.debug().bars > 200", timeout=15))
 
         # Bascule € : les chandeliers changent d'échelle sur place,
-        # au taux voyageant avec les données — aucun refetch.
-        avant = browser.js("return window.lwcPrice.debug();")
+        # au taux voyageant avec les données — aucun refetch. Le taux
+        # se lit dans un seul instantané, bougie affichée contre bougie
+        # du paquet en dollars : comparer deux lectures espacées
+        # mesurait aussi le cours, qui bouge entre-temps par le push.
         browser.js("""
             Array.from(document.querySelectorAll('#price-currency label'))
                  .find(l => l.textContent.trim() === '€').click();
@@ -182,10 +189,10 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         time.sleep(1.2)
         apres = browser.js("return window.lwcPrice.debug();")
         check("la bascule € met les bougies au taux",
-              apres["lastClose"] and abs(
-                  apres["lastClose"] / avant["lastClose"]
-                  - avant["eur_rate"]) < 1e-6,
-              f"{avant['lastClose']} → {apres['lastClose']}")
+              apres["lastClose"] and apres["packetClose"] and abs(
+                  apres["lastClose"] / apres["packetClose"]
+                  - apres["eur_rate"]) < 1e-6,
+              f"{apres['packetClose']} $ → {apres['lastClose']} €")
         browser.js("""
             Array.from(document.querySelectorAll('#price-currency label'))
                  .find(l => l.textContent.trim() === '$').click();

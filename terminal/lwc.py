@@ -320,6 +320,8 @@ def register_api(app, hub) -> None:
         # Le taux voyage avec les données : basculer $/€ est une
         # multiplication côté client, jamais un refetch.
         payload["eur_rate"] = float(hub.eur_rate())
+        # Un taux de secours se dit : en euros, le graphique l'annonce.
+        payload["eur_stale"] = hub.eur_rate_stale()
         return jsonify(payload)
 
     @app.server.get("/api/perp")

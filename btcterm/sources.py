@@ -276,14 +276,16 @@ def generate_demo_ohlcv(
     return df
 
 
-def fetch_eur_rate(default: float = 0.924) -> float:
-    """Taux USD→EUR, avec repli sur une valeur figée si l'appel échoue."""
-    try:
-        response = requests.get(FX_URL, timeout=5)
-        response.raise_for_status()
-        return float(response.json()["rates"]["EUR"])
-    except Exception:
-        return default
+def fetch_eur_rate() -> float:
+    """Taux USD→EUR. Lève si la source ne répond pas.
+
+    Le repli appartient au hub : une valeur figée rendue d'ici se
+    faisait mettre en cache une heure comme une lecture réussie, à la
+    place du dernier bon taux, et sans une ligne de journal.
+    """
+    response = requests.get(FX_URL, timeout=5)
+    response.raise_for_status()
+    return float(response.json()["rates"]["EUR"])
 
 
 # ─────────────────────────────────────────────────────────────

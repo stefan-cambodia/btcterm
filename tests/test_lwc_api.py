@@ -60,7 +60,7 @@ def panne_reseau(*args, **kwargs):
 def client(fetch=faux_fetch_klines):
     """Un terminal assemblé sur un hub jamais démarré, sources mockées."""
     sources.fetch_klines = fetch
-    sources.fetch_eur_rate = lambda default=0.924: 0.9
+    sources.fetch_eur_rate = lambda: 0.9
     hub = MarketHub(collect_news=False, keep_journal=False)
     return create_app(hub).server.test_client()
 
@@ -77,7 +77,7 @@ def test_page_initiale_complete():
 
     assert len(page["bars"]) == 350
     assert page["interval"] == "1h"
-    assert page["eur_rate"] == 0.9
+    assert page["eur_rate"] == 0.9 and page["eur_stale"] is False
     assert page["demo"] is False
     assert set(page["overlays"]) >= {"ma9", "ma26", "ma200"}
     assert page["panes"]["rsi"] and page["volume"] and page["volume_ma"]

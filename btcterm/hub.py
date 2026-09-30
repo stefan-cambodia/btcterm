@@ -135,6 +135,12 @@ class MarketHub:
     TTL_KLINES_HISTORY = 3600
     TTL_TICKER = 5
     TTL_EUR = 3600
+    #: Délai avant de réinterroger une source de change en panne.
+    EUR_RETRY = 60
+    #: Taux servi quand la source de change n'a jamais répondu —
+    #: démarrage hors ligne. Un ordre de grandeur (septembre 2026), dit
+    #: comme tel à l'écran, jamais une donnée.
+    EUR_FALLBACK = 0.88
     TTL_ETF = 1800
     TTL_FEAR_GREED = 900
     #: La masse monétaire est mensuelle et publiée avec deux mois de
@@ -246,6 +252,9 @@ class MarketHub:
         )
 
         self._cache = TTLCache()
+        #: Instant avant lequel la source de change, tombée, n'est pas
+        #: réinterrogée (`eur_rate`).
+        self._eur_retry_at = 0.0
         self._connectors: list = []
         self._thread: Optional[threading.Thread] = None
 
@@ -503,7 +512,29 @@ class MarketHub:
         )
 
     def eur_rate(self) -> float:
-        return self._cache.get("eur", self.TTL_EUR, sources.fetch_eur_rate)
+        """Taux USD→EUR, jamais une exception.
+
+        Source de change en panne : le dernier taux lu, ou à défaut
+        `EUR_FALLBACK` — `eur_rate_stale` le dit, et le bandeau comme le
+        graphique le signalent. La source n'est alors réinterrogée
+        qu'une fois par `EUR_RETRY` : le bandeau lit le taux toutes les
+        deux secondes, et chaque essai peut coûter les cinq secondes du
+        timeout.
+        """
+        if time.time() < self._eur_retry_at:
+            cached = self._cache.peek("eur")
+            return self.EUR_FALLBACK if cached is None else cached
+        try:
+            rate = self._cache.get("eur", self.TTL_EUR, sources.fetch_eur_rate)
+        except Exception:
+            rate = self.EUR_FALLBACK
+        if self._cache.stale("eur"):
+            self._eur_retry_at = time.time() + self.EUR_RETRY
+        return rate
+
+    def eur_rate_stale(self) -> bool:
+        """Vrai si le taux servi n'est pas une lecture fraîche de la source."""
+        return self._cache.stale("eur")
 
     def reference_price(self) -> Optional[float]:
         """Prix médian de la plateforme la plus fraîche encore connectée."""

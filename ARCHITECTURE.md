@@ -1378,7 +1378,7 @@ Chaque source distante a une stratégie de repli explicite :
 | toute donnée REST déjà servie | dernière valeur connue, conservée par `TTLCache` |
 | nom d'exchange résolu en 127.0.0.1 par le FAI | résolution de secours par DNS sur HTTPS (`resolver`, §2.9) |
 | chandeliers Binance, sans rien en cache | série de démonstration, signalée par un bandeau |
-| taux EUR | constante `0.924` |
+| taux EUR | dernier taux lu, ou à froid `EUR_FALLBACK` ; en euros, ⚠ au bandeau et bandeau orange du graphique ; source réinterrogée une fois par minute |
 | masse monétaire M2 | tableau vide, le panneau macro le dit |
 | marché à terme Binance | tableau ou dictionnaire vide, le panneau perpétuel le dit |
 | agrégats de marché, données de chaîne | idem : le panneau affiche son indisponibilité |
@@ -1422,6 +1422,18 @@ aléatoire log-normale paramétrée en annualisé (55 % de volatilité, 40 % de
 dérive), ramenée à la durée d'une bougie en racine du temps et recalée pour
 finir sur un prix plausible — sans quoi une longue série mensuelle dériverait
 vers des valeurs absurdes.
+
+Le taux EUR a rejoint la règle quand le bandeau s'est mis à suivre la
+devise du panneau prix : `fetch_eur_rate` rendait une constante au lieu
+de lever, que le cache stockait une heure comme une lecture réussie, à la
+place du dernier bon taux et sans une ligne de journal — 5 % d'écart sur
+le cours (0,924 contre 0,882 en septembre 2026) qu'aucun écran ne
+signalait. Il lève désormais ; `hub.eur_rate` sert le dernier taux ou, à
+froid, `EUR_FALLBACK`, et `eur_rate_stale` le dit au bandeau (⚠ et
+infobulle) comme au graphique, qui pose son bandeau orange en euros.
+Pendant la panne, la source n'est réinterrogée qu'une fois par
+`EUR_RETRY` : le bandeau lit le taux toutes les deux secondes, et chaque
+essai peut coûter les cinq secondes du timeout.
 
 ### 4.4 Palettes de couleurs
 

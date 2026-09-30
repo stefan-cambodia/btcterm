@@ -28,17 +28,45 @@ STAT = {"fontFamily": MONO, "fontSize": "11px", "color": C["text"],
         "marginRight": "18px"}
 
 
-def price_text(live: float | None, currency: str | None, rate: float) -> str:
+def price_text(live: float | None, currency: str | None, rate: float,
+               stale: bool = False) -> str:
     """Le cours du bandeau, dans la devise choisie au panneau prix.
 
     `rate` est le taux USD→EUR du hub ; il est ignoré en dollars, devise
-    par défaut tant que le navigateur n'a rien choisi.
+    par défaut tant que le navigateur n'a rien choisi. Un taux de secours
+    (`stale`) marque le cours d'un ⚠ : l'écart peut dépasser les
+    variations qu'on vient lire.
     """
     if not live:
         return "—"
     if currency == "EUR":
-        return f"{live * rate:,.2f} €"
+        return f"{'⚠ ' if stale else ''}{live * rate:,.2f} €"
     return f"{live:,.2f} $"
+
+
+def price_title(currency: str | None, rate: float, stale: bool = False) -> str:
+    """L'infobulle du cours : d'où il vient, et à quel taux il est converti."""
+    title = "milieu du carnet de la plateforme la plus fraîche"
+    if currency != "EUR":
+        return title
+    title += f", converti à 1 $ = {rate:.4f} €"
+    if stale:
+        title += " — taux de secours : source de change injoignable"
+    return title
+
+
+def change_text(ticker: dict) -> tuple[str, dict]:
+    """La variation sur 24 h et son style.
+
+    Sans réponse de Binance, le ticker est vide : la variation est dite
+    inconnue, pas affichée à +0,00 % en vert.
+    """
+    raw = ticker.get("priceChangePercent")
+    if raw in (None, ""):
+        return "— % 24 h", {**STAT, "color": C["muted"]}
+    change = float(raw)
+    return (f"{change:+.2f} % 24 h",
+            {**STAT, "color": C["green"] if change >= 0 else C["red"]})
 
 
 def layout():
@@ -85,6 +113,7 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
 
     @app.callback(
         Output("hdr-price", "children"),
+        Output("hdr-price", "title"),
         Output("hdr-change", "children"),
         Output("hdr-change", "style"),
         Output("hdr-spread", "children"),
@@ -95,16 +124,16 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         Input("currency", "data"),
     )
     def _refresh(_tick, currency):
-        ticker = hub.ticker()
         live = hub.reference_price()
         # Le taux n'est demandé qu'en euros : il vient d'un appel réseau,
         # mis en cache une heure par le hub.
-        rate = hub.eur_rate() if currency == "EUR" and live else 1.0
-        price_txt = price_text(live, currency, rate)
+        euros = currency == "EUR"
+        rate = hub.eur_rate() if euros else 1.0
+        stale = euros and hub.eur_rate_stale()
+        price_txt = price_text(live, currency, rate, stale)
+        price_tip = price_title(currency, rate, stale)
 
-        change = float(ticker.get("priceChangePercent", 0) or 0)
-        change_style = {**STAT, "color": C["green"] if change >= 0 else C["red"]}
-        change_txt = f"{change:+.2f} % 24 h"
+        change_txt, change_style = change_text(hub.ticker())
 
         spreads = [b.spread_pct for b in hub.books.values() if b.spread_pct]
         spread_txt = f"spread min {min(spreads):.4f} %" if spreads else ""
@@ -113,7 +142,8 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         status = (f"{hub.connected_count}/5 flux · "
                   f"{uptime // 3600:02d}:{uptime % 3600 // 60:02d}:{uptime % 60:02d}")
 
-        return price_txt, change_txt, change_style, spread_txt, status
+        return (price_txt, price_tip, change_txt, change_style, spread_txt,
+                status)
 
 
 def _register_reveal(app: dash.Dash) -> None:

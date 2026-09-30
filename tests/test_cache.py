@@ -14,7 +14,9 @@ Trois choses sont vérifiées ici, sans réseau :
 - l'instantané de marché n'écrit que des valeurs fraîches : une source
   en panne donne NULL, pas sa valeur d'il y a six heures ;
 - un collecteur qui n'a rien obtenu lève, au lieu de rendre un vide
-  qui se ferait mettre en cache comme une lecture réussie.
+  qui se ferait mettre en cache comme une lecture réussie ;
+- le taux €/$ en panne sert le dernier taux lu — ou un repli dit de
+  secours — sans réinterroger la source à chaque lecture.
 
 Lancement :
     python tests/test_cache.py
@@ -156,6 +158,53 @@ def test_le_vide_vaut_panne():
     finally:
         sources.requests.get = original
     print("  ✓ open interest vide et perpétuel sans réponse lèvent")
+
+
+def test_le_taux_eur_se_dit_de_secours():
+    """La source de change tombe : le dernier bon taux reste servi, dit
+    de secours, et la source n'est réinterrogée qu'après `EUR_RETRY`.
+
+    Avant, `fetch_eur_rate` rendait un taux figé au lieu de lever : il
+    se faisait mettre en cache une heure comme une lecture réussie, à
+    la place du dernier bon taux, et le cours en euros dérivait sans
+    qu'aucun écran ne le dise.
+    """
+    reponses = [0.88, ConnectionError("réseau coupé")]
+    appels = []
+
+    def faux_taux():
+        appels.append(1)
+        reponse = reponses[min(len(appels), len(reponses)) - 1]
+        if isinstance(reponse, Exception):
+            raise reponse
+        return reponse
+
+    original = sources.fetch_eur_rate
+    sources.fetch_eur_rate = faux_taux
+    try:
+        hub = MarketHub(collect_news=False, keep_journal=False)
+        hub.TTL_EUR = 0
+        assert hub.eur_rate() == 0.88 and not hub.eur_rate_stale()
+        # Panne : le dernier bon taux, pas le repli figé.
+        assert hub.eur_rate() == 0.88 and hub.eur_rate_stale()
+        # Pendant EUR_RETRY, pas un appel de plus.
+        for _ in range(10):
+            assert hub.eur_rate() == 0.88
+        assert len(appels) == 2, len(appels)
+        # Délai écoulé : la source est retentée.
+        hub._eur_retry_at = 0.0
+        hub.eur_rate()
+        assert len(appels) == 3, len(appels)
+
+        # Démarrage hors ligne : rien en cache, le repli — dit de secours.
+        froid = MarketHub(collect_news=False, keep_journal=False)
+        appels.clear(); reponses[0] = ConnectionError("hors ligne")
+        assert froid.eur_rate() == MarketHub.EUR_FALLBACK
+        assert froid.eur_rate_stale()
+    finally:
+        sources.fetch_eur_rate = original
+    print("  ✓ taux € en panne : dernier bon taux ou repli, dit de secours, "
+          "source ménagée")
 
 
 def test_la_panne_se_lit_en_une_ligne():

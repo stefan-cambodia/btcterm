@@ -25,7 +25,7 @@ import pkgutil  # noqa: E402
 from btcterm.hub import MarketHub  # noqa: E402
 from terminal.app import create_app  # noqa: E402
 from terminal.grid import CELLS, DEFAULT_PLACEMENT, body  # noqa: E402
-from terminal.header import price_text  # noqa: E402
+from terminal.header import change_text, price_text, price_title  # noqa: E402
 from terminal.panels import PANELS  # noqa: E402
 
 
@@ -213,7 +213,25 @@ def test_entete_suit_la_devise():
     assert price_text(100_000.0, None, 0.9) == "100,000.00 $"
     assert price_text(100_000.0, "EUR", 0.9) == "90,000.00 €"
     assert price_text(None, "EUR", 0.9) == "—"
+    # Un taux de secours se voit dans le cours et se dit dans l'infobulle ;
+    # il ne touche pas au cours en dollars.
+    assert price_text(100_000.0, "EUR", 0.9, stale=True) == "⚠ 90,000.00 €"
+    assert price_text(100_000.0, "USD", 1.0, stale=True) == "100,000.00 $"
+    assert "1 $ = 0.9000 €" in price_title("EUR", 0.9)
+    assert "secours" in price_title("EUR", 0.9, stale=True)
+    assert "€" not in price_title("USD", 1.0)
     print("  ✓ le cours du bandeau suit la devise du panneau prix")
+
+
+def test_variation_inconnue_dite_telle():
+    """Binance muet : le ticker est vide, la variation n'est pas +0,00 %."""
+    texte, style = change_text({})
+    assert texte == "— % 24 h" and "+" not in texte, texte
+    texte, style = change_text({"priceChangePercent": "-1.5"})
+    assert texte == "-1.50 % 24 h"
+    texte, _ = change_text({"priceChangePercent": "0.25"})
+    assert texte == "+0.25 % 24 h"
+    print("  ✓ variation 24 h inconnue affichée comme telle")
 
 
 if __name__ == "__main__":

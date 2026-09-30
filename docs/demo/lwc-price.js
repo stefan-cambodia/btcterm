@@ -537,12 +537,27 @@
         var theme = state.conf.theme;
         var div = document.createElement("div");
         div.className = "lwc-demo-banner";
-        div.textContent = "⚠ DONNÉES DE DÉMONSTRATION · source injoignable";
         div.style.background = theme.orange;
         div.style.color = theme.bg;
         div.style.display = "none";
         state.el.appendChild(div);
         state.banner = div;
+    }
+
+    // Le bandeau d'avertissement dit ce que le paquet dit : données de
+    // démonstration, ou — en euros seulement — taux de change de
+    // secours. La démonstration prime : un taux juste sur des bougies
+    // inventées n'apprendrait rien.
+    function updateBanner() {
+        var packet = state.packet;
+        if (!state.banner || !packet) { return; }
+        var text = packet.demo
+            ? "⚠ DONNÉES DE DÉMONSTRATION · source injoignable"
+            : (state.cfg.currency === "EUR" && packet.eur_stale)
+                ? "⚠ TAUX € DE SECOURS · source de change injoignable"
+                : "";
+        state.banner.textContent = text;
+        state.banner.style.display = text ? "block" : "none";
     }
 
     function teardown() {
@@ -605,7 +620,7 @@
         if (series.crsi) { series.crsi.setData(packet.panes.crsi || []); }
         series.markers.setMarkers(markersFrom(packet.signals || []));
 
-        state.banner.style.display = packet.demo ? "block" : "none";
+        updateBanner();
         applyLog();
 
         if (state.profileCanvas) {
@@ -899,7 +914,7 @@
                 series.markers.setMarkers(markersFrom(signals));
             }
 
-            state.banner.style.display = update.demo ? "block" : "none";
+            updateBanner();
             // Une bougie qui clôture déplace le volume : le profil de
             // la plage visible suit, au débit du debounce.
             if (delta > 0 && state.profileCanvas) { scheduleProfile(); }
@@ -948,6 +963,8 @@
                 bars: n,
                 demo: !!state.packet.demo,
                 eur_rate: state.packet.eur_rate,
+                eur_stale: !!state.packet.eur_stale,
+                currency: state.cfg.currency,
                 log: state.series.candles.priceScale().options().mode
                     === LightweightCharts.PriceScaleMode.Logarithmic,
                 autoScale: state.series.candles.priceScale().options()
@@ -955,6 +972,9 @@
                 priceRange: state.series.candles.priceScale()
                     .getVisibleRange(),
                 lastClose: last ? last.close : null,
+                // La même bougie dans le paquet, en dollars : le
+                // rapport des deux est le taux réellement appliqué.
+                packetClose: n ? state.packet.bars[n - 1].close : null,
                 firstTime: n ? state.packet.bars[0].time : null,
                 exhausted: state.exhausted,
                 panes: state.chart.panes().length,
