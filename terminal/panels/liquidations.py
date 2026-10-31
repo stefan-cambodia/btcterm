@@ -26,6 +26,7 @@ from datetime import datetime
 
 from dash import Input, Output, html
 
+from ..fx import DOLLARS, display
 from ..theme import C, MONO, PANEL_STYLE, TABLE_STYLE, TITLE_STYLE
 
 #: Lignes affichées dans la grille ; le plein écran en montre davantage.
@@ -61,16 +62,16 @@ def layout(title=None):
     ], style=PANEL_STYLE)
 
 
-def _montant(valeur: float) -> str:
-    """Montant en dollars, abrégé — les liquidations vont du k$ au M$."""
+def _montant(valeur: float, unit: str = "$") -> str:
+    """Montant abrégé — les liquidations vont du k$ au M$."""
     if valeur >= 1e6:
-        return f"{valeur / 1e6:.2f} M$"
+        return f"{valeur / 1e6:.2f} M{unit}"
     if valeur >= 1e3:
-        return f"{valeur / 1e3:.0f} k$"
-    return f"{valeur:.0f} $"
+        return f"{valeur / 1e3:.0f} k{unit}"
+    return f"{valeur:.0f} {unit}"
 
 
-def _badges(feed):
+def _badges(feed, fx=DOLLARS):
     """Totaux de l'heure, part du Bitcoin, et état du flux."""
     if not feed.connected:
         return html.Span(f"flux coupé{' · ' + feed.error if feed.error else ''}",
@@ -101,16 +102,18 @@ def _badges(feed):
 
     return html.Span([
         html.Span("1 h · ", style={"color": C["muted"]}),
-        html.Span(f"longs {_montant(totals['long'])}",
+        html.Span(f"{fx.warning}longs "
+                  f"{_montant(totals['long'] * fx.rate, fx.unit)}",
                   style={"color": C["red"]},
-                  title="positions longues fermées de force"),
+                  title=fx.title("positions longues fermées de force")),
         html.Span(" · ", style={"color": C["muted"]}),
-        html.Span(f"shorts {_montant(totals['short'])}",
+        html.Span(f"shorts {_montant(totals['short'] * fx.rate, fx.unit)}",
                   style={"color": C["green"]},
-                  title="positions courtes fermées de force"),
+                  title=fx.title("positions courtes fermées de force")),
         html.Span(" · dont BTC ", style={"color": C["muted"]}),
-        html.Span(_montant(totals["btc"]), style={"color": C["yellow"]},
-                  title="part des paires Bitcoin dans le total"),
+        html.Span(_montant(totals["btc"] * fx.rate, fx.unit),
+                  style={"color": C["yellow"]},
+                  title=fx.title("part des paires Bitcoin dans le total")),
     ] + sans + muets, style={"fontFamily": MONO})
 
 
@@ -126,7 +129,7 @@ def _prix(valeur: float) -> str:
     return f"{valeur:.4g}"
 
 
-def _row(event):
+def _row(event, fx=DOLLARS):
     """Une liquidation : heure, plateforme, paire, côté liquidé, prix, montant."""
     label, color = SIDE_LABEL.get(event.side, ("?", C["muted"]))
     cell = {"padding": "1px 6px", "whiteSpace": "nowrap"}
@@ -139,19 +142,20 @@ def _row(event):
         html.Td(event.symbol.replace("USDT", ""),
                 style={**cell, "color": C["text"]}),
         html.Td(label, style={**cell, "color": color, "fontWeight": "600"}),
-        html.Td(_prix(event.price),
+        html.Td(_prix(event.price * fx.rate),
                 style={**cell, "color": C["muted"], "textAlign": "right"}),
-        html.Td(_montant(event.notional),
+        html.Td(_montant(event.notional * fx.rate, fx.unit),
                 style={**cell, "color": color, "textAlign": "right"}),
     ])
 
 
-def render(hub, expanded: bool):
+def render(hub, expanded: bool, currency=None):
     """Table et badges des liquidations, prêts à poser dans le panneau.
 
     Fonction pure vis-à-vis du rendu, partagée entre le callback Dash et
     le pousseur WebSocket.
     """
+    fx = display(hub, currency)
     feed = hub.liquidations
     limit = ROWS_MAX if expanded else ROWS
     events = feed.latest(limit)
@@ -166,10 +170,10 @@ def render(hub, expanded: bool):
             "color": C["muted"], "fontFamily": MONO,
             "fontSize": "11px", "padding": "12px"})
     else:
-        table = html.Table([html.Tbody([_row(e) for e in events])],
+        table = html.Table([html.Tbody([_row(e, fx) for e in events])],
                            style=TABLE_STYLE)
 
-    return table, _badges(feed)
+    return table, _badges(feed, fx)
 
 
 def register(app, hub):
@@ -181,6 +185,7 @@ def register(app, hub):
         # la disposition configurable, les liquidations peuvent vivre
         # ailleurs que dans la cellule de l'arbitrage.
         Input("expanded", "data"),
+        Input("currency", "data"),
     )
-    def _refresh(_tick, expanded):
-        return render(hub, expanded == "liq")
+    def _refresh(_tick, expanded, currency):
+        return render(hub, expanded == "liq", currency)

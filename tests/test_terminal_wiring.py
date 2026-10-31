@@ -224,6 +224,44 @@ def test_entete_suit_la_devise():
     print("  ✓ le cours du bandeau suit la devise du panneau prix")
 
 
+def test_les_panneaux_de_marche_suivent_la_devise():
+    """Tout ce qui décrit le marché du moment lit la devise en Input.
+
+    Le relais du Store se lit dans le navigateur, le rendu dans `render` :
+    ce test tient le fil entre les deux, que rien d'autre ne contrôle
+    — un Input oublié ne casse rien, la bascule ne se voit juste plus.
+    """
+    cibles = ("arb-table", "liq-table", "perp-badges", "dominance-badges",
+              "lwc-perp-sink")
+    for cible in cibles:
+        lecteurs = [cb for cle, cb in APP.callback_map.items()
+                    if f"{cible}." in cle
+                    and any(i["id"] == "currency" for i in cb["inputs"])]
+        assert lecteurs, f"{cible} ne suit pas la devise"
+    print(f"  ✓ {len(cibles)} sorties branchées sur la devise")
+
+
+def test_les_badges_lents_convertissent():
+    from terminal.fx import DOLLARS, Display
+    from terminal.panels import dominance, perp
+    import pandas as pd
+
+    euros = Display(0.5, "€", "⚠ ", "converti à 1 $ = 0.5000 €")
+    agregats = {"shares": {"BTC": 59.0}, "total_cap_usd": 2e12,
+                "total_volume_usd": 80e9, "cap_change_24h": 1.0}
+    assert "2.00 T$" in str(dominance._badges(agregats, DOLLARS))
+    converti = str(dominance._badges(agregats, euros))
+    assert "1.00 T€" in converti and "40 Md€" in converti
+    assert "⚠" in converti and "0.5000" in converti
+
+    oi = pd.DataFrame({"oi_usd": [8e9]})
+    instant = {"funding_rate": 0.0001}
+    assert "OI 8.00 Md$" in str(perp._badges(instant, oi))
+    converti = str(perp._badges(instant, oi, fx=euros))
+    assert "OI 4.00 Md€" in converti and "⚠" in converti
+    print("  ✓ dominance et perpétuel convertis, taux de secours signalé")
+
+
 def test_carnet_suit_la_devise():
     """Le carnet lit la devise en Input, comme le bandeau : le sélecteur
     quitte la page avec le panneau prix, et la bascule doit se voir tout

@@ -118,8 +118,9 @@ def _frame(hub, state: dict, depth: bool = True,
     carnet et la profondeur, que la boucle ne demande qu'à leur cadence
     (`book`, `depth`).
     """
-    arb_table, arb_count = arbitrage.render(hub)
-    liq_table, liq_badges = liquidations.render(hub, state["expanded"] == "liq")
+    arb_table, arb_count = arbitrage.render(hub, state["currency"])
+    liq_table, liq_badges = liquidations.render(
+        hub, state["expanded"] == "liq", state["currency"])
     frame = {
         "arb-table": {"children": arb_table},
         "arb-count": {"children": arb_count},

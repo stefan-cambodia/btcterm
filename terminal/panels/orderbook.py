@@ -15,6 +15,7 @@ from __future__ import annotations
 from dash import Input, Output, State, dcc, html
 
 from ..charts import build_depth_chart
+from ..fx import display
 from ..theme import C, MONO, PANEL_STYLE, TABLE_STYLE, TITLE_STYLE
 
 #: Le carnet et la profondeur partagent désormais une cellule haute de
@@ -61,11 +62,12 @@ def depth_layout(title=None):
     ], style=PANEL_STYLE)
 
 
-def _row(price, qty, ratio, color):
+def _row(price, qty, ratio, color, decimals=2):
     """Ligne de carnet, avec une barre de fond proportionnelle au volume."""
     return html.Tr([
-        html.Td(f"{price:,.2f}", style={"color": color, "textAlign": "right",
-                                        "padding": "1px 6px"}),
+        html.Td(f"{price:,.{decimals}f}",
+                style={"color": color, "textAlign": "right",
+                       "padding": "1px 6px"}),
         html.Td(f"{qty:.4f}", style={"color": C["muted"], "textAlign": "right",
                                      "padding": "1px 6px"}),
         html.Td(style={
@@ -88,15 +90,11 @@ def render_book(hub, exchange: str, expanded: bool,
     dollars en mémoire : seul l'affichage est converti, comme au bandeau.
     Un taux de secours se dit par un ⚠ sur la ligne du spread.
     """
-    rate, unit, warning, note = 1.0, "$", "", None
-    if currency == "EUR":
-        rate, stale = hub.eur_rate_cached()
-        unit = "€"
-        note = f"converti à 1 $ = {rate:.4f} €"
-        if stale:
-            warning = "⚠ "
-            note += " — taux de secours : source de change injoignable"
-
+    fx = display(hub, currency)
+    # Un tick de 0,01 $ vaut moins de 0,01 € : à deux décimales, des niveaux
+    # voisins se confondaient, meilleur achat et meilleure vente compris,
+    # et le carnet avait l'air croisé.
+    decimals = 2 if fx.rate == 1 else 3
     book = hub.books[exchange]
     depth = DEPTH_MAX if expanded else DEPTH
     bids = book.top("bids", depth)
@@ -113,18 +111,20 @@ def render_book(hub, exchange: str, expanded: bool,
 
     return html.Table([
         html.Tbody(
-            [_row(p * rate, q, q / largest, C["red"]) for p, q in reversed(asks)]
+            [_row(p * fx.rate, q, q / largest, C["red"], decimals)
+             for p, q in reversed(asks)]
             + [html.Tr(html.Td(
-                f"{warning}spread {spread * rate:,.2f} {unit} · "
+                f"{fx.warning}spread {spread * fx.rate:,.2f} {fx.unit} · "
                 f"{spread_pct:.4f} % · {book.age_ms:.0f} ms",
                 colSpan=3,
-                title=note,
+                title=fx.note,
                 style={"color": C["yellow"], "textAlign": "center",
                        "fontSize": "10px", "padding": "3px",
                        "borderTop": f"1px solid {C['border']}",
                        "borderBottom": f"1px solid {C['border']}"},
             ))]
-            + [_row(p * rate, q, q / largest, C["green"]) for p, q in bids]
+            + [_row(p * fx.rate, q, q / largest, C["green"], decimals)
+               for p, q in bids]
         )
     ], style=TABLE_STYLE)
 

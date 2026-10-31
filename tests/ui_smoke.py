@@ -204,6 +204,9 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("le carnet passe en euros avec le graphique", browser.wait_for(
             "document.querySelector('#book-table').textContent"
             ".includes(' € ·')", timeout=5))
+        check("l'arbitrage aussi", browser.wait_for(
+            "document.querySelector('#arb-table').textContent"
+            ".includes('(€)')", timeout=5))
         browser.js("""
             Array.from(document.querySelectorAll('#price-currency label'))
                  .find(l => l.textContent.trim() === '$').click();

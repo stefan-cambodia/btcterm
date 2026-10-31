@@ -242,7 +242,8 @@ def test_api_perp_hors_ligne():
     reponse = web.get("/api/perp")
     assert reponse.status_code == 200
     page = reponse.get_json()
-    assert page == {"funding": [], "oi": []}
+    assert page["funding"] == [] and page["oi"] == []
+    assert isinstance(page["eur_rate"], float), "le taux voyage avec la série"
     print("  ✓ hors ligne : listes vides, jamais une erreur")
 
 

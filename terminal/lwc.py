@@ -335,10 +335,14 @@ def register_api(app, hub) -> None:
         instantanés journalisés (§ hub). Hors ligne, les deux listes
         reviennent vides — le panneau l'écrit, le terminal vit.
         """
-        return jsonify(serialize_perp(
+        payload = serialize_perp(
             hub.funding_history_extended(limit=FUNDING_POINTS),
             hub.open_interest_extended(),
-        ))
+        )
+        # Comme pour le prix : le navigateur convertit, sans refetch de
+        # série à faire côté serveur.
+        payload["eur_rate"] = float(hub.eur_rate_cached()[0])
+        return jsonify(payload)
 
     @app.server.get("/api/profile")
     def _profile():

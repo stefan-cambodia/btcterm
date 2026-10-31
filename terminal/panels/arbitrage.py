@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dash import Input, Output, html
 
+from ..fx import display
 from ..theme import C, MONO, PANEL_STYLE, TABLE_STYLE, TITLE_STYLE
 
 ROWS = 8
@@ -25,7 +26,7 @@ def layout(title=None):
     ], style=PANEL_STYLE)
 
 
-def render(hub):
+def render(hub, currency=None):
     """Table et badge de l'arbitrage, prêts à poser dans le panneau.
 
     Fonction pure vis-à-vis du rendu, partagée entre le callback Dash et
@@ -40,11 +41,14 @@ def render(hub):
                         style={"color": C["muted"], "fontFamily": MONO,
                                "fontSize": "11px", "padding": "12px"}), badge
 
+    fx = display(hub, currency)
     header = html.Thead(html.Tr([
-        html.Th(label, style={"color": C["muted"], "fontSize": "9px",
-                              "textAlign": align, "padding": "2px 6px",
-                              "fontWeight": "400"})
-        for label, align in (("Acheter", "left"), ("Vendre", "left"),
+        html.Th(label, title=fx.note,
+                style={"color": C["muted"], "fontSize": "9px",
+                       "textAlign": align, "padding": "2px 6px",
+                       "fontWeight": "400"})
+        for label, align in ((f"Acheter ({fx.warning}{fx.unit})", "left"),
+                             (f"Vendre ({fx.unit})", "left"),
                              ("Brut %", "right"), ("Net %", "right"))
     ]))
 
@@ -52,9 +56,11 @@ def render(hub):
     for opportunity in opportunities[:ROWS]:
         color = C["green"] if opportunity.is_profitable else C["muted"]
         rows.append(html.Tr([
-            html.Td(f"{opportunity.buy_exchange} {opportunity.buy_price:,.2f}",
+            html.Td(f"{opportunity.buy_exchange} "
+                    f"{opportunity.buy_price * fx.rate:,.2f}",
                     style={"padding": "1px 6px"}),
-            html.Td(f"{opportunity.sell_exchange} {opportunity.sell_price:,.2f}",
+            html.Td(f"{opportunity.sell_exchange} "
+                    f"{opportunity.sell_price * fx.rate:,.2f}",
                     style={"padding": "1px 6px"}),
             html.Td(f"{opportunity.gross_profit_pct:+.3f}",
                     style={"textAlign": "right", "color": C["muted"],
@@ -72,6 +78,7 @@ def register(app, hub):
         Output("arb-table", "children"),
         Output("arb-count", "children"),
         Input("tick-fast", "n_intervals"),
+        Input("currency", "data"),
     )
-    def _refresh(_tick):
-        return render(hub)
+    def _refresh(_tick, currency):
+        return render(hub, currency)

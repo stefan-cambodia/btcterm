@@ -19,6 +19,7 @@ from __future__ import annotations
 from dash import Input, Output, dcc, html
 
 from ..charts import build_dominance_chart
+from ..fx import DOLLARS, display
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
 #: Nombre d'actifs détaillés ; le reste est regroupé sous « AUTRES ».
@@ -41,7 +42,7 @@ def layout(title=None):
     ], style=PANEL_STYLE)
 
 
-def _badges(agregats: dict):
+def _badges(agregats: dict, fx=DOLLARS):
     """Dominance du Bitcoin, capitalisation totale et volume."""
     if not agregats:
         return html.Span("agrégats indisponibles", style={"color": C["muted"]})
@@ -57,15 +58,19 @@ def _badges(agregats: dict):
         ]
     children += [
         html.Span(" · cap ", style={"color": C["muted"]}),
-        html.Span(f"{agregats['total_cap_usd'] / 1e12:.2f} T$",
+        html.Span(f"{fx.warning}"
+                  f"{agregats['total_cap_usd'] * fx.rate / 1e12:.2f} T{fx.unit}",
                   style={"color": C["text"]},
-                  title="capitalisation de l'ensemble des cryptomonnaies"),
+                  title=fx.title(
+                      "capitalisation de l'ensemble des cryptomonnaies")),
         html.Span(f" {variation:+.2f} %",
                   style={"color": C["green"] if variation >= 0 else C["red"]},
                   title="variation de la capitalisation sur 24 h"),
         html.Span(" · vol ", style={"color": C["muted"]}),
-        html.Span(f"{agregats['total_volume_usd'] / 1e9:.0f} Md$",
-                  style={"color": C["cyan"]}, title="volume échangé sur 24 h"),
+        html.Span(f"{agregats['total_volume_usd'] * fx.rate / 1e9:.0f} "
+                  f"Md{fx.unit}",
+                  style={"color": C["cyan"]},
+                  title=fx.title("volume échangé sur 24 h")),
     ]
     return html.Span(children, style={"fontFamily": MONO})
 
@@ -75,11 +80,12 @@ def register(app, hub):
         Output("dominance-chart", "figure"),
         Output("dominance-badges", "children"),
         Input("tick-rare", "n_intervals"),
+        Input("currency", "data"),
     )
-    def _refresh(_tick):
+    def _refresh(_tick, currency):
         agregats = hub.market_global()
         return (
             build_dominance_chart(agregats.get("shares", {}),
                                   history=hub.market_snapshots(), top=TOP),
-            _badges(agregats),
+            _badges(agregats, display(hub, currency)),
         )

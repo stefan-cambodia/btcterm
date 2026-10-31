@@ -80,6 +80,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── placement.py               dialogue de disposition (§3.6)
 │   ├── header.py                  bandeau : cours, variation, spread, flux
 │   ├── push.py                    canal push des panneaux rapides (§3.10)
+│   ├── fx.py                      devise d'affichage commune aux panneaux
 │   ├── lwc.py                     données des rendus LWC : /api/klines,
 │   │                              /api/profile et /api/perp (§3.2)
 │   ├── wsgi.py                    fabrique gunicorn du régime service (§3.11)
@@ -1508,6 +1509,13 @@ ne lit pas ce taux de la même façon : le pousseur le rend quatre fois par
 seconde et dormirait le temps de l'appel. `eur_rate_cached` ne sert donc
 que le cache, que le bandeau tient à jour — dès que la devise est l'euro,
 il est dans la page quel que soit l'agencement de la grille.
+
+`terminal/fx.py` pose la règle pour tous les panneaux : ce qui décrit le marché
+du moment se convertit au taux du moment — carnet, arbitrage, liquidations,
+open interest, capitalisation. L'arbitrage y a gagné son unité : ses prix
+n'en portaient aucune, et rien n'aurait distingué des dollars d'euros. Les flux
+ETF et le journal restent en dollars, faits passés qu'un taux d'aujourd'hui
+fausserait, comme les seuils d'alerte, réglages comparés à des dollars.
 
 ### 4.4 Palettes de couleurs
 

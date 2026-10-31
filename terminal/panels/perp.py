@@ -31,6 +31,7 @@ import time
 
 from dash import Input, Output, State, dcc, html
 
+from ..fx import DOLLARS, display
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
 #: Un financement de 0,01 % par période (le taux « neutre » de Binance)
@@ -71,7 +72,8 @@ def _countdown(next_funding_ms: int) -> str:
     return f"{remaining // 3600:d} h {remaining % 3600 // 60:02d}"
 
 
-def _badges(snapshot: dict, open_interest, verbose: bool = False):
+def _badges(snapshot: dict, open_interest, verbose: bool = False,
+            fx=DOLLARS):
     """Financement courant, échéance, open interest et part des longs.
 
     Les intitulés sont muets dans la grille — la barre de titre y est
@@ -112,9 +114,12 @@ def _badges(snapshot: dict, open_interest, verbose: bool = False):
     if open_interest is not None and not open_interest.empty:
         children += [
             label(" · open interest "),
-            html.Span(f"OI {open_interest['oi_usd'].dropna().iloc[-1] / 1e9:.2f} Md$",
+            html.Span(f"{fx.warning}OI "
+                      f"{open_interest['oi_usd'].dropna().iloc[-1] * fx.rate / 1e9:.2f}"
+                      f" Md{fx.unit}",
                       style={"color": C["cyan"]},
-                      title="valeur des positions ouvertes sur le perpétuel"),
+                      title=fx.title(
+                          "valeur des positions ouvertes sur le perpétuel")),
         ]
     if snapshot.get("long_account") is not None:
         part = snapshot["long_account"] * 100
@@ -142,25 +147,29 @@ def register(app, hub):
         Output("perp-badges", "children"),
         Input("tick-rare", "n_intervals"),
         Input("maximized", "data"),
+        Input("currency", "data"),
     )
-    def _refresh(_tick, maximized):
+    def _refresh(_tick, maximized, currency):
         # Le panneau partage la cellule « etf » : c'est donc sur ce nom
         # de zone que se lit l'agrandissement, pas sur le sien.
         return _badges(hub.perp_snapshot(), hub.open_interest_extended(),
-                       verbose=maximized == "etf")
+                       verbose=maximized == "etf",
+                       fx=display(hub, currency))
 
     app.clientside_callback(
         """
-        function (maximized, config) {
+        function (maximized, currency, config) {
             if (window.lwcPerp) {
                 window.lwcPerp.configure(
-                    {maximized: maximized === 'etf'}, config);
+                    {maximized: maximized === 'etf', currency: currency},
+                    config);
             }
             return window.dash_clientside.no_update;
         }
         """,
         Output("lwc-perp-sink", "data"),
         Input("maximized", "data"),
+        Input("currency", "data"),
         State("lwc-perp-config", "data"),
     )
 

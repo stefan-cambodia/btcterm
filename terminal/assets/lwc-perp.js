@@ -26,6 +26,10 @@
         seq: 0
     };
 
+    function euros() {
+        return !!state.cfg && state.cfg.currency === "EUR";
+    }
+
     function buildChart() {
         var theme = state.conf.theme;
         var LWC = LightweightCharts;
@@ -69,13 +73,15 @@
         });
 
         // Open interest : ligne sur l'axe gauche, lisible en milliards —
-        // une affaire de format d'axe, les données restent en dollars.
+        // une affaire de format d'axe. Les données arrivent en dollars, et
+        // la devise du panneau prix les convertit au dernier moment.
         state.oi = state.chart.addSeries(LWC.LineSeries, {
             priceScaleId: "left",
             color: theme.cyan, lineWidth: 2,
             priceFormat: {type: "custom", minMove: 1e7,
                           formatter: function (v) {
-                              return (v / 1e9).toFixed(2) + " Md$";
+                              return (v / 1e9).toFixed(2)
+                                  + (euros() ? " Md€" : " Md$");
                           }},
             priceLineVisible: false, lastValueVisible: true,
             crosshairMarkerVisible: true
@@ -123,7 +129,10 @@
                     return {time: p.time, value: p.value,
                             color: p.value >= 0 ? theme.green : theme.red};
                 }));
-                state.oi.setData(packet.oi);
+                var rate = euros() ? packet.eur_rate : 1;
+                state.oi.setData(packet.oi.map(function (p) {
+                    return {time: p.time, value: p.value * rate};
+                }));
                 var vide = !packet.funding.length && !packet.oi.length;
                 state.note.style.display = vide ? "flex" : "none";
                 if (fit && !vide && !state.fitted) {
@@ -154,6 +163,10 @@
             }
             state.cfg = cfg;
             state.conf = conf;
+
+            if (previous && previous.currency !== cfg.currency) {
+                refetch(false);
+            }
 
             // Le plein écran double la largeur ; autoSize a besoin d'un
             // tour de boucle pour mesurer le div agrandi.

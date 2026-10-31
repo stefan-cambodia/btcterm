@@ -225,15 +225,62 @@ def test_le_carnet_suit_la_devise():
         hub._cache.get("eur", hub.TTL_EUR, lambda: 0.5)
         dollars, converti = carnet(dict(DEFAULT_STATE)), carnet(euros)
         assert "60,001.00" in dollars and "spread 2.00 $" in dollars
-        assert "30,000.50" in converti and "60,001.00" not in converti
+        assert "30,000.500" in converti and "60,001.00" not in converti
         assert "spread 1.00 €" in converti and " $ ·" not in converti
         assert "⚠" not in converti and "1 $ = 0.5000 €" in converti
+
+        #: Deux niveaux à un tick d'écart restent distincts en euros.
+        hub._cache._entries["eur"] = (time.time(), 0.896)
+        hub.books["Binance"].replace(bids={69_999.99: 1.0, 69_999.98: 1.0},
+                                     asks={70_000.00: 1.0, 70_000.01: 1.0})
+        ecran = carnet(euros)
+        assert "62,720.000" in ecran and "62,719.991" in ecran
+        hub.books["Binance"].replace(
+            bids={60_000.0 - i: 1.0 + i for i in range(1, 22)},
+            asks={60_000.0 + i: 1.0 + i for i in range(1, 22)})
+        hub._cache._entries["eur"] = (time.time(), 0.5)
+        converti = carnet(euros)
 
         #: Les quantités ne sont pas des prix : elles ne bougent pas.
         assert converti.count("2.0000") == dollars.count("2.0000") > 0
     finally:
         sources.fetch_eur_rate = original
     print("  ✓ prix et spread convertis, quantités intactes, aucun appel")
+
+
+def test_les_panneaux_rapides_suivent_la_devise():
+    """L'arbitrage et les liquidations passent en euros avec le carnet.
+
+    L'arbitrage affichait ses prix sans unité : en euros, c'étaient des
+    dollars que rien ne distinguait. Les pourcentages, eux, ne bougent pas.
+    """
+    from test_liquidations import message
+
+    hub = hub_garni()
+    hub._cache.get("eur", hub.TTL_EUR, lambda: 0.5)
+    hub.liquidations._handle(message(price="64000"))
+    for nom in ("Binance", "Kraken"):
+        hub.books[nom].connected = True
+
+    def texte(etat):
+        return json.dumps(_frame(hub, etat), cls=PlotlyJSONEncoder,
+                          ensure_ascii=False)
+
+    dollars = texte(dict(DEFAULT_STATE))
+    euros = texte({**DEFAULT_STATE, "currency": "EUR"})
+
+    assert "Acheter ($)" in dollars and "(€)" not in dollars
+    assert "Acheter (€)" in euros and "Vendre (€)" in euros
+    assert "($)" not in euros
+
+    #: Prix de l'événement et montants des badges, convertis au taux.
+    assert "64,000" in dollars and "32,000" in euros and "64,000" not in euros
+    assert "k€" in euros and "k$" not in euros
+
+    #: Prix de l'arbitrage : 60 000 et 50 000 $ devenus 30 000 et 25 000 €.
+    assert "Binance 60,001.00" in dollars or "Kraken 50,001.00" in dollars
+    assert "Binance 30,000.50" in euros or "Kraken 25,000.50" in euros
+    print("  ✓ arbitrage et liquidations convertis, unité dite")
 
 
 def test_carnets_vides_rendus_dits():

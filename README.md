@@ -554,6 +554,10 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
   cours : les bougies closes ne se redemandent pas à Binance, et le graphique
   survit à une panne. Ce n'est qu'un cache, à supprimer sans dommage.
   `--no-journal` le dispense des deux.
+- La bascule `$`/`€` du panneau prix vaut pour tout ce qui décrit le marché du
+  moment : bandeau, carnet, arbitrage, liquidations, open interest,
+  capitalisation. Les flux ETF, le journal et les seuils d'alerte restent en
+  dollars.
 - Aucun de ces scripts n'écrit d'ordre sur un exchange ; ils sont en lecture
   seule sur des endpoints publics.
 - Le hub contourne de lui-même un résolveur DNS qui empoisonne les noms des
