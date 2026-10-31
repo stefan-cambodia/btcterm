@@ -661,9 +661,10 @@ noms des cinq plateformes (`GUARDED_DOMAINS`) sont donc **toujours** demandés
 à DoH, quoi que dise le système. Si DoH se tait, la dernière réponse saine reste
 servie, même périmée, et il n'est retenté qu'après `DOH_RETRY`.
 
-`btcterm/resolver.py` enveloppe `socket.getaddrinfo`. Quand la réponse du
-système pour un nom public ne contient que des adresses de bouclage, nulles
-ou de `SINKHOLES` — ou quand le nom n'existe soudain plus —, le nom est redemandé à
+`btcterm/resolver.py` enveloppe `socket.getaddrinfo`. Quand le nom est celui
+d'une plateforme, ou quand la réponse du système pour un nom public ne contient
+que des adresses de bouclage, nulles ou de `SINKHOLES` — ou quand le nom
+n'existe soudain plus —, le nom est redemandé à
 un résolveur DNS sur HTTPS joint **par son adresse IP** (`1.1.1.1`, puis
 `8.8.8.8`), de sorte qu'aucune résolution empoisonnable n'entre dans la
 boucle ; les entrées `getaddrinfo` sont reconstruites à partir des
@@ -1929,8 +1930,9 @@ Reste, hors étape :
 
 La feuille de route est soldée et les chantiers d'hygiène aussi : plus rien
 n'est *en cours*. Ce qui suit n'est donc pas un chemin ordonné mais l'état
-des manques constatés à la clôture — chacun à ouvrir quand l'usage le fera
-sentir, aucun ne conditionnant les autres.
+des manques constatés à la clôture et depuis — chacun à ouvrir quand l'usage le
+fera sentir, aucun ne conditionnant les autres. Les trois qui restent ouverts
+sont en fin de section.
 
 **Pour la surveillance :**
 
@@ -1991,6 +1993,23 @@ sentir, aucun ne conditionnant les autres.
   à côté du lien qui manque, s'il y en a un. C'était le cas de Binance
   depuis le Cambodge : le flux futures s'ouvre, s'abonne et se tait
   (§2.9), Bybit porte le panneau seul, et l'écran le dit désormais.
+- ~~**La bascule € s'arrêtait au graphique**~~ — constaté à l'usage : en
+  euros, le carnet restait en dollars. Fait : la règle est posée pour tous
+  dans `terminal/fx.py` (§4.3) — ce qui décrit le marché du moment se
+  convertit, ce qui est un fait passé non. L'arbitrage y a gagné l'unité que
+  ses prix n'avaient pas.
+- ~~**Le FAI change de mensonge**~~ — constaté à un redémarrage : quatre
+  plateformes injoignables et le panneau prix sur sa démonstration. Les noms
+  résolvaient en une adresse publique morte, que le module ne reconnaissait
+  pas, et les connexions ouvertes avaient masqué le changement. Fait : les
+  noms des plateformes passent toujours par DoH, quoi que dise le système
+  (§2.9).
+- ~~**Un redémarrage perdait tout l'historique**~~ — le réseau pesait 85 %
+  de l'ouverture du panneau prix, pour des bougies qui ne changeront plus,
+  et un redémarrage pendant une panne de Binance tombait sur la démonstration.
+  Fait : les bougies closes vivent sur disque (§2.10) ; changer d'intervalle
+  passe de 0,4 à 0,19 s, reculer dans le graphique de 0,4 à 0,07 s, et une
+  panne affiche le vrai historique, bandeau à l'appui.
 
 **Hygiène technique :**
 
@@ -2054,6 +2073,29 @@ sentir, aucun ne conditionnant les autres.
   de la même façon : la machine portait un autre calcul à cinquante-huit
   threads, charge 22 pour 22 cœurs. `ui_smoke.py` le dit désormais en
   tête dès que la charge dépasse la moitié des cœurs.
+- ~~**Le carnet sature la page**~~ — constaté au contrôle Firefox, deux
+  contrôles du plein écran qui échouaient et qu'on mettait sur le compte de
+  la charge de la machine, à tort : le rendu Dash ne suivait pas dix carnets
+  par seconde. Fait : 250 ms pour le carnet, 500 ms en plein écran (§3.10).
+- ~~**Le carnet attend le réseau**~~ — mesuré au même moment : la cible prix,
+  lue dans la boucle du pousseur, figeait le carnet 140 à 350 ms toutes les
+  cinq secondes, et plus longtemps si Binance se taisait. Fait : elle est lue
+  à côté (`_PriceRead`, §3.10). Une socket morte, qui laissait deux traces au
+  journal du service, termine désormais la boucle sans bruit.
+
+**Constaté, pas encore ouvert :**
+
+- **La sortie du plein écran** — de 1,1 à 4,6 s dans Firefox headless, là où
+  y entrer en prend 1,2 à 1,5. La page reste réactive ensuite : le coût est
+  ponctuel, sans doute le redimensionnement de tous les graphiques, mais il
+  n'a pas été mesuré en détail, ni dans un navigateur normal.
+- **Le coût du carnet à la ligne** — la cadence réduite contourne la limite
+  sans la lever : c'est le rendu Dash de chaque ligne qui coûte. Un rendu du
+  carnet hors de Dash, direct dans la page, la lèverait, au prix d'un second
+  chemin de rendu à côté de `render_book`.
+- **L'historique se remplit à l'usage** — rien n'est préchargé : la première
+  ouverture d'un intervalle, comme chaque page nouvelle en reculant, paie un
+  appel à Binance. Tout télécharger coûterait environ six cents appels.
 
 **À trancher :**
 

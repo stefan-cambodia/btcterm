@@ -335,7 +335,14 @@ profondeur rebâties dix fois par seconde ; la profondeur part désormais
 à la seconde. Côté
 analyse, le panneau prix a reçu le geste que Lightweight Charts n'offre
 pas : un cadre tracé avec Maj + glisser y ajuste temps et prix, et le
-double-clic rend la vue entière.
+double-clic rend la vue entière. Enfin, le graphique s'ouvre deux fois plus
+vite et survit à une panne de Binance : les bougies closes se gardent sur
+disque, et Binance ne fournit plus que ce qui manque. La bascule `$`/`€` couvre
+tout le marché du moment, et plus seulement le graphique. Le carnet, dont le
+rendu saturait la page à dix images par seconde, passe à quatre et n'attend
+plus le réseau. Et les noms des plateformes ne dépendent plus de ce que répond
+le fournisseur d'accès, dont le dernier changement de mensonge n'avait été
+découvert qu'au redémarrage suivant.
 
 ## Outils complémentaires
 
