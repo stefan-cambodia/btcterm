@@ -106,7 +106,8 @@ place avec les liquidations et le journal. Un panneau caché n'est pas dans la p
 se remplit dès qu'on l'affiche.
 
 **Push** — les panneaux à 250 ms ont deux canaux : quand le navigateur tient
-un WebSocket ouvert sur `/push`, le serveur pousse le rendu à 100 ms et
+un WebSocket ouvert sur `/push`, le serveur pousse le rendu à 100 ms, le
+carnet à 250 ms (500 ms en plein écran) et la profondeur à la seconde, et
 l'horloge est coupée ; sinon — ou dès que la connexion tombe — l'interrogation
 reprend, sans rien casser. Le bandeau affiche le canal en vigueur (« push » ou
 « poll »). C'est ce qui garde le carnet vif sur un tunnel SSH lointain, où

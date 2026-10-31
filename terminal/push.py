@@ -69,8 +69,22 @@ PUSH_PRICE_INTERVAL = 2.0
 #: l'œil ne lit pas dix fois par seconde. La figure a depuis perdu sa
 #: validation Plotly (charts.py) et ne coûte plus qu'une milliseconde ;
 #: la cadence reste, pour le repli par interrogation comme pour le
-#: canal. Le carnet et l'arbitrage, eux, gardent la cadence du canal.
+#: canal. L'arbitrage et les liquidations, eux, gardent la cadence du canal.
 PUSH_DEPTH_INTERVAL = 1.0
+
+#: Cadence du carnet, celle du repli par interrogation : il change à
+#: chaque trame, ne serait-ce que par l'âge de son flux, et c'est le rendu
+#: Dash qui ne suivait pas. À 100 ms, les minuteries de la page dérivaient
+#: de 0,7 s à 6 s en trente secondes, jusqu'à la figer plus d'une minute
+#: (Firefox headless) ; à 250 ms, leur retard reste stable sous 350 ms. Le
+#: canal garde ce qui fait son intérêt : aucun aller-retour, sur un tunnel
+#: SSH lointain comme en local.
+PUSH_BOOK_INTERVAL = 0.25
+
+#: La même, carnet en plein écran : 41 lignes au lieu de 17, et le rendu
+#: coûte à la ligne. À 250 ms, la page y saturait encore, et sortir du
+#: plein écran prenait près de six secondes.
+PUSH_BOOK_EXPANDED_INTERVAL = 0.5
 
 #: L'état que le navigateur annonce, et ses valeurs tant qu'il n'a rien
 #: dit — les mêmes défauts que la page au chargement. `price_interval`
@@ -89,26 +103,29 @@ DEFAULT_STATE = {"exchange": "Binance", "expanded": None,
                  "currency": "USD", "price_interval": None}
 
 
-def _frame(hub, state: dict, depth: bool = True) -> dict[str, dict]:
+def _frame(hub, state: dict, depth: bool = True,
+           book: bool = True) -> dict[str, dict]:
     """Le rendu des panneaux rapides, ciblé par identifiant de composant.
 
     Exactement ce que les callbacks Dash produiraient pour le même état :
     les fonctions `render` sont partagées, seul le canal change. Les six
     cibles sont rendues — c'est la trame qui écarte celles qui n'ont pas
-    changé, et le navigateur celles qui ne sont pas à l'écran — sauf la
-    profondeur, que la boucle ne demande qu'à sa cadence (`depth`).
+    changé, et le navigateur celles qui ne sont pas à l'écran — sauf le
+    carnet et la profondeur, que la boucle ne demande qu'à leur cadence
+    (`book`, `depth`).
     """
     arb_table, arb_count = arbitrage.render(hub)
     liq_table, liq_badges = liquidations.render(hub, state["expanded"] == "liq")
     frame = {
-        "book-table": {"children": orderbook.render_book(
-            hub, state["exchange"], state["expanded"] == "book",
-            state["currency"])},
         "arb-table": {"children": arb_table},
         "arb-count": {"children": arb_count},
         "liq-table": {"children": liq_table},
         "liq-badges": {"children": liq_badges},
     }
+    if book:
+        frame["book-table"] = {"children": orderbook.render_book(
+            hub, state["exchange"], state["expanded"] == "book",
+            state["currency"])}
     if depth:
         frame["depth-chart"] = {"figure": orderbook.render_depth(hub)}
     return frame
@@ -231,6 +248,7 @@ def serve(hub, ws) -> None:
     # trame — et reparte dès qu'un changement d'état l'exige.
     price_due = 0.0
     depth_due = 0.0
+    book_due = 0.0
     try:
         while not hub.stopping.is_set():
             # Entre deux trames, la boucle dort sur la réception :
@@ -249,13 +267,18 @@ def serve(hub, ws) -> None:
                     if state != previous:
                         sent.clear()
                         next_send = time.monotonic()
-                        price_due = depth_due = 0.0
+                        price_due = depth_due = book_due = 0.0
                 continue
 
             depth = time.monotonic() >= depth_due
-            frame = _frame(hub, state, depth=depth)
+            book = time.monotonic() >= book_due
+            frame = _frame(hub, state, depth=depth, book=book)
             if depth:
                 depth_due = time.monotonic() + PUSH_DEPTH_INTERVAL
+            if book:
+                book_due = time.monotonic() + (
+                    PUSH_BOOK_EXPANDED_INTERVAL
+                    if state["expanded"] == "book" else PUSH_BOOK_INTERVAL)
             if (state["price_interval"]
                     and time.monotonic() >= price_due):
                 frame["price-lwc"] = _price_target(

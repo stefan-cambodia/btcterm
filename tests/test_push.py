@@ -35,7 +35,9 @@ from plotly.utils import PlotlyJSONEncoder  # noqa: E402
 from btcterm.hub import MarketHub  # noqa: E402
 from terminal.panels.liquidations import ROWS_MAX  # noqa: E402
 from terminal.panels.orderbook import DEPTH, DEPTH_MAX  # noqa: E402
-from terminal.push import (DEFAULT_STATE, PUSH_DEPTH_INTERVAL,  # noqa: E402
+from terminal.push import (DEFAULT_STATE,  # noqa: E402
+                           PUSH_BOOK_EXPANDED_INTERVAL, PUSH_BOOK_INTERVAL,
+                           PUSH_DEPTH_INTERVAL, PUSH_INTERVAL,
                            PUSH_PRICE_INTERVAL, _frame, _merge,
                            _price_target)
 
@@ -200,7 +202,7 @@ def test_le_carnet_suit_la_devise():
 
     Il restait en dollars : ni le callback ni le pousseur ne connaissaient
     la devise. Le taux vient du cache, jamais de la source : le pousseur
-    rend ce carnet dix fois par seconde et dormirait le temps de l'appel.
+    rend ce carnet quatre fois par seconde et dormirait le temps de l'appel.
     """
     from btcterm import sources
 
@@ -276,6 +278,82 @@ def test_l_age_du_carnet_avance():
     deux = serialise(_frame(hub, etat))["book-table"]
     assert un != deux, "l'âge du flux n'avance pas"
     print("  ✓ l'âge du flux avance d'un rendu à l'autre")
+
+
+def test_le_carnet_part_a_sa_cadence():
+    """Le carnet ne part que quatre fois par seconde, pas à chaque trame.
+
+    Il change à chaque trame par l'âge de son flux : à 100 ms, le rendu
+    Dash ne suivait pas et la page se figeait peu à peu. Un changement
+    d'état, lui, n'attend pas : le changement de plateforme se voit tout de
+    suite.
+    """
+    from terminal.push import serve
+
+    assert PUSH_INTERVAL < PUSH_BOOK_INTERVAL <= 0.25
+
+    class WsFactice:
+        def __init__(self):
+            self.trames = []
+            self.a_lire = []
+
+        def receive(self, timeout=None):
+            time.sleep(min(timeout or 0, 0.02))
+            return self.a_lire.pop() if self.a_lire else None
+
+        def send(self, data):
+            self.trames.append((time.monotonic(), json.loads(data)))
+
+    hub = hub_garni()
+    ws = WsFactice()
+    threading.Timer(0.5, lambda: ws.a_lire.append(
+        '{"exchange": "Kraken"}')).start()
+    threading.Timer(1.0, hub.stop).start()
+    serve(hub, ws)
+
+    carnets = [(t, f) for t, f in ws.trames if "book-table" in f]
+    avant = [t for t, f in carnets if "50,001" not in json.dumps(f)]
+    ecarts = [b - a for a, b in zip(avant, avant[1:])]
+    assert len(avant) >= 2 and min(ecarts) >= PUSH_BOOK_INTERVAL * 0.9, ecarts
+    assert len(carnets) <= 1 / PUSH_BOOK_INTERVAL + 3, len(carnets)
+
+    #: La plateforme annoncée part sans attendre la cadence.
+    apres = next(t for t, f in carnets if "50,001" in json.dumps(f))
+    assert apres - avant[-1] < PUSH_BOOK_INTERVAL + 0.15
+    print(f"  ✓ {len(carnets)} carnets en une seconde, changement d'état immédiat")
+
+
+def test_le_carnet_ralentit_en_plein_ecran():
+    """41 lignes au lieu de 17 : le rendu coûte à la ligne, et à 250 ms la
+    page saturait encore, sortie du plein écran comprise."""
+    from terminal.push import serve
+
+    assert PUSH_BOOK_EXPANDED_INTERVAL >= 2 * PUSH_BOOK_INTERVAL
+
+    class WsFactice:
+        def __init__(self):
+            self.trames = []
+            self.a_lire = ['{"expanded": "book"}']
+
+        def receive(self, timeout=None):
+            time.sleep(min(timeout or 0, 0.02))
+            return self.a_lire.pop() if self.a_lire else None
+
+        def send(self, data):
+            self.trames.append((time.monotonic(), json.loads(data)))
+
+    hub = hub_garni()
+    ws = WsFactice()
+    threading.Timer(1.3, hub.stop).start()
+    serve(hub, ws)
+
+    #: La première trame part avant l'annonce : elle ne compte pas.
+    pleins = [t for t, f in ws.trames
+              if lignes(json.dumps(f.get("book-table", ""))) > 2 * DEPTH + 1]
+    ecarts = [b - a for a, b in zip(pleins, pleins[1:])]
+    assert len(pleins) >= 2, ws.trames
+    assert min(ecarts) >= PUSH_BOOK_EXPANDED_INTERVAL * 0.9, ecarts
+    print(f"  ✓ plein écran : un carnet toutes les {min(ecarts):.2f} s")
 
 
 def test_la_boucle_sort_a_l_arret():

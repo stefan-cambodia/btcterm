@@ -137,16 +137,24 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "return document.querySelector('#book-table').textContent;") != avant)
         # L'agrandissement ne peut arriver que par le canal : le callback
         # du carnet ne lit `expanded` qu'en State, et l'horloge qui
-        # l'aurait rejoué est coupée tant que le push tient.
+        # l'aurait rejoué est coupée tant que le push tient. On attend le
+        # résultat au lieu de dormir : la transition redimensionne tous les
+        # graphiques, et c'est le passage par le canal qui est contrôlé ici.
+        # La durée reste affichée, pour qu'une dérive se voie.
+        lignes = "document.querySelectorAll('#book-table tr').length"
         browser.js("document.getElementById('zoom-book').click();")
-        time.sleep(1.5)
-        rows = browser.js("return document.querySelectorAll('#book-table tr').length;")
-        check("l'agrandissement passe par le canal", rows >= 30, f"{rows} lignes")
+        debut = time.monotonic()
+        browser.wait_for(f"{lignes} >= 30", timeout=6)
+        rows = browser.js(f"return {lignes};")
+        check("l'agrandissement passe par le canal", rows >= 30,
+              f"{rows} lignes en {time.monotonic() - debut:.1f} s")
         browser.js("document.dispatchEvent(new KeyboardEvent('keydown',"
                    " {key: 'Escape', bubbles: true}));")
-        time.sleep(1.5)
-        rows = browser.js("return document.querySelectorAll('#book-table tr').length;")
-        check("le retour à la grille aussi", rows <= 20, f"{rows} lignes")
+        debut = time.monotonic()
+        browser.wait_for(f"{lignes} <= 20", timeout=6)
+        rows = browser.js(f"return {lignes};")
+        check("le retour à la grille aussi", rows <= 20,
+              f"{rows} lignes en {time.monotonic() - debut:.1f} s")
 
         print("\nPanneau prix Lightweight Charts")
         check("le canvas est posé", browser.js(

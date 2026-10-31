@@ -1232,10 +1232,18 @@ complet : sur un tunnel SSH lointain, la latence s'ajoute à la période et le
 carnet prend du retard. Le chantier laissé conditionnel à l'étape 2 est
 désormais fait : `terminal/push.py` pose une route WebSocket `/push` sur le serveur Flask qui porte Dash (flask-sock), et
 pousse le rendu des six cibles rapides — carnet, profondeur, arbitrage et son
-compteur, liquidations et leurs badges — à une cadence de 100 ms ; la
-profondeur seule part à la seconde, une figure entière que des carnets
-jamais immobiles faisaient repartir à chaque trame — la moitié du temps
-processeur d'un onglet ouvert, au profil. Mesuré cible par cible sur un
+compteur, liquidations et leurs badges — à une cadence de 100 ms. Deux
+cibles ont la leur. La profondeur part à la seconde, une figure entière que
+des carnets jamais immobiles faisaient repartir à chaque trame — la moitié du
+temps processeur d'un onglet ouvert, au profil. Le carnet part toutes les
+250 ms, la période du repli par interrogation : le coût n'était pas au serveur
+mais au rendu Dash, qui ne suivait pas à dix images par seconde. Dans Firefox
+headless, les minuteries de la page dérivaient de 0,7 s à 6 s en trente
+secondes, jusqu'à la figer plus d'une minute, ce qui faisait échouer
+`ui_smoke.py` sur l'agrandissement du carnet ; à 250 ms, leur retard reste
+stable sous 350 ms. Le coût allant à la ligne, le carnet en plein écran, 41
+lignes au lieu de 17, part toutes les 500 ms : à 250 ms, en sortir prenait
+encore près de six secondes. Mesuré cible par cible sur un
 hub réel : le carnet coûte 1,4 ms rendu et sérialisation compris,
 l'arbitrage 1 ms, les liquidations rien ; la profondeur en coûtait 23,6
 — dont vingt de validation `go.Figure` — et 0,9 depuis qu'elle est un
@@ -1490,7 +1498,7 @@ Pendant la panne, la source n'est réinterrogée qu'une fois par
 essai peut coûter les cinq secondes du timeout.
 
 Le carnet suit la même devise, et le même ⚠ sur sa ligne de spread, mais
-ne lit pas ce taux de la même façon : le pousseur le rend dix fois par
+ne lit pas ce taux de la même façon : le pousseur le rend quatre fois par
 seconde et dormirait le temps de l'appel. `eur_rate_cached` ne sert donc
 que le cache, que le bandeau tient à jour — dès que la devise est l'euro,
 il est dans la page quel que soit l'agencement de la grille.
