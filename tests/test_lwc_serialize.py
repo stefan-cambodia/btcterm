@@ -125,7 +125,7 @@ def test_le_paquet_complet_porte_le_drapeau_demo():
     paquet = serialize_price_frame(df)
 
     assert set(paquet) == {"bars", "volume", "overlays", "panes",
-                           "volume_ma", "signals", "demo"}
+                           "volume_ma", "signals", "demo", "stale"}
     assert paquet["demo"] is True, "la série de démo doit se déclarer"
     assert set(paquet["overlays"]) == set(OVERLAY_COLUMNS)
     assert set(paquet["panes"]) == set(PANE_COLUMNS)

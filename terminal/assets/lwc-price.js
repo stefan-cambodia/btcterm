@@ -545,17 +545,19 @@
     }
 
     // Le bandeau d'avertissement dit ce que le paquet dit : données de
-    // démonstration, ou — en euros seulement — taux de change de
-    // secours. La démonstration prime : un taux juste sur des bougies
-    // inventées n'apprendrait rien.
+    // démonstration, historique sauvegardé servi seul, ou — en euros
+    // seulement — taux de change de secours. La démonstration prime : un
+    // taux juste sur des bougies inventées n'apprendrait rien.
     function updateBanner() {
         var packet = state.packet;
         if (!state.banner || !packet) { return; }
         var text = packet.demo
             ? "⚠ DONNÉES DE DÉMONSTRATION · source injoignable"
-            : (state.cfg.currency === "EUR" && packet.eur_stale)
-                ? "⚠ TAUX € DE SECOURS · source de change injoignable"
-                : "";
+            : packet.stale
+                ? "⚠ HISTORIQUE SAUVEGARDÉ · source injoignable, cours à l'arrêt"
+                : (state.cfg.currency === "EUR" && packet.eur_stale)
+                    ? "⚠ TAUX € DE SECOURS · source de change injoignable"
+                    : "";
         state.banner.textContent = text;
         state.banner.style.display = text ? "block" : "none";
     }
@@ -872,6 +874,7 @@
             }
             mergeTail(packet.volume_ma, update.volume_ma);
             packet.demo = update.demo;
+            packet.stale = update.stale;
 
             var series = state.series;
             var theme = state.conf.theme;

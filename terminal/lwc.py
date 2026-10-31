@@ -164,6 +164,7 @@ def serialize_price_frame(df: pd.DataFrame) -> dict:
             VOLUME_MA_COLUMN, []),
         "signals": frame_to_signals(df),
         "demo": bool(df.attrs.get("demo", False)),
+        "stale": bool(df.attrs.get("stale", False)),
     }
 
 
@@ -238,6 +239,7 @@ def tail_points(df: pd.DataFrame, interval: str) -> dict:
         "volume_ma": volume_ma[0] if volume_ma else None,
         "signal": int(prepared["signal"].iloc[-1]),
         "demo": bool(df.attrs.get("demo", False)),
+        "stale": bool(df.attrs.get("stale", False)),
     }
 
 

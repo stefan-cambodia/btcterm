@@ -133,7 +133,8 @@ def main() -> None:
     parser.add_argument(
         "--no-journal", action="store_true",
         help="ne pas tenir ~/.btcterm/journal.db (liquidations et épisodes "
-             "d'arbitrage de la séance)",
+             "d'arbitrage de la séance) ni ~/.btcterm/klines.db (historique "
+             "du cours)",
     )
     parser.add_argument(
         "--cryptopanic-key", default=os.environ.get("CRYPTOPANIC_API_KEY", ""),

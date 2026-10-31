@@ -366,9 +366,12 @@ class AlertEngine:
         *courante* est ignorée — elle flotte, et une règle qui sonne sur
         du provisoire sonne pour rien. La série de démonstration se tait :
         des extrêmes calculés sur une marche aléatoire seraient du bruit.
+        L'historique sauvegardé aussi : sans bougie en cours, l'avant-dernière
+        ligne n'est plus la dernière close, et le cours est à l'arrêt.
         """
         df = hub.klines(KLINE_INTERVAL, limit=KLINE_LIMIT)
-        if df.attrs.get("demo", False) or len(df) < 210:
+        if (df.attrs.get("demo", False) or df.attrs.get("stale", False)
+                or len(df) < 210):
             return
         work = df.copy()
         work["ma9"] = ind.sma(work["close"], 9)

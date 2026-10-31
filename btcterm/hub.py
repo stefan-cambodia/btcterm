@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 import socket
+import sqlite3
 import threading
 import time
 from typing import Any, Callable, Optional
@@ -24,6 +25,7 @@ import pandas as pd
 from . import sources
 from .alerts import Alert, AlertEngine
 from .arbitrage import ArbitrageEngine
+from .history import KlineHistory
 from .journal import Journal
 from .newsdb import NewsCollector
 from .liquidations import (BybitLiquidationConnector, Liquidation,
@@ -133,6 +135,10 @@ class MarketHub:
     #: changeront plus jamais. Une heure de cache borne juste la mémoire
     #: quand on remonte loin, sans coût de fraîcheur.
     TTL_KLINES_HISTORY = 3600
+    #: Binance injoignable, l'historique sauvegardé répond à sa place : la
+    #: source n'est retentée qu'à cet intervalle, le pousseur, qui lit les
+    #: chandeliers toutes les deux secondes, attendrait sinon chaque délai.
+    KLINES_RETRY = 60
     TTL_TICKER = 5
     TTL_EUR = 3600
     #: Délai avant de réinterroger une source de change en panne.
@@ -229,6 +235,15 @@ class MarketHub:
         self.journal: Optional[Journal] = Journal() if keep_journal else None
         if self.journal is not None:
             self.liquidations.on_event = self.journal.record_liquidation
+
+        #: Les bougies closes sur disque (§ history). Lié au journal, et
+        #: pas seulement par commodité : les tests remplacent la source par
+        #: des bougies fabriquées, qui ne doivent pas finir dans la vraie
+        #: base — `keep_journal=False` les en tient à l'écart.
+        self.history: Optional[KlineHistory] = (
+            KlineHistory(symbol) if keep_journal else None)
+        #: Instant avant lequel Binance n'est pas retenté (`KLINES_RETRY`).
+        self._klines_retry_at = 0.0
 
         #: Moteur d'alertes : évalué par la boucle d'observation, réglé
         #: par le panneau ALERTES, journalisé quand le journal est tenu.
@@ -434,6 +449,7 @@ class MarketHub:
         now = time.time()
         slept = now - last_tick
         if slept > self.RESUME_GAP:
+            sources.reset_connections()
             self._wait_for_network(
                 f"au réveil, après {slept / 60:.0f} min de sommeil")
             now = time.time()
@@ -452,6 +468,8 @@ class MarketHub:
             # Les épisodes encore ouverts partent avec la séance.
             self.journal.flush()
             self.journal.close()
+        if self.history is not None:
+            self.history.close()
 
     @property
     def connected_count(self) -> int:
@@ -466,23 +484,67 @@ class MarketHub:
     def klines(self, interval: str = "1d", limit: int = 350) -> pd.DataFrame:
         """Chandeliers, mutualisés entre panneaux via le cache.
 
-        Repli sur une série de démonstration quand la source est
-        injoignable et qu'aucune valeur n'a encore été mise en cache —
-        typiquement un démarrage hors ligne. Le terminal s'ouvre alors
-        quand même, et le graphique le dit : le DataFrame de démo porte
-        `attrs["demo"]`, que `/api/klines` relaie au navigateur où
-        lwc-price.js pose un bandeau d'avertissement. Sans ce repli, un
-        panneau prix vide et une trace
-        dans la console seraient tout ce que l'utilisateur obtiendrait.
+        Les bougies closes viennent du disque (§ history), Binance ne
+        fournit que la fin de la série. S'il se tait et que le cache n'a
+        rien, l'historique sauvegardé répond seul : le DataFrame porte
+        `attrs["stale"]`, et la bougie en cours y manque. Il ne reste la
+        série de démonstration que si le disque n'a rien non plus —
+        typiquement un premier démarrage hors ligne. Le terminal s'ouvre
+        alors quand même, et le graphique le dit dans les deux cas :
+        `attrs["demo"]` et `attrs["stale"]`, que `/api/klines` relaie au
+        navigateur où lwc-price.js pose un bandeau d'avertissement. Sans
+        ce repli, un panneau prix vide et une trace dans la console
+        seraient tout ce que l'utilisateur obtiendrait.
         """
         try:
             return self._cache.get(
                 f"klines:{interval}:{limit}",
                 self.TTL_KLINES,
-                lambda: sources.fetch_klines(self.symbol, interval, limit),
+                lambda: self._through_history(
+                    lambda: self.history.latest(interval, limit),
+                    lambda: sources.fetch_klines(self.symbol, interval, limit),
+                ),
             )
         except Exception:
-            return sources.generate_demo_ohlcv(limit, interval=interval, index=False)
+            df = self._stored_klines(interval, limit)
+            if df.empty:
+                return sources.generate_demo_ohlcv(
+                    limit, interval=interval, index=False)
+            df.attrs["stale"] = True
+            return df
+
+    def _through_history(self, read: Callable[[], pd.DataFrame],
+                         direct: Callable[[], pd.DataFrame]) -> pd.DataFrame:
+        """Lit par l'historique sur disque, ou à la source sans lui.
+
+        Source injoignable : elle n'est retentée qu'après `KLINES_RETRY`.
+        Base inutilisable — disque plein, fichier abîmé : ce n'est qu'un
+        cache, le terminal continue sans lui.
+        """
+        if self.history is None:
+            return direct()
+        if time.time() < self._klines_retry_at:
+            raise ConnectionError("Binance en attente de nouvel essai")
+        try:
+            return read()
+        except sqlite3.Error as exc:
+            log.warning("historique du cours inutilisable : %s — "
+                        "lecture directe de la source", exc)
+            self.history = None
+            return direct()
+        except Exception:
+            self._klines_retry_at = time.time() + self.KLINES_RETRY
+            raise
+
+    def _stored_klines(self, interval: str, limit: int,
+                       end_ms: Optional[int] = None) -> pd.DataFrame:
+        """Ce que le disque tient, ou rien s'il n'y a pas de disque."""
+        if self.history is not None:
+            try:
+                return self.history.stored(interval, limit, end_ms)
+            except sqlite3.Error:
+                pass
+        return pd.DataFrame(columns=["time"] + sources.OHLCV_COLUMNS)
 
     def klines_history(
         self, interval: str, end_ms: int, limit: int = 350
@@ -493,18 +555,21 @@ class MarketHub:
         C'est le lazy-loading du panneau prix qui appelle ici, au pan
         vers le passé. Pas de repli de démonstration : une page qui
         manque parce que la source est injoignable — ou parce que
-        l'historique est épuisé — revient vide, et le client cesse
-        simplement de demander plus ancien.
+        l'historique est épuisé — revient avec ce que le disque tient,
+        vide au besoin, et le client cesse alors de demander plus ancien.
         """
         try:
             return self._cache.get(
                 f"klines:{interval}:{limit}:{int(end_ms)}",
                 self.TTL_KLINES_HISTORY,
-                lambda: sources.fetch_klines(
-                    self.symbol, interval, limit, end_time=int(end_ms)),
+                lambda: self._through_history(
+                    lambda: self.history.page(interval, int(end_ms), limit),
+                    lambda: sources.fetch_klines(
+                        self.symbol, interval, limit, end_time=int(end_ms)),
+                ),
             )
         except Exception:
-            return pd.DataFrame(columns=["time"] + sources.OHLCV_COLUMNS)
+            return self._stored_klines(interval, limit, int(end_ms))
 
     def ticker(self) -> dict:
         return self._cache.get(

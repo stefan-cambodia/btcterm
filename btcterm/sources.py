@@ -22,6 +22,7 @@ from typing import Any, Iterable, Optional
 import numpy as np
 import pandas as pd
 import requests
+from urllib3.util.retry import Retry
 
 __all__ = [
     "BINANCE_REST", "OHLCV_COLUMNS", "RSS_FEEDS",
@@ -37,6 +38,16 @@ __all__ = [
 ]
 
 BINANCE_REST = "https://api.binance.com/api/v3"
+
+#: Connexion gardée ouverte pour les chandeliers : le panneau ne demande
+#: plus que la fin de la série (§ history), et la poignée de main TLS
+#: pesait alors l'essentiel de l'appel — 337 ms pour deux bougies, 110 ms
+#: une fois la connexion établie. Binance peut la fermer entre deux appels :
+#: une relecture suffit à en rouvrir une. La connexion elle-même n'est pas
+#: retentée — une adresse morte coûterait deux fois son délai.
+_klines_http = requests.Session()
+_klines_http.mount("https://", requests.adapters.HTTPAdapter(
+    max_retries=Retry(total=1, connect=0, read=1, status=0, redirect=0)))
 FX_URL = "https://api.exchangerate-api.com/v4/latest/USD"
 #: Flux des ETF spot — la page « all data » de farside.co.uk plutôt que
 #: sa page d'accueil : celle-ci ne publie plus que les trois dernières
@@ -143,6 +154,7 @@ def fetch_klines(
     limit: int = 350,
     index: bool = False,
     end_time: Optional[int] = None,
+    start_time: Optional[int] = None,
 ) -> pd.DataFrame:
     """Chandeliers OHLCV depuis l'API publique Binance.
 
@@ -152,15 +164,21 @@ def fetch_klines(
     `end_time` (millisecondes epoch) borne la fin de la série : Binance
     renvoie alors les `limit` dernières bougies ouvertes au plus tard à
     cet instant — c'est la pagination vers le passé du panneau prix.
+    `start_time` borne son début : les `limit` premières bougies ouvertes
+    à partir de cet instant — c'est le rattrapage de l'historique sauvegardé.
     """
     params: dict[str, Any] = {"symbol": symbol, "interval": interval,
                               "limit": limit}
     if end_time is not None:
         params["endTime"] = int(end_time)
-    response = requests.get(
+    if start_time is not None:
+        params["startTime"] = int(start_time)
+    # Quatre secondes pour se connecter : une adresse morte se reconnaît
+    # vite, et c'est elle que le pousseur attendrait, carnet figé.
+    response = _klines_http.get(
         f"{BINANCE_REST}/klines",
         params=params,
-        timeout=12,
+        timeout=(4, 12),
     )
     response.raise_for_status()
 
@@ -169,13 +187,23 @@ def fetch_klines(
         "close_time", "quote_vol", "trades",
         "taker_buy_base", "taker_buy_quote", "ignore",
     ])
-    for column in OHLCV_COLUMNS:
+    for column in (*OHLCV_COLUMNS, "quote_vol", "taker_buy_base",
+                   "taker_buy_quote"):
         df[column] = df[column].astype(float)
     df["time"] = pd.to_datetime(df["open_time"], unit="ms")
 
     if index:
         return df.set_index("time")[OHLCV_COLUMNS]
     return df.reset_index(drop=True)
+
+
+def reset_connections() -> None:
+    """Oublie les connexions gardées.
+
+    Au réveil de la machine, elles sont mortes sans que rien ne l'ait dit :
+    la lecture suivante attendrait son délai entier avant de s'en apercevoir.
+    """
+    _klines_http.close()
 
 
 def fetch_ticker_24h(symbol: str = "BTCUSDT") -> dict[str, Any]:

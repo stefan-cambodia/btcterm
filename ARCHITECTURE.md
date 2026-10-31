@@ -62,6 +62,8 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   │                              terme, chaîne, news, sentiment
 │   ├── macrocal.py                calendrier macro tenu à la main
 │   ├── newsdb.py                  base de news : schéma, scoring, collecte
+│   ├── history.py                 bougies closes sur disque
+│   │                              (~/.btcterm/klines.db)
 │   ├── journal.py                 journal des liquidations + épisodes
 │   │                              d'arbitrage (~/.btcterm/journal.db)
 │   ├── alerts.py                  moteur d'alertes : seuils, rafales,
@@ -105,6 +107,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
 │   ├── test_push.py               pousseur WebSocket, sans navigateur
 │   ├── test_journal.py            journal : événements, épisodes, rétention
+│   ├── test_history.py            historique du cours : disque, rattrapage, panne
 │   ├── test_alerts.py             alertes : seuils, fronts, cadences
 │   ├── test_wsgi.py               fabrique gunicorn du régime service
 │   ├── test_lwc_serialize.py      contrat de série du rendu du prix
@@ -678,7 +681,49 @@ le Cambodge — c'est Bybit qui le nourrit là-bas —, alors que le REST
 futures (`fapi`) répond normalement. Le remède de fond — un résolveur DNS sur TLS configuré dans systemd-resolved,
 donné dans le README — couvre aussi le navigateur et les satellites.
 
-### 2.10 Non-régression
+### 2.10 `history` — une bougie close ne se redemande pas
+
+Ouvrir le panneau prix prenait environ 480 ms, dont 360 à 425 de réseau :
+indicateurs (23 ms) et sérialisation (50 ms) ne pesaient presque rien. On
+y rapatriait surtout des bougies qui ne changeront plus, et un redémarrage
+pendant une panne de Binance retombait sur la série de démonstration, faute
+du moindre souvenir.
+
+`btcterm/history.py` garde les bougies closes dans `~/.btcterm/klines.db`, une
+base à part du journal : celle-ci se supprime sans rien perdre d'irremplaçable.
+Binance ne fournit plus que ce qui manque.
+
+- **Vers le présent**, tout ce qui suit la dernière bougie sauvegardée, page
+  après page si l'absence a été longue. Le même appel ramène la bougie en cours.
+- **Vers le passé**, une page entière de 1000 bougies dès qu'on sort de ce qui
+  est sauvegardé : elle sert les pans suivants.
+
+Deux règles tiennent la série juste. Seules les bougies **réglées** s'écrivent,
+une minute après leur clôture (`SETTLE_MS`) : la bougie en cours bouge, et une
+horloge locale en avance figerait sinon sur disque une bougie pas tout à fait
+finie. Et la plage sauvegardée n'a **pas de trou**, puisqu'elle ne s'étend que
+par ses deux bouts : un écart entre deux bougies y est un vrai silence de
+Binance, une maintenance, et aucune table de couverture n'est nécessaire. Un
+contrôle d'écart entre bougies aurait au contraire signalé ces silences à tort.
+
+Le cache mémoire du hub reste devant, inchangé : le mémo du pousseur tient à
+l'identité de l'objet servi (§3.10). Seul son producteur change, et seule la
+première lecture de chaque intervalle coûte une page.
+
+La base est liée à `keep_journal` pour une raison précise : plusieurs tests
+remplacent `sources.fetch_klines` par des bougies fabriquées, et ces hubs
+construits sans journal ne doivent pas les écrire dans la vraie base — la
+mésaventure du journal, dont les fausses liquidations ressortaient au panneau,
+ne se rejoue pas ici. Une base inutilisable (disque plein, fichier abîmé) est
+abandonnée pour la séance : ce n'est qu'un cache, et le panneau revient à la
+lecture directe.
+
+Les chandeliers passent par une connexion gardée ouverte : réduit à la fin de
+la série, l'appel ne valait plus que sa poignée de main TLS (337 ms contre
+110). Le réveil de la machine l'oublie (`reset_connections`) : morte sans
+l'avoir dit, elle ferait attendre la lecture suivante jusqu'au bout de son délai.
+
+### 2.11 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
@@ -1385,7 +1430,8 @@ Chaque source distante a une stratégie de repli explicite :
 |---|---|
 | toute donnée REST déjà servie | dernière valeur connue, conservée par `TTLCache` |
 | nom d'exchange résolu en 127.0.0.1 par le FAI | résolution de secours par DNS sur HTTPS (`resolver`, §2.9) |
-| chandeliers Binance, sans rien en cache | série de démonstration, signalée par un bandeau |
+| chandeliers Binance, sans rien en cache | historique sauvegardé, sans la bougie en cours, signalé par un bandeau |
+| chandeliers Binance, sans rien en cache ni sur disque | série de démonstration, signalée par un bandeau |
 | taux EUR | dernier taux lu, ou à froid `EUR_FALLBACK` ; en euros, ⚠ au bandeau et bandeau orange du graphique ; source réinterrogée une fois par minute |
 | masse monétaire M2 | tableau vide, le panneau macro le dit |
 | marché à terme Binance | tableau ou dictionnaire vide, le panneau perpétuel le dit |
@@ -1707,7 +1753,7 @@ chantiers s'ouvriront à l'usage.
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.10) :
+scripts y sont ramenés, sans changement de comportement (§2.11) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la

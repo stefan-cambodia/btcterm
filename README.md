@@ -421,6 +421,7 @@ python tests/test_grid_layout.py         # rangement configurable des panneaux
 python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node)
 python tests/test_push.py                # pousseur WebSocket, sans navigateur
 python tests/test_journal.py             # journal : événements, épisodes, rétention
+python tests/test_history.py             # historique du cours : disque, rattrapage, panne
 python tests/test_alerts.py              # alertes : seuils, fronts, cadences
 python tests/test_wsgi.py                # fabrique gunicorn du régime service
 python tests/test_lwc_serialize.py       # contrat de série du rendu du prix
@@ -547,7 +548,10 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 - Le terminal écrit dans `~/.btc_news/news.db` — la base du tracker, mêmes
   règles, mêmes déduplications. `--no-news` l'en dispense.
 - Il tient aussi `~/.btcterm/journal.db` — liquidations et épisodes
-  d'arbitrage de la séance. `--no-journal` l'en dispense.
+  d'arbitrage de la séance — et `~/.btcterm/klines.db`, l'historique du
+  cours : les bougies closes ne se redemandent pas à Binance, et le graphique
+  survit à une panne. Ce n'est qu'un cache, à supprimer sans dommage.
+  `--no-journal` le dispense des deux.
 - Aucun de ces scripts n'écrit d'ordre sur un exchange ; ils sont en lecture
   seule sur des endpoints publics.
 - Le hub contourne de lui-même un résolveur DNS qui empoisonne les noms des

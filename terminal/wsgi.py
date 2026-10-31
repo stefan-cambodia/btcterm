@@ -29,7 +29,8 @@ d'`argv` commode. Les variables recouvrent exactement les options de la
 ligne de commande (`btcterm --help`) :
 
     BTCTERM_NO_NEWS=1       ne pas alimenter la base de news
-    BTCTERM_NO_JOURNAL=1    ne pas tenir le journal de séance
+    BTCTERM_NO_JOURNAL=1    ne pas tenir le journal de séance ni
+                            l'historique du cours
     CRYPTOPANIC_API_KEY=…   clé CryptoPanic pour la collecte de news
 
 `terminal/systemd_service.conf` contient le gabarit d'unité `--user`
