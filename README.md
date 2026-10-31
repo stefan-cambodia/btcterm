@@ -179,7 +179,8 @@ signale par un bandeau orange : les chiffres affichés ne sont alors pas réels.
 ou `ws.okx.com` : leur résolveur DNS y répond `127.0.0.1`, et le terminal
 tombe sur la démo sans qu'aucune erreur ne le dise. Le hub pose au démarrage
 une résolution de secours (`btcterm/resolver.py`) : dès qu'un nom public
-résout en adresse de bouclage, il est redemandé à un résolveur DNS sur HTTPS
+résout en adresse de bouclage, ou en une adresse publique connue pour ne pas
+répondre (`SINKHOLES`), il est redemandé à un résolveur DNS sur HTTPS
 joint par son adresse IP (1.1.1.1, puis 8.8.8.8) — et les connexions
 partent vers les vraies adresses. Rien à configurer ; un avertissement
 `résolution empoisonnée pour …` dans le journal signale chaque nom sauvé.

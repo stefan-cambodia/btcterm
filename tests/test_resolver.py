@@ -93,6 +93,10 @@ def test_diagnostic():
     assert not resolver.looks_poisoned("api.binance.com", ok)
     assert resolver.looks_poisoned("api.binance.com", poison)
     assert resolver.looks_poisoned("api.binance.com", nul)
+    #: La forme d'octobre 2026 : une adresse publique, morte.
+    trou_noir = [(socket.AF_INET, socket.SOCK_STREAM, 0, "",
+                  ("203.190.164.182", 443))]
+    assert resolver.looks_poisoned("api.binance.com", trou_noir)
     assert resolver.looks_poisoned("api.binance.com", [])
     assert not resolver.looks_poisoned("api.binance.com", mixte)
     assert not resolver.looks_poisoned("localhost", poison)

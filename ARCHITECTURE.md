@@ -646,9 +646,17 @@ sortir de la machine, et le terminal tombe sur sa série de démonstration
 sans que le symptôme désigne la cause. Les serveurs, eux, répondent dès
 qu'on leur parle par leur vraie adresse : seul le DNS ment.
 
+En octobre 2026, le mensonge a changé de forme : les mêmes noms résolvent
+en `203.190.164.182`, adresse publique qui ne répond pas. Rien ne l'a
+signalé, parce que les connexions déjà ouvertes ne repassent pas par le DNS :
+le service a tourné normalement jusqu'au redémarrage suivant, qui a perdu
+d'un coup l'accès à quatre plateformes sur cinq, chandeliers compris. Une réponse publique
+ressemblant à une réponse saine, aucune détection générale n'est possible :
+ces adresses sont listées dans `SINKHOLES`.
+
 `btcterm/resolver.py` enveloppe `socket.getaddrinfo`. Quand la réponse du
-système pour un nom public ne contient que des adresses de bouclage ou
-nulles — ou quand le nom n'existe soudain plus —, le nom est redemandé à
+système pour un nom public ne contient que des adresses de bouclage, nulles
+ou de `SINKHOLES` — ou quand le nom n'existe soudain plus —, le nom est redemandé à
 un résolveur DNS sur HTTPS joint **par son adresse IP** (`1.1.1.1`, puis
 `8.8.8.8`), de sorte qu'aucune résolution empoisonnable n'entre dans la
 boucle ; les entrées `getaddrinfo` sont reconstruites à partir des

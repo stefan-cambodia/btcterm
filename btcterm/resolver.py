@@ -9,9 +9,15 @@ tous en `127.0.0.1` — et la connexion qui suit est refusée sur place, sans
 même sortir de la machine. Les serveurs, eux, répondent normalement dès
 qu'on leur parle par leur vraie adresse : seul le DNS ment.
 
+Le mensonge change de forme : en octobre 2026, les mêmes noms résolvent en
+une adresse publique qui ne répond pas (`SINKHOLES`). Une connexion déjà
+ouverte y survit, puisqu'elle ne repasse pas par le DNS : la panne ne s'est
+vue qu'au redémarrage suivant, quatre plateformes sur cinq injoignables.
+
 Ce module enveloppe `socket.getaddrinfo`. Quand la réponse du système, pour
-un nom public, ne contient que des adresses de bouclage ou nulles (ou quand
-le nom n'existe soudain plus), il redemande le nom à un résolveur DNS sur
+un nom public, ne contient que des adresses de bouclage, nulles ou connues
+pour être des trous noirs (ou quand le nom n'existe soudain plus), il
+redemande le nom à un résolveur DNS sur
 HTTPS joint **par son adresse IP** — 1.1.1.1 puis 8.8.8.8 —, de sorte
 qu'aucune résolution empoisonnable n'entre dans la boucle. La réponse
 saine est gardée le temps de son TTL. Tout le reste passe tel quel : un
@@ -51,6 +57,12 @@ DOH_ENDPOINTS: tuple[str, ...] = (
     "https://8.8.8.8/resolve",
 )
 
+#: Adresses publiques que le fournisseur d'accès substitue aux domaines
+#: interdits. Aucune détection générale n'est possible — une réponse
+#: publique ressemble à une réponse saine —, d'où une liste, à compléter
+#: quand `ConnectTimeoutError` revient sur un nom que DoH résout autrement.
+SINKHOLES: frozenset[str] = frozenset({"203.190.164.182"})
+
 #: Le TTL renvoyé est borné : jamais moins d'une demi-minute (ne pas
 #: marteler le résolveur), jamais plus d'une heure (suivre un CDN).
 TTL_MIN = 30.0
@@ -81,6 +93,8 @@ def _is_literal(host: str) -> bool:
 
 
 def _is_sinkhole(addr: str) -> bool:
+    if addr in SINKHOLES:
+        return True
     try:
         ip = ipaddress.ip_address(addr)
     except ValueError:
@@ -94,7 +108,7 @@ def looks_poisoned(host: str, infos: list) -> bool:
     `infos` est le résultat brut de `socket.getaddrinfo` (une liste vide
     vaut pour un NXDOMAIN). Un nom local ou une adresse littérale n'est
     jamais suspect ; un nom public dont **toutes** les adresses sont de
-    bouclage ou nulles l'est.
+    bouclage, nulles ou dans `SINKHOLES` l'est.
     """
     if not host or _is_local_name(host) or _is_literal(host):
         return False
