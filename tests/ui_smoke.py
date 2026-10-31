@@ -424,7 +424,13 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             Array.from(document.querySelectorAll('#cell-etf .cell-tab'))
                  .find(t => t.textContent === 'PERPÉTUEL').click();
         """)
-        time.sleep(3)
+        # Ces panneaux lisent des sources REST : deux secondes à froid, et
+        # davantage quand le réseau traîne. Attendre le contenu plutôt que
+        # de dormir : c'est lui qu'on contrôle, pas la latence de la source.
+        browser.wait_for(
+            "(t => t.includes('OI') || t.includes('indisponible'))"
+            "(document.getElementById('perp-badges')?.textContent || '')",
+            timeout=12)
         # Rendu Lightweight Charts, comme le prix : un canvas dans le
         # div #perp-lwc, pas de figure Plotly.
         perp = browser.js("""
@@ -447,7 +453,11 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                 Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
                      .find(t => t.textContent === '{label}').click();
             """)
-            time.sleep(3.5)
+            browser.wait_for(
+                f"!!document.querySelector('#{graphe} .js-plotly-plot')"
+                f" && (document.getElementById('{badge}')?.textContent"
+                f" || '').length > 8",
+                timeout=12)
             etat = browser.js(f"""
                 const gd = document.getElementById('{graphe}')
                     .querySelector('.js-plotly-plot');
