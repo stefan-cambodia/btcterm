@@ -37,8 +37,11 @@ __all__ = ["OVERLAY_COLUMNS", "PANE_COLUMNS", "VOLUME_MA_COLUMN",
 #: ne connaît que ces clés, jamais le calcul derrière.
 OVERLAY_COLUMNS = ("ma9", "ma26", "ma200", "bb_upper", "bb_mid", "bb_lower")
 
-#: Oscillateurs bornés 0-100, chacun dans son pane sous le cours.
-PANE_COLUMNS = ("rsi", "crsi")
+#: Séries des panes sous le cours : les oscillateurs bornés 0-100, et le
+#: delta de volume, que le client cumule pour tracer le CVD. Cumulé ici, il
+#: repartirait de zéro à chaque page d'historique : les pages se raccordent
+#: bout à bout chez le client, et lui seul connaît la série entière.
+PANE_COLUMNS = ("rsi", "crsi", "delta")
 
 #: Moyenne mobile tracée sur l'histogramme de volume.
 VOLUME_MA_COLUMN = "vol_ma20"

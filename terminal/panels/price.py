@@ -38,6 +38,7 @@ EXTRAS = [
     {"label": "CRSI", "value": "crsi"},
     {"label": "VOL", "value": "volume"},
     {"label": "PROFIL", "value": "profile"},
+    {"label": "CVD", "value": "cvd"},
 ]
 DEFAULT_EXTRAS = ["rsi", "volume", "profile"]
 
@@ -72,7 +73,7 @@ def layout(title=None):
                     value="USD", inline=True, className="tf-radio",
                     persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px",
-                           "marginLeft": "10px"},
+                           "marginLeft": "8px"},
                 ),
                 dcc.Checklist(
                     id="price-scale",
@@ -80,7 +81,7 @@ def layout(title=None):
                     value=[], inline=True, className="tf-check",
                     persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px",
-                           "marginLeft": "10px"},
+                           "marginLeft": "8px"},
                 ),
                 dcc.Checklist(
                     id="price-extras",
@@ -88,7 +89,7 @@ def layout(title=None):
                     inline=True, className="tf-check",
                     persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px",
-                           "marginLeft": "10px"},
+                           "marginLeft": "8px"},
                 ),
             ], style={"display": "flex", "alignItems": "center",
                       "whiteSpace": "nowrap"}),
@@ -182,7 +183,7 @@ def register(app, hub):
         function (config) {
             if (window.lwcPrice) {
                 window.lwcPrice.alerts(
-                    (config && config.price_levels) || []);
+                    (config && config.price_levels) || [], config);
             }
             return window.dash_clientside.no_update;
         }

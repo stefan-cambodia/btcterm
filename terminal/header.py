@@ -15,6 +15,8 @@ bandeau et la grille (§ `_register_reveal`).
 
 from __future__ import annotations
 
+import time
+
 import dash
 from dash import Input, Output, State, html
 
@@ -55,6 +57,36 @@ def price_title(currency: str | None, rate: float, stale: bool = False) -> str:
     return title
 
 
+#: Les familles du cache du hub, dites comme le reste du bandeau.
+SOURCE_LABELS = {
+    "klines": "chandeliers Binance", "perp": "perpétuel", "oi": "open interest",
+    "funding": "financement", "eur": "taux de change", "ticker": "variation 24 h",
+    "global": "dominance", "chain": "on-chain", "chain_stats": "on-chain",
+    "etf": "flux ETF", "m2": "masse monétaire",
+    "fear_greed_history": "Fear & Greed",
+}
+
+
+def sources_text(failing: dict[str, float], now: float) -> tuple[str, str]:
+    """Le témoin des sources en panne, et son infobulle ; vide sinon.
+
+    Une source tombée ne se lisait que dans `journalctl`, et le bandeau
+    affichait 5/5 flux pendant que le perpétuel se taisait depuis des heures.
+    """
+    if not failing:
+        return "", ""
+    # Deux familles peuvent porter le même nom, comme les deux lectures de
+    # la chaîne : la plus ancienne dit depuis quand la source est en panne.
+    longest: dict[str, int] = {}
+    for name, since in failing.items():
+        label = SOURCE_LABELS.get(name, name)
+        longest[label] = max(int((now - since) // 60), longest.get(label, 0))
+    title = " · ".join(f"{label} depuis {minutes} min"
+                       for label, minutes in sorted(longest.items()))
+    count = len(longest)
+    return f"⚠ {count} source{'s' if count > 1 else ''}", title
+
+
 def change_text(ticker: dict) -> tuple[str, dict]:
     """La variation sur 24 h et son style.
 
@@ -78,6 +110,7 @@ def layout():
                                          "fontWeight": "600"}),
         html.Span(id="hdr-change", style=STAT),
         html.Span(id="hdr-spread", style=STAT),
+        html.Span(id="hdr-sources", style={**STAT, "color": C["orange"]}),
         html.Button("⚙", id="layout-btn", className="layout-btn",
                     title="disposition de la grille"),
         # La cloche : sonneries de la dernière heure. Son contenu est
@@ -92,7 +125,8 @@ def layout():
                   title="alertes de la dernière heure — cliquer pour ouvrir "
                         "le panneau",
                   style={**STAT, "color": C["muted"], "fontSize": "11px"}),
-        html.Span("⛶ ou double-clic sur un panneau · Échap pour revenir",
+        html.Span("⛶ ou double-clic sur un panneau · Échap pour revenir · "
+                  "? : raccourcis",
                   style={**STAT, "marginLeft": "12px", "color": C["muted"],
                          "fontSize": "10px"}),
         # Canal des panneaux rapides : « push » quand le WebSocket est
@@ -118,6 +152,8 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         Output("hdr-change", "style"),
         Output("hdr-spread", "children"),
         Output("hdr-status", "children"),
+        Output("hdr-sources", "children"),
+        Output("hdr-sources", "title"),
         Input("tick-slow", "n_intervals"),
         # En Input et non en State : basculer $/€ se voit tout de suite,
         # sans attendre le tour d'horloge suivant.
@@ -143,7 +179,7 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
                   f"{uptime // 3600:02d}:{uptime % 3600 // 60:02d}:{uptime % 60:02d}")
 
         return (price_txt, price_tip, change_txt, change_style, spread_txt,
-                status)
+                status, *sources_text(hub.failing_sources(), time.time()))
 
 
 def _register_reveal(app: dash.Dash) -> None:

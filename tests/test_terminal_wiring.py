@@ -25,7 +25,8 @@ import pkgutil  # noqa: E402
 from btcterm.hub import MarketHub  # noqa: E402
 from terminal.app import create_app  # noqa: E402
 from terminal.grid import CELLS, DEFAULT_PLACEMENT, body  # noqa: E402
-from terminal.header import change_text, price_text, price_title  # noqa: E402
+from terminal.header import (change_text, price_text,  # noqa: E402
+                             price_title, sources_text)
 from terminal.panels import PANELS  # noqa: E402
 
 
@@ -269,6 +270,22 @@ def test_carnet_suit_la_devise():
     carnet = APP.callback_map["book-table.children"]
     assert {"id": "currency", "property": "data"} in carnet["inputs"]
     print("  ✓ le carnet suit la devise du panneau prix")
+
+
+def test_les_sources_en_panne_au_bandeau():
+    assert "hdr-sources" in APP_IDS
+    assert "hdr-sources.children" in CALLBACK_KEYS
+    assert sources_text({}, 1000.0) == ("", "")
+
+    texte, infobulle = sources_text({"perp": 400.0, "klines": 880.0}, 1000.0)
+    assert texte == "⚠ 2 sources"
+    assert "perpétuel depuis 10 min" in infobulle
+    assert "chandeliers Binance depuis 2 min" in infobulle
+
+    #: Les deux lectures de la chaîne ne font qu'une source.
+    assert sources_text({"chain": 700.0, "chain_stats": 400.0},
+                        1000.0) == ("⚠ 1 source", "on-chain depuis 10 min")
+    print("  ✓ sources en panne nommées au bandeau, la plus ancienne date")
 
 
 def test_variation_inconnue_dite_telle():

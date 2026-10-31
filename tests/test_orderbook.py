@@ -166,6 +166,18 @@ def test_le_moteur_ecarte_le_carnet_croise():
     print("  ✓ le moteur d'arbitrage ignore un carnet croisé")
 
 
+def test_la_pression_acheteuse_se_lit_sur_le_spread():
+    """La part des acheteurs dans le volume des niveaux affichés."""
+    from btcterm.hub import MarketHub
+    from terminal.panels.orderbook import render_book
+
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    hub.books["Binance"].replace(bids={99.0: 3.0, 98.0: 3.0},
+                                 asks={101.0: 1.0, 102.0: 1.0})
+    assert "achat 75 %" in str(render_book(hub, "Binance", False))
+    print("  ✓ 6 BTC à l'achat contre 2 à la vente : achat 75 %")
+
+
 def test_le_backoff_repart_apres_une_connexion_qui_a_tenu():
     """Une coupure après une longue connexion n'hérite pas du backoff.
 

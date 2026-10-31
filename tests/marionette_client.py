@@ -105,9 +105,42 @@ class Firefox:
 
     SHIFT = "\ue008"
 
+    ALT = "\ue00a"
+
     def _actions(self, *sources):
         self.send("WebDriver:PerformActions", {"actions": list(sources)})
         self.send("WebDriver:ReleaseActions", {})
+
+    def hover(self, x, y):
+        """Amène la souris en (x, y) et l'y laisse."""
+        self.send("WebDriver:PerformActions", {"actions": [
+            {"type": "pointer", "id": "survol",
+             "parameters": {"pointerType": "mouse"}, "actions": [
+                 {"type": "pointerMove", "duration": 0, "x": int(x), "y": int(y)}]}
+        ]})
+
+    def alt_click(self, x, y):
+        """Un clic avec Alt enfoncée, par la vraie pile d'événements."""
+        self._actions(
+            {"type": "key", "id": "kb", "actions": [
+                {"type": "keyDown", "value": self.ALT},
+                {"type": "pause", "duration": 0},
+                {"type": "pause", "duration": 0},
+                {"type": "pause", "duration": 0},
+                {"type": "keyUp", "value": self.ALT}]},
+            {"type": "pointer", "id": "souris",
+             "parameters": {"pointerType": "mouse"}, "actions": [
+                 {"type": "pause", "duration": 0},
+                 {"type": "pointerMove", "duration": 0, "x": int(x), "y": int(y)},
+                 {"type": "pointerDown", "button": 0},
+                 {"type": "pointerUp", "button": 0},
+                 {"type": "pause", "duration": 0}]})
+
+    def press(self, key):
+        """Une touche, au niveau du document — pas de champ visé."""
+        self._actions({"type": "key", "id": "kb", "actions": [
+            {"type": "keyDown", "value": key},
+            {"type": "keyUp", "value": key}]})
 
     def shift_drag(self, x0, y0, x1, y1):
         """Maj enfoncée pendant tout le glisser de (x0, y0) à (x1, y1)."""

@@ -117,6 +117,15 @@ body {
     text-transform: none;
 }
 
+/* La barre du panneau prix porte dix-sept sélecteurs : c'est la seule qui
+   manque de place, et la case CVD la faisait déborder de 37 px. */
+#price-interval label,
+#price-currency label,
+#price-scale label,
+#price-extras label {
+    margin-left: 4px;
+}
+
 .tf-radio .dash-options-list-option-wrapper,
 .tf-check .dash-options-list-option-wrapper {
     display: none;
@@ -309,6 +318,22 @@ body {
 /* Les couleurs viennent du thème via lwc-price.js ; ici, seulement la
    géométrie des éléments posés par-dessus le canvas. */
 
+.keys-help {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 200;
+    transform: translate(-50%, -50%);
+    padding: 14px 18px;
+    border: 1px solid #1e2639;
+    border-radius: 4px;
+    background: #111827;
+    color: #e2e8f0;
+    font-size: 11px;
+    line-height: 1.8;
+    white-space: pre;
+}
+
 .lwc-legend {
     position: absolute;
     top: 4px;
@@ -317,6 +342,20 @@ body {
     display: flex;
     gap: 10px;
     font-size: 10px;
+    pointer-events: none;
+}
+
+.lwc-readout {
+    position: absolute;
+    top: 18px;
+    left: 8px;
+    z-index: 8;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    max-width: calc(100% - 90px);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
     pointer-events: none;
 }
 

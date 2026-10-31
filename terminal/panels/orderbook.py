@@ -106,6 +106,8 @@ def render_book(hub, exchange: str, expanded: bool,
                                         "fontSize": "11px", "padding": "12px"})
 
     largest = max((q for _, q in bids + asks), default=1) or 1
+    bought = sum(q for _, q in bids)
+    pressure = bought / ((bought + sum(q for _, q in asks)) or 1) * 100
     spread = book.spread or 0
     spread_pct = book.spread_pct or 0
 
@@ -115,9 +117,11 @@ def render_book(hub, exchange: str, expanded: bool,
              for p, q in reversed(asks)]
             + [html.Tr(html.Td(
                 f"{fx.warning}spread {spread * fx.rate:,.2f} {fx.unit} · "
-                f"{spread_pct:.4f} % · {book.age_ms:.0f} ms",
+                f"{spread_pct:.4f} % · achat {pressure:.0f} % · "
+                f"{book.age_ms:.0f} ms",
                 colSpan=3,
-                title=fx.note,
+                title=fx.title("achat : part des acheteurs dans le volume des "
+                               "niveaux affichés"),
                 style={"color": C["yellow"], "textAlign": "center",
                        "fontSize": "10px", "padding": "3px",
                        "borderTop": f"1px solid {C['border']}",

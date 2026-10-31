@@ -74,6 +74,9 @@ class TTLCache:
         self._stale: dict[str, bool] = {}
         #: Clé → instant de la première panne encore en cours.
         self._failing: dict[str, float] = {}
+        #: Clé → instant du dernier échec : une clé qu'on ne relit plus,
+        #: une page d'historique par exemple, resterait sinon en panne.
+        self._failed_at: dict[str, float] = {}
         self._lock = threading.Lock()
 
     def get(self, key: str, ttl: float, producer: Callable[[], Any]) -> Any:
@@ -103,11 +106,20 @@ class TTLCache:
         with self._lock:
             return self._stale.get(key, False)
 
+    def failing(self, within: float) -> dict[str, float]:
+        """Les pannes en cours, vues il y a moins de `within` secondes,
+        avec leur instant de début."""
+        horizon = time.time() - within
+        with self._lock:
+            return {key: since for key, since in self._failing.items()
+                    if self._failed_at.get(key, 0.0) >= horizon}
+
     def _note_failure(self, key: str, exc: Exception, entry) -> None:
         with self._lock:
             first = key not in self._failing
             if first:
                 self._failing[key] = time.time()
+            self._failed_at[key] = time.time()
         if first:
             age = f"{time.time() - entry[0]:.0f} s" if entry else "aucune"
             log.warning("source %s en panne : %s — dernière valeur : %s",
@@ -139,6 +151,10 @@ class MarketHub:
     #: source n'est retentée qu'à cet intervalle, le pousseur, qui lit les
     #: chandeliers toutes les deux secondes, attendrait sinon chaque délai.
     KLINES_RETRY = 60
+    #: Une panne se dit au bandeau tant que la source a échoué depuis moins
+    #: que ce délai. Une page d'historique ratée une fois, que personne ne
+    #: relit, s'efface ainsi d'elle-même au lieu de rester affichée.
+    FAILING_WINDOW = 900
     TTL_TICKER = 5
     TTL_EUR = 3600
     #: Délai avant de réinterroger une source de change en panne.
@@ -623,6 +639,18 @@ class MarketHub:
         if cached is None:
             return self.EUR_FALLBACK, True
         return cached, self._cache.stale("eur")
+
+    def failing_sources(self) -> dict[str, float]:
+        """Les sources en panne, par famille, avec le début de la panne.
+
+        Le cache compte par clé, soit une par intervalle pour les
+        chandeliers : au bandeau, c'est la source qui importe.
+        """
+        families: dict[str, float] = {}
+        for key, since in self._cache.failing(self.FAILING_WINDOW).items():
+            name = key.split(":", 1)[0]
+            families[name] = min(since, families.get(name, since))
+        return families
 
     def reference_price(self) -> Optional[float]:
         """Prix médian de la plateforme la plus fraîche encore connectée."""

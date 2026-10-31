@@ -1410,6 +1410,33 @@ Les assets étant **copiés**, la démo se regénère après tout changement de
 `lwc-price.js` — `python -m terminal.demo docs` —, ce qui rafraîchit
 aussi l'instantané.
 
+### 3.13 Lire et agir depuis le graphique
+
+Le panneau prix affichait un crosshair sans rien en dire : un prix sur l'axe,
+jamais la bougie sous la souris. `updateReadout` pose sous la légende l'ouverture,
+les extrêmes, la clôture, la variation contre la clôture précédente, le volume et
+les indicateurs ouverts, dans la devise affichée, et revient à la dernière bougie
+quand la souris sort.
+
+Le **CVD** cumule le delta de volume, achats agressifs moins ventes, tiré de
+`taker_buy_base` que l'historique sauvegardé gardait sans usage (§2.10). C'est la
+seule exception à la règle du serveur seul maître des indicateurs : le delta se
+calcule au serveur, bougie par bougie, mais se cumule chez le client. Cumulé au
+serveur, il repartirait de zéro à chaque page d'historique, et seul le client
+connaît la série entière. Le zéro bouge donc à chaque page ; seule la forme se
+lit. La série de démonstration n'a pas ce volume : son pane reste vide plutôt
+que d'en inventer un.
+
+**Alt + clic** écrit dans le Store `alert-config`, comme le panneau ALERTES : le
+moteur, la liste et les lignes suivent sans chemin propre. Le seuil est enregistré
+en dollars quelle que soit la devise affichée, et un clic à moins de six pixels
+d'un seuil existant le retire.
+
+Les **raccourcis** (`assets/terminal.js`) cliquent sur le contrôle existant :
+l'état reste aux callbacks, et le panneau retiré de la grille rend simplement sa
+touche sans effet. Le focus d'une case cochée à la souris ne les fait pas taire ;
+seuls les champs de saisie gardent le clavier.
+
 ## 4. Patrons transverses
 
 ### 4.1 Deux modèles d'acquisition de données
@@ -1934,6 +1961,19 @@ des manques constatés à la clôture et depuis — chacun à ouvrir quand l'usa
 fera sentir, aucun ne conditionnant les autres. Les trois qui restent ouverts
 sont en fin de section.
 
+**Pour l'analyse :**
+
+- ~~**Un crosshair qui ne dit rien**~~ — fait : la bougie sous la souris se lit
+  en clair (§3.13).
+- ~~**Le volume agressif jeté**~~ — fait : le CVD, en sous-graphique optionnel,
+  exploite ce que `klines.db` conservait déjà (§3.13).
+- ~~**Une alerte à trois gestes**~~ — poser un seuil demandait de changer
+  d'onglet et de recopier un prix. Fait : Alt + clic sur le graphique (§3.13).
+- ~~**Un terminal sans clavier**~~ — fait : intervalles, devise, échelle, plein
+  écran et aide au clavier (§3.13).
+- ~~**La pression du carnet**~~ — fait : la part des acheteurs dans le volume
+  des niveaux affichés, sur la ligne du spread.
+
 **Pour la surveillance :**
 
 - ~~**Alertes**~~ — fait : `btcterm/alerts.py` (§2.8) évalue cinq règles
@@ -2010,6 +2050,11 @@ sont en fin de section.
   Fait : les bougies closes vivent sur disque (§2.10) ; changer d'intervalle
   passe de 0,4 à 0,19 s, reculer dans le graphique de 0,4 à 0,07 s, et une
   panne affiche le vrai historique, bandeau à l'appui.
+- ~~**Une source en panne, au journal seulement**~~ — la journée a montré des
+  sources muettes que seul `journalctl` nommait, le bandeau affichant 5/5 flux.
+  Fait : `failing_sources` regroupe les pannes par famille, le bandeau en dit le
+  nombre et l'infobulle les nomme ; une panne qu'aucun nouvel échec ne confirme
+  s'efface après `FAILING_WINDOW`.
 
 **Hygiène technique :**
 

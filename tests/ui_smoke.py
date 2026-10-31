@@ -216,6 +216,70 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             ".includes(' $ ·')", timeout=5))
         time.sleep(1)
 
+        print("\nLecture et gestes du panneau prix")
+        lecture = browser.js("return window.lwcPrice.debug().readout;")
+        check("la dernière bougie se lit sans survol",
+              "O " in (lecture or "") and "%" in lecture,
+              (lecture or "")[:60])
+        cadre = browser.js("""
+            const r = document.querySelector('#price-lwc canvas')
+                .getBoundingClientRect();
+            return {left: r.left, top: r.top, width: r.width, height: r.height};
+        """)
+        browser.hover(cadre["left"] + cadre["width"] * 0.3,
+                      cadre["top"] + cadre["height"] * 0.3)
+        survol = browser.wait_for(
+            f"window.lwcPrice.debug().readout !== {lecture!r}", timeout=4)
+        lu = browser.js("return window.lwcPrice.debug().readout;")
+        check("le crosshair lit la bougie sous la souris", survol, lu[:60])
+
+        y = int(cadre["top"] + cadre["height"] * 0.25)
+        x = int(cadre["left"] + cadre["width"] * 0.3)
+        avant = browser.js("return window.lwcPrice.debug().alerts;")
+        browser.alt_click(x, y)
+        check("Alt + clic pose un seuil", browser.wait_for(
+            f"window.lwcPrice.debug().alerts === {avant + 1}", timeout=5))
+        # Au-delà de la fenêtre du double-clic, que la bibliothèque garde
+        # pour elle : c'est un second clic, pas un double.
+        time.sleep(0.8)
+        browser.alt_click(x, y)
+        check("Alt + clic au même endroit le retire", browser.wait_for(
+            f"window.lwcPrice.debug().alerts === {avant}", timeout=5))
+
+        panes = browser.js("return window.lwcPrice.debug().panes;")
+        browser.js("""
+            Array.from(document.querySelectorAll('#price-extras label'))
+                 .find(l => l.textContent.trim() === 'CVD').click();
+        """)
+        check("le CVD ouvre son pane", browser.wait_for(
+            f"window.lwcPrice.debug().panes === {panes + 1}"
+            " && window.lwcPrice.debug().cvd > 200", timeout=8),
+            browser.js("return window.lwcPrice.debug().cvd;"))
+        browser.js("""
+            Array.from(document.querySelectorAll('#price-extras label'))
+                 .find(l => l.textContent.trim() === 'CVD').click();
+        """)
+        browser.wait_for(f"window.lwcPrice.debug().panes === {panes}", timeout=8)
+
+        browser.press("3")
+        check("la touche 3 passe en 1h", browser.wait_for(
+            "window.lwcPrice.debug().interval === '1h'"
+            " && window.lwcPrice.debug().bars > 200", timeout=10))
+        browser.press("e")
+        check("E bascule la devise", browser.wait_for(
+            "window.lwcPrice.debug().currency === 'EUR'", timeout=5))
+        browser.press("e")
+        browser.wait_for("window.lwcPrice.debug().currency === 'USD'", timeout=5)
+        browser.press("?")
+        check("? ouvre l'aide", browser.wait_for(
+            "!!document.querySelector('.keys-help')", timeout=3))
+        browser.press("\ue00c")
+        check("Échap la referme", browser.wait_for(
+            "!document.querySelector('.keys-help')", timeout=3))
+        browser.press("4")
+        browser.wait_for("window.lwcPrice.debug().interval === '4h'"
+                         " && window.lwcPrice.debug().bars > 200", timeout=10)
+
         # Historique infini : un pan appuyé vers la gauche déclenche
         # la page antérieure. Hors ligne, la source n'a rien avant :
         # le tampon ne grandit pas mais le « plus ancien atteint »

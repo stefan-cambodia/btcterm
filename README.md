@@ -71,8 +71,8 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
-| **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels, historique chargé au pan | bougie en temps réel (push), repli 2 s |
-| **Carnet** | 8 niveaux de chaque côté, spread, âge du flux, choix de la plateforme, devise du panneau prix | 250 ms |
+| **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
+| **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, âge du flux, choix de la plateforme, devise du panneau prix | 250 ms |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Liquidations** | positions fermées de force — Binance, toutes paires, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
@@ -342,7 +342,10 @@ tout le marché du moment, et plus seulement le graphique. Le carnet, dont le
 rendu saturait la page à dix images par seconde, passe à quatre et n'attend
 plus le réseau. Et les noms des plateformes ne dépendent plus de ce que répond
 le fournisseur d'accès, dont le dernier changement de mensonge n'avait été
-découvert qu'au redémarrage suivant.
+découvert qu'au redémarrage suivant. Le graphique se lit désormais au
+crosshair, bougie par bougie, trace le CVD à partir des volumes sauvegardés et
+reçoit une alerte d'un Alt + clic ; le terminal se conduit au clavier, et le
+bandeau nomme les sources en panne au lieu de les laisser à `journalctl`.
 
 ## Outils complémentaires
 
@@ -551,6 +554,19 @@ mêmes règles. Le tracker reste utile quand le terminal ne tourne pas — et
 les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 
 ---
+
+## Raccourcis
+
+| Touche | Effet |
+|---|---|
+| `1` à `9` | intervalle du panneau prix, de 15m à 1M |
+| `E` | bascule `$` / `€` |
+| `L` | échelle logarithmique |
+| `F` | plein écran du panneau sous la souris |
+| `?` | aide |
+| `Échap` | revenir |
+| `Maj` + glisser | zoom sur une zone du graphique |
+| `Alt` + clic | poser une alerte de cours à cette hauteur, ou retirer celle qui s'y trouve |
 
 ## Notes
 

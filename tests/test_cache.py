@@ -160,6 +160,35 @@ def test_le_vide_vaut_panne():
     print("  ✓ open interest vide et perpétuel sans réponse lèvent")
 
 
+def test_les_sources_en_panne_se_disent_par_famille():
+    """Une clé par intervalle au cache, une source au bandeau.
+
+    Et une clé que personne ne relit — une page d'historique ratée une
+    fois — ne reste pas affichée indéfiniment.
+    """
+    def panne():
+        raise ConnectionError("injoignable")
+
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    assert hub.failing_sources() == {}
+    for cle in ("klines:1h:350", "klines:1d:365", "perp"):
+        try:
+            hub._cache.get(cle, 60, panne)
+        except ConnectionError:
+            pass
+    assert set(hub.failing_sources()) == {"klines", "perp"}
+
+    #: Le rétablissement l'efface.
+    hub._cache.get("perp", 60, lambda: {"ok": 1})
+    assert set(hub.failing_sources()) == {"klines"}
+
+    #: Sans nouvel échec, la panne sort du bandeau avec sa fenêtre.
+    for cle in hub._cache._failed_at:
+        hub._cache._failed_at[cle] -= hub.FAILING_WINDOW + 1
+    assert hub.failing_sources() == {}
+    print("  ✓ regroupées par famille, effacées au retour ou avec la fenêtre")
+
+
 def test_le_taux_en_cache_ne_touche_pas_au_reseau():
     """`eur_rate_cached` sert le carnet à cadence du pousseur : aucun appel,
     et un taux jamais lu n'est pas présenté comme une lecture fraîche."""

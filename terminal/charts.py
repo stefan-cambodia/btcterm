@@ -56,6 +56,9 @@ def prepare_price_frame(df: pd.DataFrame) -> pd.DataFrame:
     df["vol_ma20"] = ind.sma(df["volume"], 20)
 
     df["signal"] = ind.graded_signals(df, fast="ma9", slow="ma26", trend="ma200")
+    # Le volume agressif : Binance le fournit, pas la série de démonstration.
+    if "taker_buy_base" in df.columns:
+        df["delta"] = ind.volume_delta(df["volume"], df["taker_buy_base"])
     return df
 
 

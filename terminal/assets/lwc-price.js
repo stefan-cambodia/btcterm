@@ -18,6 +18,9 @@
 (function () {
     "use strict";
 
+    // Marge d'un Alt + clic pour viser un seuil existant, en pixels.
+    var ALERT_HIT_PX = 6;
+
     var state = {
         el: null,      // le div #price-lwc où vit le graphique
         chart: null,
@@ -30,6 +33,8 @@
         exhausted: false,  // plus rien avant : la source l'a dit
         banner: null,
         legend: null,
+        readout: null,
+        hover: null,   // dernier événement du crosshair sur une bougie
         zoomBox: null,  // le cadre du zoom rectangulaire, caché au repos
         drag: null      // la sélection en cours : {x0, y0, x1, y1, area}
     };
@@ -189,6 +194,14 @@
             });
             pane += 1;
         }
+        if (extras.indexOf("cvd") !== -1) {
+            series.cvd = state.chart.addSeries(LWC.LineSeries, {
+                color: theme.cyan, lineWidth: 2,
+                priceFormat: {type: "volume"},
+                priceLineVisible: false, lastValueVisible: true
+            }, pane);
+            pane += 1;
+        }
 
         // Le cours domine : les panes d'oscillateurs se partagent le bas.
         var panes = state.chart.panes();
@@ -219,6 +232,18 @@
         // approcher du début des données déclenche la page antérieure.
         state.chart.timeScale()
             .subscribeVisibleLogicalRangeChange(maybeBackfill);
+
+        state.chart.subscribeCrosshairMove(function (param) {
+            state.hover = param.time === undefined ? null : param;
+            updateReadout();
+        });
+        state.chart.subscribeClick(function (param) {
+            var event = param.sourceEvent;
+            if (event && event.altKey && param.point
+                    && param.paneIndex === 0) {
+                toggleAlertAt(param.point.y);
+            }
+        });
     }
 
     // Une légende statique : la bibliothèque n'en fournit pas, et sans
@@ -239,10 +264,102 @@
         // place, en plein écran (terminal.css ne l'affiche que là).
         var hint = document.createElement("span");
         hint.className = "lwc-zoom-hint";
-        hint.textContent = "Maj + glisser : zoom · double-clic : vue entière";
+        hint.textContent = "Maj + glisser : zoom · double-clic : vue entière"
+            + " · Alt + clic : alerte";
         div.appendChild(hint);
         state.el.appendChild(div);
         state.legend = div;
+
+        var readout = document.createElement("div");
+        readout.className = "lwc-readout";
+        state.el.appendChild(readout);
+        state.readout = readout;
+    }
+
+    // ── Lecture au crosshair ────────────────────────────────
+
+    function money(value) {
+        return value.toLocaleString("en-US", {minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2});
+    }
+
+    // Une date lue en UTC, comme l'axe du temps ; les heures n'ont de sens
+    // qu'en intraday.
+    function barDate(time) {
+        return new Date(time * 1000).toISOString()
+            .slice(0, INTRADAY[state.cfg.interval] ? 16 : 10)
+            .replace("T", " ");
+    }
+
+    // La valeur d'une série sous le crosshair, ou sa dernière valeur.
+    function valueOf(line) {
+        if (!line) { return undefined; }
+        if (state.hover) {
+            var point = state.hover.seriesData.get(line);
+            return point ? point.value : undefined;
+        }
+        var data = line.data();
+        return data.length ? data[data.length - 1].value : undefined;
+    }
+
+    // La bibliothèque ne donne aucune valeur à lire : sans cette ligne, le
+    // crosshair montre un prix sur l'axe, jamais la bougie sous la souris.
+    // Elle suit la souris, et revient à la dernière bougie quand celle-ci
+    // sort du graphique. La variation se lit contre la clôture précédente.
+    function updateReadout() {
+        if (!state.readout || !state.series) { return; }
+        var candles = state.series.candles;
+        var bar = null;
+        var previous = null;
+        if (state.hover) {
+            bar = state.hover.seriesData.get(candles) || null;
+            previous = bar
+                ? candles.dataByIndex(state.hover.logical - 1) : null;
+        }
+        if (!bar) {
+            var data = candles.data();
+            bar = data.length ? data[data.length - 1] : null;
+            previous = data.length > 1 ? data[data.length - 2] : null;
+        }
+        state.readout.textContent = "";
+        if (!bar) { return; }
+
+        var reference = previous ? previous.close : bar.open;
+        var change = (bar.close / reference - 1) * 100;
+        var theme = state.conf.theme;
+        var unit = state.cfg.currency === "EUR" ? " €" : " $";
+        var parts = [
+            [barDate(bar.time), theme.muted],
+            ["O " + money(bar.open), theme.text],
+            ["H " + money(bar.high), theme.text],
+            ["L " + money(bar.low), theme.text],
+            ["C " + money(bar.close) + unit, theme.text],
+            [(change >= 0 ? "+" : "") + change.toFixed(2) + " %",
+             change >= 0 ? theme.green : theme.red]
+        ];
+        var volume = valueOf(state.series.volume);
+        if (volume !== undefined) {
+            parts.push(["V " + volume.toFixed(1), theme.muted]);
+        }
+        var rsi = valueOf(state.series.rsi);
+        if (rsi !== undefined) {
+            parts.push(["RSI " + rsi.toFixed(1), theme.blue]);
+        }
+        var crsi = valueOf(state.series.crsi);
+        if (crsi !== undefined) {
+            parts.push(["CRSI " + crsi.toFixed(1), theme.purple]);
+        }
+        var cvd = valueOf(state.series.cvd);
+        if (cvd !== undefined) {
+            parts.push(["CVD " + Math.round(cvd).toLocaleString("en-US"),
+                        theme.cyan]);
+        }
+        parts.forEach(function (part) {
+            var item = document.createElement("span");
+            item.textContent = part[0];
+            item.style.color = part[1];
+            state.readout.appendChild(item);
+        });
     }
 
     // ── Zoom rectangulaire ──────────────────────────────────
@@ -533,6 +650,35 @@
         });
     }
 
+    // Alt + clic : pose un seuil à la hauteur du clic, ou retire celui qui
+    // s'y trouve déjà. Le geste écrit dans le Store alert-config, comme le
+    // panneau ALERTES : le moteur, la liste et les lignes suivent d'eux-mêmes.
+    // Le sens est figé à la pose, comme là-bas, par rapport au dernier cours.
+    function toggleAlertAt(y) {
+        var candles = state.series.candles;
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var bars = state.packet.bars;
+        var levels = (state.alertLevels || []).slice();
+        var hit = levels.findIndex(function (item) {
+            var at = candles.priceToCoordinate(item.level * rate);
+            return at !== null && Math.abs(at - y) <= ALERT_HIT_PX;
+        });
+        if (hit !== -1) {
+            levels.splice(hit, 1);
+        } else {
+            var price = candles.coordinateToPrice(y);
+            if (price === null || !bars.length) { return; }
+            var level = Math.round(price / rate);
+            levels.push({level: level,
+                         dir: level >= bars[bars.length - 1].close
+                             ? "above" : "below"});
+        }
+        window.dash_clientside.set_props("alert-config", {
+            data: Object.assign({}, state.alertConfig,
+                                {price_levels: levels})
+        });
+    }
+
     function buildBanner() {
         var theme = state.conf.theme;
         var div = document.createElement("div");
@@ -572,6 +718,8 @@
         state.chart = null;
         state.series = null;
         state.legend = null;
+        state.readout = null;
+        state.hover = null;
         state.banner = null;
         state.loading = false;
         state.exhausted = false;
@@ -594,6 +742,17 @@
                 ? {time: p.time, value: p.value * rate}
                 : {time: p.time, open: p.open * rate, high: p.high * rate,
                    low: p.low * rate, close: p.close * rate};
+        });
+    }
+
+    // Le delta de chaque bougie, cumulé depuis le début de la série chargée.
+    // Seule la forme se lit : le zéro bouge à chaque page d'historique, et
+    // la courbe se décale d'autant sans changer de dessin.
+    function cvdPoints() {
+        var total = 0;
+        return (state.packet.panes.delta || []).map(function (p) {
+            total += p.value;
+            return {time: p.time, value: total};
         });
     }
 
@@ -620,8 +779,12 @@
         }
         if (series.rsi) { series.rsi.setData(packet.panes.rsi || []); }
         if (series.crsi) { series.crsi.setData(packet.panes.crsi || []); }
+        if (series.cvd) { series.cvd.setData(cvdPoints()); }
         series.markers.setMarkers(markersFrom(packet.signals || []));
 
+        // Le survol retient des valeurs à l'ancien taux.
+        state.hover = null;
+        updateReadout();
         updateBanner();
         applyLog();
 
@@ -901,6 +1064,10 @@
             if (series.crsi && update.panes.crsi) {
                 series.crsi.update(update.panes.crsi);
             }
+            if (series.cvd && update.panes.delta) {
+                var cvd = cvdPoints();
+                series.cvd.update(cvd[cvd.length - 1]);
+            }
 
             // Le signal de la bougie courante peut naître, changer de
             // grade ou s'éteindre tant qu'elle vit : la liste locale
@@ -918,6 +1085,7 @@
             }
 
             updateBanner();
+            updateReadout();
             // Une bougie qui clôture déplace le volume : le profil de
             // la plage visible suit, au débit du debounce.
             if (delta > 0 && state.profileCanvas) { scheduleProfile(); }
@@ -933,7 +1101,8 @@
         // Les seuils de cours du panneau ALERTES, relayés par le Store
         // alert-config (panels/price.py) : retenus même sans graphique
         // — ils seront tracés au prochain montage.
-        alerts: function (levels) {
+        alerts: function (levels, config) {
+            state.alertConfig = config || null;
             state.alertLevels = (levels || []).filter(function (item) {
                 return item && typeof item.level === "number"
                     && item.level > 0;
@@ -983,6 +1152,10 @@
                 panes: state.chart.panes().length,
                 signals: (state.packet.signals || []).length,
                 alerts: (state.alertLevels || []).length,
+                alertLevels: state.alertLevels || [],
+                readout: state.readout ? state.readout.textContent : null,
+                cvd: state.series.cvd
+                    ? state.series.cvd.data().length : null,
                 profile: state.profileData
                     ? {poc: state.profileData.poc,
                        vaLow: state.profileData.va_low,
@@ -990,6 +1163,14 @@
                        bins: state.profileData.centers.length}
                     : null
             };
+        },
+
+        // Pour le smoke : la position à l'écran d'un prix, en dollars — le
+        // clic d'un test vise ainsi un seuil sans lire le canvas.
+        coordinate: function (price) {
+            var rate = state.cfg.currency === "EUR"
+                ? state.packet.eur_rate : 1;
+            return state.series.candles.priceToCoordinate(price * rate);
         },
 
         // Second point d'entrée du smoke : un pan programmatique — le

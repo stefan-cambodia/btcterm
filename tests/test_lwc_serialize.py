@@ -77,7 +77,7 @@ def test_lignes_sans_nan_et_alignees():
     df = frame_de_demo()
     lignes = frame_to_lines(df, OVERLAY_COLUMNS + PANE_COLUMNS)
 
-    assert set(lignes) == set(OVERLAY_COLUMNS + PANE_COLUMNS)
+    assert set(lignes) == set(OVERLAY_COLUMNS + PANE_COLUMNS) - {"delta"}
     for nom, points in lignes.items():
         assert points, f"{nom} : série vide"
         assert sans_nan(points), f"{nom} : NaN dans la série"
@@ -128,7 +128,9 @@ def test_le_paquet_complet_porte_le_drapeau_demo():
                            "volume_ma", "signals", "demo", "stale"}
     assert paquet["demo"] is True, "la série de démo doit se déclarer"
     assert set(paquet["overlays"]) == set(OVERLAY_COLUMNS)
-    assert set(paquet["panes"]) == set(PANE_COLUMNS)
+    #: Le delta manque à la démonstration : sans volume agressif, on ne
+    #: l'invente pas.
+    assert set(paquet["panes"]) == set(PANE_COLUMNS) - {"delta"}
     assert paquet["volume_ma"], "la MA de volume doit être présente"
 
     #: Une vraie série — sans attrs — ne se déclare pas en démo.
@@ -165,6 +167,25 @@ def test_tous_les_intervalles_du_panneau():
         times = [b["time"] for b in paquet["bars"]]
         assert all(a < b for a, b in zip(times, times[1:])), interval
     print(f"  ✓ {len(INTERVALS)} intervalles convertis, du 15m au mensuel")
+
+
+def test_le_delta_de_volume():
+    """Le delta voyage bougie par bougie : c'est le client qui cumule.
+
+    Cumulé au serveur, le CVD repartirait de zéro à chaque page d'historique.
+    """
+    from terminal.lwc import tail_points
+
+    df = generate_demo_ohlcv(300, interval="1h", index=False)
+    assert "delta" not in prepare_price_frame(df).columns
+
+    df = df.copy()
+    df["taker_buy_base"] = df["volume"] * 0.75
+    paquet = serialize_price_frame(prepare_price_frame(df))
+    attendu = float(df["volume"].iloc[-1]) * 0.5
+    assert abs(paquet["panes"]["delta"][-1]["value"] - attendu) < 1e-3
+    assert abs(tail_points(df, "1h")["panes"]["delta"]["value"] - attendu) < 1e-3
+    print("  ✓ achats moins ventes, au paquet comme à la mutation du canal")
 
 
 if __name__ == "__main__":

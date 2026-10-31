@@ -21,7 +21,7 @@ import pandas as pd
 __all__ = [
     "sma", "ema", "moving_average",
     "rsi", "streak", "percent_rank", "connors_rsi",
-    "bollinger", "atr", "volatility",
+    "bollinger", "atr", "volume_delta", "volatility",
     "volume_profile",
     "cross_up", "cross_down", "crosses_above", "crosses_below",
     "graded_signals", "marker_signals",
@@ -143,6 +143,16 @@ def bollinger(
     mid = close.rolling(period).mean()
     std = close.rolling(period).std()
     return mid, mid + num_std * std, mid - num_std * std
+
+
+def volume_delta(volume: pd.Series, taker_buy: pd.Series) -> pd.Series:
+    """Volume agressif net par bougie : achats moins ventes.
+
+    `taker_buy` est la part du volume levée par des ordres acheteurs ; le
+    reste a été frappé à la vente. Cumulé, c'est le CVD, qui montre qui
+    pousse le cours quand celui-ci ne le dit pas encore.
+    """
+    return 2 * taker_buy - volume
 
 
 def atr(df: pd.DataFrame, period: int = 14) -> pd.Series:
