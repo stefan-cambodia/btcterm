@@ -148,7 +148,8 @@ def test_pousseur_branche():
     rules = {rule.rule for rule in APP.server.url_map.iter_rules()}
     assert "/push" in rules, "route /push absente du serveur Flask"
     assert "expanded." in CALLBACK_KEYS, "Store expanded sans callback"
-    for sink in ("push-sink-expanded", "push-sink-exchange"):
+    for sink in ("push-sink-expanded", "push-sink-exchange",
+                 "push-sink-currency"):
         assert sink in APP_IDS, f"{sink} absent de la page"
         assert f"{sink}." in CALLBACK_KEYS, f"{sink} sans relais clientside"
     print("  ✓ route /push posée, relais d'état branchés")
@@ -221,6 +222,15 @@ def test_entete_suit_la_devise():
     assert "secours" in price_title("EUR", 0.9, stale=True)
     assert "€" not in price_title("USD", 1.0)
     print("  ✓ le cours du bandeau suit la devise du panneau prix")
+
+
+def test_carnet_suit_la_devise():
+    """Le carnet lit la devise en Input, comme le bandeau : le sélecteur
+    quitte la page avec le panneau prix, et la bascule doit se voir tout
+    de suite, y compris quand le canal push a coupé l'horloge."""
+    carnet = APP.callback_map["book-table.children"]
+    assert {"id": "currency", "property": "data"} in carnet["inputs"]
+    print("  ✓ le carnet suit la devise du panneau prix")
 
 
 def test_variation_inconnue_dite_telle():

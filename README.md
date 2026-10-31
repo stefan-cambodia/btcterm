@@ -72,7 +72,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
 | **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels, historique chargé au pan | bougie en temps réel (push), repli 2 s |
-| **Carnet** | 8 niveaux de chaque côté, spread, âge du flux, choix de la plateforme | 250 ms |
+| **Carnet** | 8 niveaux de chaque côté, spread, âge du flux, choix de la plateforme, devise du panneau prix | 250 ms |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Liquidations** | positions fermées de force — Binance, toutes paires, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |

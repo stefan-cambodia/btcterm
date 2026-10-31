@@ -193,10 +193,16 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                   apres["lastClose"] / apres["packetClose"]
                   - apres["eur_rate"]) < 1e-6,
               f"{apres['packetClose']} $ → {apres['lastClose']} €")
+        check("le carnet passe en euros avec le graphique", browser.wait_for(
+            "document.querySelector('#book-table').textContent"
+            ".includes(' € ·')", timeout=5))
         browser.js("""
             Array.from(document.querySelectorAll('#price-currency label'))
                  .find(l => l.textContent.trim() === '$').click();
         """)
+        check("le carnet revient en dollars", browser.wait_for(
+            "document.querySelector('#book-table').textContent"
+            ".includes(' $ ·')", timeout=5))
         time.sleep(1)
 
         # Historique infini : un pan appuyé vers la gauche déclenche

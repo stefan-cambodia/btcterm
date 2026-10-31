@@ -14,8 +14,8 @@ Le contrat avec `assets/push.js` :
   (« poll ») et retente en arrière-plan — le terminal ne dépend jamais
   du WebSocket, il en profite quand il est là.
 - le navigateur annonce son état — plateforme du carnet, panneau
-  agrandi — à l'ouverture puis à chaque changement : le serveur rend
-  exactement ce que l'interrogation aurait rendu pour le même état.
+  agrandi, devise — à l'ouverture puis à chaque changement : le serveur
+  rend exactement ce que l'interrogation aurait rendu pour le même état.
 - le serveur envoie des trames `{id: {prop: valeur}}` que push.js
   applique par `dash_clientside.set_props` : le même chemin de mise à
   jour qu'une réponse de callback, sérialisé par le même encodeur —
@@ -86,7 +86,7 @@ PUSH_DEPTH_INTERVAL = 1.0
 BOOT = uuid.uuid4().hex
 
 DEFAULT_STATE = {"exchange": "Binance", "expanded": None,
-                 "price_interval": None}
+                 "currency": "USD", "price_interval": None}
 
 
 def _frame(hub, state: dict, depth: bool = True) -> dict[str, dict]:
@@ -102,7 +102,8 @@ def _frame(hub, state: dict, depth: bool = True) -> dict[str, dict]:
     liq_table, liq_badges = liquidations.render(hub, state["expanded"] == "liq")
     frame = {
         "book-table": {"children": orderbook.render_book(
-            hub, state["exchange"], state["expanded"] == "book")},
+            hub, state["exchange"], state["expanded"] == "book",
+            state["currency"])},
         "arb-table": {"children": arb_table},
         "arb-count": {"children": arb_count},
         "liq-table": {"children": liq_table},
@@ -145,6 +146,8 @@ def _merge(state: dict, raw: str | bytes) -> dict:
     expanded = message.get("expanded")
     if expanded is None or isinstance(expanded, str):
         merged["expanded"] = expanded
+    if message.get("currency") in ("USD", "EUR"):
+        merged["currency"] = message["currency"]
     # L'intervalle du panneau prix : borné aux intervalles connus — une
     # valeur inventée partirait en paramètre d'appel vers la source.
     interval = message.get("price_interval")
@@ -158,10 +161,10 @@ def _merge(state: dict, raw: str | bytes) -> dict:
 def register(app, hub) -> None:
     """Pose la route `/push` et le relais d'état qui va avec.
 
-    L'état dont le rendu dépend vit côté Dash — le Store `expanded`, le
-    sélecteur du carnet. Deux callbacks clientside le relaient à push.js,
-    qui l'annonce au serveur : le pousseur n'invente rien, il suit les
-    mêmes entrées que les callbacks qu'il double.
+    L'état dont le rendu dépend vit côté Dash — les Stores `expanded` et
+    `currency`, le sélecteur du carnet. Trois callbacks clientside le
+    relaient à push.js, qui l'annonce au serveur : le pousseur n'invente
+    rien, il suit les mêmes entrées que les callbacks qu'il double.
 
     Les sorties sont des Stores puits (`push-sink-…`) : un callback doit
     écrire quelque part, et personne n'a besoin de lire ces écritures.
@@ -183,6 +186,14 @@ def register(app, hub) -> None:
         " return window.dash_clientside.no_update; }",
         Output("push-sink-exchange", "data"),
         Input("book-exchange", "value"),
+    )
+    app.clientside_callback(
+        "function (currency) {"
+        " if (window.btcPush) { window.btcPush.state({currency: currency"
+        " || 'USD'}); }"
+        " return window.dash_clientside.no_update; }",
+        Output("push-sink-currency", "data"),
+        Input("currency", "data"),
     )
 
     @app.server.get("/api/boot")

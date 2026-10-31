@@ -150,8 +150,8 @@ def register(app, hub):
         State("lwc-config", "data"),
     )
 
-    # La devise choisie ici vaut aussi pour le cours du bandeau : on la
-    # relaie au Store global `currency`, que le bandeau lit même quand
+    # La devise choisie ici vaut aussi pour le bandeau et le carnet : on la
+    # relaie au Store global `currency`, que ceux-ci lisent même quand
     # ce panneau n'est pas à l'écran.
     app.clientside_callback(
         "function (currency) { return currency || 'USD'; }",

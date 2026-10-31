@@ -26,7 +26,7 @@
     // L'état annoncé au serveur. Il est alimenté par les callbacks
     // clientside que pose terminal/push.py — pas lu dans le DOM, où la
     // plateforme choisie n'existe pas toujours (onglet profondeur).
-    var state = {exchange: null, expanded: null};
+    var state = {exchange: null, expanded: null, currency: null};
 
     function badge(text) {
         var el = document.getElementById("hdr-push");

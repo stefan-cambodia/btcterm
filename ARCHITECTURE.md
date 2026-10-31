@@ -1230,7 +1230,7 @@ Trois décisions structurent le canal :
   aussi en régime d'interrogation, à chaque retentative.
 
 Le rendu dépend d'un état qui vit côté navigateur — plateforme du carnet,
-panneau agrandi. Deux callbacks clientside le relaient à push.js, qui l'annonce
+panneau agrandi, devise. Trois callbacks clientside le relaient à push.js, qui l'annonce
 au serveur à chaque changement ; le pousseur suit ainsi les mêmes entrées que
 les callbacks qu'il double, et vide son cache d'envoi quand l'état change. Le
 plein écran a au passage clarifié son vocabulaire : le Store `maximized`
@@ -1442,6 +1442,12 @@ infobulle) comme au graphique, qui pose son bandeau orange en euros.
 Pendant la panne, la source n'est réinterrogée qu'une fois par
 `EUR_RETRY` : le bandeau lit le taux toutes les deux secondes, et chaque
 essai peut coûter les cinq secondes du timeout.
+
+Le carnet suit la même devise, et le même ⚠ sur sa ligne de spread, mais
+ne lit pas ce taux de la même façon : le pousseur le rend dix fois par
+seconde et dormirait le temps de l'appel. `eur_rate_cached` ne sert donc
+que le cache, que le bandeau tient à jour — dès que la devise est l'euro,
+il est dans la page quel que soit l'agencement de la grille.
 
 ### 4.4 Palettes de couleurs
 

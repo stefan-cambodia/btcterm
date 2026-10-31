@@ -2,8 +2,12 @@
 Panneau carnet d'ordres et profondeur.
 
 Panneau « rapide » : il lit les carnets tenus en mémoire par le hub, sans
-aucun appel réseau. Le coût d'un rafraîchissement se limite donc à
-sérialiser quelques dizaines de lignes.
+aucun appel réseau — le taux de change compris (`eur_rate_cached`). Le
+coût d'un rafraîchissement se limite donc à sérialiser quelques dizaines
+de lignes.
+
+Le carnet suit la devise du panneau prix. La profondeur n'en a pas : elle
+s'exprime en écart relatif et en bitcoins.
 """
 
 from __future__ import annotations
@@ -72,13 +76,27 @@ def _row(price, qty, ratio, color):
     ])
 
 
-def render_book(hub, exchange: str, expanded: bool):
+def render_book(hub, exchange: str, expanded: bool,
+                currency: str | None = None):
     """Le carnet d'une plateforme, prêt à poser dans `book-table`.
 
     Fonction pure vis-à-vis du rendu : le callback Dash et le pousseur
     WebSocket l'appellent tous deux — un seul code décide de ce que le
     panneau montre, quel que soit le canal qui l'amène au navigateur.
+
+    `currency` est la devise du panneau prix. Les carnets restent cotés en
+    dollars en mémoire : seul l'affichage est converti, comme au bandeau.
+    Un taux de secours se dit par un ⚠ sur la ligne du spread.
     """
+    rate, unit, warning, note = 1.0, "$", "", None
+    if currency == "EUR":
+        rate, stale = hub.eur_rate_cached()
+        unit = "€"
+        note = f"converti à 1 $ = {rate:.4f} €"
+        if stale:
+            warning = "⚠ "
+            note += " — taux de secours : source de change injoignable"
+
     book = hub.books[exchange]
     depth = DEPTH_MAX if expanded else DEPTH
     bids = book.top("bids", depth)
@@ -95,17 +113,18 @@ def render_book(hub, exchange: str, expanded: bool):
 
     return html.Table([
         html.Tbody(
-            [_row(p, q, q / largest, C["red"]) for p, q in reversed(asks)]
+            [_row(p * rate, q, q / largest, C["red"]) for p, q in reversed(asks)]
             + [html.Tr(html.Td(
-                f"spread {spread:,.2f} $ · {spread_pct:.4f} % · "
-                f"{book.age_ms:.0f} ms",
+                f"{warning}spread {spread * rate:,.2f} {unit} · "
+                f"{spread_pct:.4f} % · {book.age_ms:.0f} ms",
                 colSpan=3,
+                title=note,
                 style={"color": C["yellow"], "textAlign": "center",
                        "fontSize": "10px", "padding": "3px",
                        "borderTop": f"1px solid {C['border']}",
                        "borderBottom": f"1px solid {C['border']}"},
             ))]
-            + [_row(p, q, q / largest, C["green"]) for p, q in bids]
+            + [_row(p * rate, q, q / largest, C["green"]) for p, q in bids]
         )
     ], style=TABLE_STYLE)
 
@@ -120,13 +139,16 @@ def register(app, hub):
         Output("book-table", "children"),
         Input("tick-fast", "n_intervals"),
         Input("book-exchange", "value"),
+        # Le Store global plutôt que le sélecteur, qui quitte la page avec
+        # le panneau prix. En Input : la bascule $/€ se voit tout de suite.
+        Input("currency", "data"),
         # `expanded` désigne le panneau agrandi, plus sa cellule : depuis
         # la disposition configurable, le carnet peut vivre ailleurs que
         # dans sa cellule d'origine.
         State("expanded", "data"),
     )
-    def _refresh_book(_tick, exchange, expanded):
-        return render_book(hub, exchange, expanded == "book")
+    def _refresh_book(_tick, exchange, currency, expanded):
+        return render_book(hub, exchange, expanded == "book", currency)
 
     @app.callback(
         Output("depth-chart", "figure"),

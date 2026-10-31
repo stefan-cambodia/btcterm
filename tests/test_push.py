@@ -82,13 +82,15 @@ def test_merge_ne_fait_pas_confiance():
     assert _merge(etat, '{"exchange": "Kraken"}')["exchange"] == "Kraken"
     assert _merge(etat, '{"expanded": "book"}')["expanded"] == "book"
     assert _merge(etat, '{"expanded": null}')["expanded"] is None
+    assert _merge(etat, '{"currency": "EUR"}')["currency"] == "EUR"
 
     #: Tout le reste laisse l'état intact au lieu de casser la boucle :
     #: JSON invalide, JSON qui n'est pas un objet, clés inconnues,
     #: valeurs du mauvais type.
     for hostile in ("n'importe quoi {", "[1, 2]", '"Kraken"', "null",
                     '{"autre": 1}', '{"exchange": 3}', '{"expanded": []}',
-                    b"\xff\xfe"):
+                    '{"currency": "GBP"}', '{"currency": 3}',
+                    '{"currency": []}', '{"currency": null}', b"\xff\xfe"):
         assert _merge(etat, hostile) == etat, hostile
 
     #: L'état d'origine n'est jamais modifié en place — le pousseur
@@ -168,15 +170,15 @@ def test_frame_suit_l_etat():
     hub = hub_garni()
 
     #: La plateforme annoncée choisit le carnet rendu.
-    binance = serialise(_frame(hub, {"exchange": "Binance", "expanded": None}))
-    kraken = serialise(_frame(hub, {"exchange": "Kraken", "expanded": None}))
+    binance = serialise(_frame(hub, dict(DEFAULT_STATE)))
+    kraken = serialise(_frame(hub, {**DEFAULT_STATE, "exchange": "Kraken"}))
     assert "60,001" in binance["book-table"], "carnet Binance attendu"
     assert "50,001" in kraken["book-table"], "carnet Kraken attendu"
     assert "60,001" not in kraken["book-table"]
 
     #: L'agrandissement du carnet passe de 8 à 20 niveaux par côté
     #: (2 × niveaux + la ligne de spread) — et ne touche que lui.
-    plein = serialise(_frame(hub, {"exchange": "Binance", "expanded": "book"}))
+    plein = serialise(_frame(hub, {**DEFAULT_STATE, "expanded": "book"}))
     assert lignes(binance["book-table"]) == 2 * DEPTH + 1
     assert lignes(plein["book-table"]) == 2 * DEPTH_MAX + 1
     assert plein["arb-table"] == binance["arb-table"]
@@ -186,11 +188,50 @@ def test_frame_suit_l_etat():
     from test_liquidations import message
     for i in range(ROWS_MAX + 4):
         hub.liquidations._handle(message(price=str(64_000 + i)))
-    replie = serialise(_frame(hub, {"exchange": "Binance", "expanded": None}))
-    agrandi = serialise(_frame(hub, {"exchange": "Binance", "expanded": "liq"}))
+    replie = serialise(_frame(hub, dict(DEFAULT_STATE)))
+    agrandi = serialise(_frame(hub, {**DEFAULT_STATE, "expanded": "liq"}))
     assert lignes(agrandi["liq-table"]) == ROWS_MAX
     assert lignes(replie["liq-table"]) < lignes(agrandi["liq-table"])
     print("  ✓ plateforme suivie, agrandissements carnet et liquidations")
+
+
+def test_le_carnet_suit_la_devise():
+    """Le carnet passe en euros avec le panneau prix, sans toucher au réseau.
+
+    Il restait en dollars : ni le callback ni le pousseur ne connaissaient
+    la devise. Le taux vient du cache, jamais de la source : le pousseur
+    rend ce carnet dix fois par seconde et dormirait le temps de l'appel.
+    """
+    from btcterm import sources
+
+    def appel_interdit():
+        raise AssertionError("le carnet a appelé la source de change")
+
+    def carnet(etat):
+        return json.dumps(_frame(hub, etat)["book-table"],
+                          cls=PlotlyJSONEncoder, ensure_ascii=False)
+
+    original = sources.fetch_eur_rate
+    sources.fetch_eur_rate = appel_interdit
+    hub = hub_garni()
+    euros = {**DEFAULT_STATE, "currency": "EUR"}
+    try:
+        #: À froid : le taux de repli, dit de secours.
+        assert "⚠" in carnet(euros), "taux de repli non signalé"
+
+        #: Le taux lu par le bandeau s'applique aux prix comme au spread.
+        hub._cache.get("eur", hub.TTL_EUR, lambda: 0.5)
+        dollars, converti = carnet(dict(DEFAULT_STATE)), carnet(euros)
+        assert "60,001.00" in dollars and "spread 2.00 $" in dollars
+        assert "30,000.50" in converti and "60,001.00" not in converti
+        assert "spread 1.00 €" in converti and " $ ·" not in converti
+        assert "⚠" not in converti and "1 $ = 0.5000 €" in converti
+
+        #: Les quantités ne sont pas des prix : elles ne bougent pas.
+        assert converti.count("2.0000") == dollars.count("2.0000") > 0
+    finally:
+        sources.fetch_eur_rate = original
+    print("  ✓ prix et spread convertis, quantités intactes, aucun appel")
 
 
 def test_carnets_vides_rendus_dits():

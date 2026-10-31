@@ -160,6 +160,27 @@ def test_le_vide_vaut_panne():
     print("  ✓ open interest vide et perpétuel sans réponse lèvent")
 
 
+def test_le_taux_en_cache_ne_touche_pas_au_reseau():
+    """`eur_rate_cached` sert le carnet à cadence du pousseur : aucun appel,
+    et un taux jamais lu n'est pas présenté comme une lecture fraîche."""
+    def appel_interdit():
+        raise AssertionError("appel réseau depuis eur_rate_cached")
+
+    original = sources.fetch_eur_rate
+    sources.fetch_eur_rate = appel_interdit
+    try:
+        hub = MarketHub(collect_news=False, keep_journal=False)
+        assert hub.eur_rate_cached() == (MarketHub.EUR_FALLBACK, True)
+        hub._cache.get("eur", hub.TTL_EUR, lambda: 0.9)
+        assert hub.eur_rate_cached() == (0.9, False)
+        # Source tombée : le dernier taux, dit de secours.
+        hub._cache._stale["eur"] = True
+        assert hub.eur_rate_cached() == (0.9, True)
+    finally:
+        sources.fetch_eur_rate = original
+    print("  ✓ taux en cache servi sans réseau, secours signalé")
+
+
 def test_le_taux_eur_se_dit_de_secours():
     """La source de change tombe : le dernier bon taux reste servi, dit
     de secours, et la source n'est réinterrogée qu'après `EUR_RETRY`.

@@ -536,6 +536,20 @@ class MarketHub:
         """Vrai si le taux servi n'est pas une lecture fraîche de la source."""
         return self._cache.stale("eur")
 
+    def eur_rate_cached(self) -> tuple[float, bool]:
+        """Le taux USD→EUR et s'il est de secours, sans jamais toucher au réseau.
+
+        Pour les panneaux rapides : `eur_rate` peut coûter les cinq
+        secondes du timeout, et le pousseur dormirait autant, carnet figé.
+        Le cache est tenu par le bandeau, toujours dans la page, qui lit
+        `eur_rate` à son régime dès que la devise est l'euro. Rien de lu
+        encore : `EUR_FALLBACK`, dit de secours.
+        """
+        cached = self._cache.peek("eur")
+        if cached is None:
+            return self.EUR_FALLBACK, True
+        return cached, self._cache.stale("eur")
+
     def reference_price(self) -> Optional[float]:
         """Prix médian de la plateforme la plus fraîche encore connectée."""
         live = [b for b in self.books.values() if b.connected and b.mid]
