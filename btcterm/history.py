@@ -13,9 +13,10 @@ Une bougie close est immuable : ce module la garde dans
 - **Vers le présent** (`_sync`) : tout ce qui suit la dernière bougie
   sauvegardée, page après page si l'absence a été longue. C'est aussi cet
   appel qui ramène la bougie en cours.
-- **Vers le passé** (`_older`) : une page entière de `PAGE` bougies dès
-  qu'on dépasse ce qui est sauvegardé, quelle que soit la taille demandée
-  par le graphique — elle en sert plusieurs.
+- **Vers le passé** (`extend_back`) : une page entière de `PAGE` bougies
+  dès qu'on dépasse ce qui est sauvegardé, quelle que soit la taille
+  demandée par le graphique — elle en sert plusieurs. Le hub s'en sert aussi
+  en tâche de fond, pour que la profondeur soit là avant d'être demandée.
 
 Deux règles tiennent la série juste :
 
@@ -153,17 +154,28 @@ class KlineHistory:
                limit: int) -> pd.DataFrame:
         """Les bougies sauvegardées jusqu'à `end_ms`, quitte à reculer."""
         df = self._read(interval, end_ms, limit)
-        while len(df) < limit and interval not in self._exhausted:
-            first = self._bound(interval, "MIN")
-            if first is None:
-                break
-            page = sources.fetch_klines(self.symbol, interval, PAGE,
-                                        end_time=first - 1)
-            self._save(interval, page)
-            if len(page) < PAGE:
-                self._exhausted.add(interval)
+        while len(df) < limit and self.extend_back(interval):
             df = self._read(interval, end_ms, limit)
-        return df
+        return self._read(interval, end_ms, limit)
+
+    def extend_back(self, interval: str) -> bool:
+        """Recule d'une page ; faux s'il n'y a plus rien à aller chercher."""
+        if interval in self._exhausted:
+            return False
+        first = self._bound(interval, "MIN")
+        if first is None:
+            self._sync(interval)
+            if self._bound(interval, "MIN") is None:
+                self._exhausted.add(interval)
+                return False
+            return True
+        page = sources.fetch_klines(self.symbol, interval, PAGE,
+                                    end_time=first - 1)
+        self._save(interval, page)
+        if len(page) < PAGE:
+            self._exhausted.add(interval)
+            return False
+        return True
 
     # ── Base ────────────────────────────────────────────────
 

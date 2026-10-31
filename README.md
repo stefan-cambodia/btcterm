@@ -83,6 +83,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
 | **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, glissement de dominance, jour de flux ETF, réseau chargé (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
+| **Analyse** | tendance, écart à la MA 200, RSI et dernier signal de 15m à 1w ; bilan des signaux sur l'historique, contre une référence ; export CSV (onglet de la macro) | 30 s |
 | **Dominance** | parts de capitalisation et leur tendance journalisée, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
 
@@ -345,7 +346,9 @@ le fournisseur d'accès, dont le dernier changement de mensonge n'avait été
 découvert qu'au redémarrage suivant. Le graphique se lit désormais au
 crosshair, bougie par bougie, trace le CVD à partir des volumes sauvegardés et
 reçoit une alerte d'un Alt + clic ; le terminal se conduit au clavier, et le
-bandeau nomme les sources en panne au lieu de les laisser à `journalctl`.
+bandeau nomme les sources en panne au lieu de les laisser à `journalctl`. Le
+panneau ANALYSE, enfin, met les signaux du graphique à l'épreuve de l'historique,
+contre la référence de rester simplement investi.
 
 ## Outils complémentaires
 
@@ -434,6 +437,7 @@ python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node
 python tests/test_push.py                # pousseur WebSocket, sans navigateur
 python tests/test_journal.py             # journal : événements, épisodes, rétention
 python tests/test_history.py             # historique du cours : disque, rattrapage, panne
+python tests/test_analysis.py            # bilan des signaux : futur, référence, sens, export
 python tests/test_alerts.py              # alertes : seuils, fronts, cadences
 python tests/test_wsgi.py                # fabrique gunicorn du régime service
 python tests/test_lwc_serialize.py       # contrat de série du rendu du prix
@@ -575,7 +579,9 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 - Il tient aussi `~/.btcterm/journal.db` — liquidations et épisodes
   d'arbitrage de la séance — et `~/.btcterm/klines.db`, l'historique du
   cours : les bougies closes ne se redemandent pas à Binance, et le graphique
-  survit à une panne. Ce n'est qu'un cache, à supprimer sans dommage.
+  survit à une panne. Ce n'est qu'un cache, à supprimer sans dommage : le
+  terminal le complète seul en arrière-plan jusqu'à l'intervalle d'une heure,
+  soit environ 130 appels à Binance et 16 Mo.
   `--no-journal` le dispense des deux.
 - La bascule `$`/`€` du panneau prix vaut pour tout ce qui décrit le marché du
   moment : bandeau, carnet, arbitrage, liquidations, open interest,

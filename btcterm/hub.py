@@ -25,6 +25,7 @@ import pandas as pd
 from . import sources
 from .alerts import Alert, AlertEngine
 from .arbitrage import ArbitrageEngine
+from .analysis import signal_stats
 from .history import KlineHistory
 from .journal import Journal
 from .newsdb import NewsCollector
@@ -151,6 +152,20 @@ class MarketHub:
     #: source n'est retentée qu'à cet intervalle, le pousseur, qui lit les
     #: chandeliers toutes les deux secondes, attendrait sinon chaque délai.
     KLINES_RETRY = 60
+    #: Bougies relues pour le bilan des signaux, et cadence de ce bilan : il
+    #: ne change qu'avec les nouvelles clôtures.
+    DEEP_BARS = 20_000
+    TTL_SIGNAL_STATS = 600
+    #: Complément de l'historique en tâche de fond : de l'intervalle le plus
+    #: large au plus fin, soit cent trente appels la première fois. Le quart
+    #: d'heure et la demi-heure en demanderaient trois fois et demie plus, pour
+    #: des bougies qui vieillissent vite ; ils se remplissent à l'usage.
+    BACKFILL_INTERVALS = ("1M", "1w", "1d", "12h", "6h", "4h", "1h")
+    #: Une page toutes les deux secondes : loin des limites de Binance, et
+    #: invisible à côté du graphique qui attend sa fin de série.
+    BACKFILL_PAUSE = 2.0
+    #: Laisser le démarrage passer d'abord : le réseau, puis le terminal.
+    BACKFILL_DELAY = 60.0
     #: Une panne se dit au bandeau tant que la source a échoué depuis moins
     #: que ce délai. Une page d'historique ratée une fois, que personne ne
     #: relit, s'efface ainsi d'elle-même au lieu de rester affichée.
@@ -260,6 +275,7 @@ class MarketHub:
             KlineHistory(symbol) if keep_journal else None)
         #: Instant avant lequel Binance n'est pas retenté (`KLINES_RETRY`).
         self._klines_retry_at = 0.0
+        self._backfill_thread: Optional[threading.Thread] = None
 
         #: Moteur d'alertes : évalué par la boucle d'observation, réglé
         #: par le panneau ALERTES, journalisé quand le journal est tenu.
@@ -323,6 +339,10 @@ class MarketHub:
         self._observe_thread = threading.Thread(
             target=self._observe_loop, daemon=True, name="observe")
         self._observe_thread.start()
+        if self.history is not None:
+            self._backfill_thread = threading.Thread(
+                target=self._backfill_loop, daemon=True, name="backfill")
+            self._backfill_thread.start()
 
     def _warm_alerts(self) -> int:
         """Rend au moteur les sonneries de la journée, du journal.
@@ -537,6 +557,53 @@ class MarketHub:
                     limit, interval=interval, index=False)
             df.attrs["stale"] = True
             return df
+
+    def deep_klines(self, interval: str,
+                    limit: Optional[int] = None) -> pd.DataFrame:
+        """Les bougies closes les plus nombreuses possible, sans réseau si
+        le disque en tient. La bougie en cours n'y est pas : un bilan ou un
+        export n'ont que faire d'une bougie qui bouge encore. Sans disque,
+        la dernière page, moins cette bougie ; jamais la démonstration.
+        """
+        df = self._stored_klines(interval, limit or self.DEEP_BARS)
+        if not df.empty:
+            return df
+        live = self.klines(interval, limit=1000)
+        if live.attrs.get("demo", False) or len(live) < 2:
+            return pd.DataFrame(columns=["time"] + sources.OHLCV_COLUMNS)
+        return live.iloc[:-1].reset_index(drop=True)
+
+    def signal_stats(self, interval: str) -> Optional[dict]:
+        """Le bilan des signaux d'un intervalle (§ analysis)."""
+        return self._cache.get(
+            f"signal_stats:{interval}", self.TTL_SIGNAL_STATS,
+            lambda: signal_stats(self.deep_klines(interval)))
+
+    def _backfill_loop(self) -> None:
+        """Complète l'historique vers le passé, une page à la fois.
+
+        Le bilan des signaux n'a de sens qu'avec de la profondeur, et le pan
+        vers le passé n'attend plus Binance à la première visite. Rien
+        d'urgent : Binance muet, la boucle patiente et reprend où elle en
+        était ; base inutilisable, elle s'arrête sans bruit de plus.
+        """
+        if self._observe_stop.wait(self.BACKFILL_DELAY):
+            return
+        for interval in self.BACKFILL_INTERVALS:
+            while True:
+                try:
+                    if self.history is None or not self.history.extend_back(
+                            interval):
+                        break
+                except sqlite3.Error as exc:
+                    log.warning("complément de l'historique arrêté : %s", exc)
+                    return
+                except Exception:
+                    if self._observe_stop.wait(self.KLINES_RETRY):
+                        return
+                    continue
+                if self._observe_stop.wait(self.BACKFILL_PAUSE):
+                    return
 
     def _through_history(self, read: Callable[[], pd.DataFrame],
                          direct: Callable[[], pd.DataFrame]) -> pd.DataFrame:

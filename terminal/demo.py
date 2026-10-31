@@ -116,9 +116,9 @@ PAGE = """<!DOCTYPE html>
 </div>
 <div class="demo-footer">
   Le vrai terminal sert ces données en temps réel depuis cinq plateformes,
-  avec treize autres panneaux — carnet, profondeur, arbitrage, liquidations,
+  avec quatorze autres panneaux — carnet, profondeur, arbitrage, liquidations,
   ETF, perpétuel, news, calendrier, alertes, journal, macro, dominance,
-  chaîne. Ici, seul le panneau prix, sur __BARS__ bougies par intervalle
+  chaîne, analyse. Ici, seul le panneau prix, sur __BARS__ bougies par intervalle
   figées le __DATE__ : zoom à la molette ou au cadre (Maj + glisser,
   double-clic pour la vue entière), pan à la souris (l'historique se
   charge en glissant vers le passé), crosshair, $/€, échelle log, panes.

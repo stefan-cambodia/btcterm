@@ -25,7 +25,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant quatorze panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant quinze panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement doublés d'un canal push pour les panneaux rapides, un hub
   qui n'ouvre qu'une connexion par plateforme et un collecteur de news en
@@ -62,6 +62,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   │                              terme, chaîne, news, sentiment
 │   ├── macrocal.py                calendrier macro tenu à la main
 │   ├── newsdb.py                  base de news : schéma, scoring, collecte
+│   ├── analysis.py                état des intervalles, bilan des signaux
 │   ├── history.py                 bougies closes sur disque
 │   │                              (~/.btcterm/klines.db)
 │   ├── journal.py                 journal des liquidations + épisodes
@@ -109,6 +110,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_push.py               pousseur WebSocket, sans navigateur
 │   ├── test_journal.py            journal : événements, épisodes, rétention
 │   ├── test_history.py            historique du cours : disque, rattrapage, panne
+│   ├── test_analysis.py           bilan des signaux : futur, référence, sens, export
 │   ├── test_alerts.py             alertes : seuils, fronts, cadences
 │   ├── test_wsgi.py               fabrique gunicorn du régime service
 │   ├── test_lwc_serialize.py      contrat de série du rendu du prix
@@ -1437,6 +1439,32 @@ l'état reste aux callbacks, et le panneau retiré de la grille rend simplement 
 touche sans effet. Le focus d'une case cochée à la souris ne les fait pas taire ;
 seuls les champs de saisie gardent le clavier.
 
+### 3.14 Le panneau ANALYSE : mettre les signaux à l'épreuve
+
+Le graphique pose des flèches d'achat et de vente depuis l'origine, sans que rien
+ne dise ce qu'elles valent. `btcterm/analysis.py` le mesure, et l'essentiel de ce
+module tient dans ce qu'il refuse de faire, parce qu'un bilan faux affiche des
+chiffres aussi plausibles qu'un bilan juste.
+
+- **Pas de regard sur le futur** : un signal se forme à la clôture, l'entrée se
+  fait à l'ouverture suivante.
+- **Une référence** : dans un marché qui monte, n'importe quel achat gagne. La
+  colonne qui compte est l'**écart** à la moyenne de toutes les bougies, dans le
+  sens du signal, et `test_analysis.py` vérifie qu'il est nul quand tout monte.
+- **L'effectif** : sous trente signaux, les chiffres restent affichés mais
+  éteints.
+
+Les réserves sont écrites sous le tableau : sans frais, fenêtres qui se recouvrent
+quand deux signaux sont proches, et description du passé plutôt que promesse.
+
+Le bilan lit 20 000 bougies closes au plus (23 ms) ; `prepare_price_frame` n'est
+pas repris, le Connors RSI coûtant cher pour une colonne que le signal ne lit
+pas, et `test_analysis.py` compare les deux pour qu'ils ne divergent jamais. Sa
+profondeur vient du complément en tâche de fond (`_backfill_loop`) : une page
+toutes les deux secondes, de l'intervalle mensuel à l'heure. Le quart d'heure et
+la demi-heure, trois fois et demie plus coûteux, se remplissent à l'usage.
+Mesuré à la première exécution : 129 appels, 125 000 bougies, 16 Mo.
+
 ## 4. Patrons transverses
 
 ### 4.1 Deux modèles d'acquisition de données
@@ -1711,7 +1739,7 @@ suivante.
 
 **Où en est-on.** Les cinq étapes sont faites — socle extrait, couche de rendu
 tranchée, données mutualisées, doublons supprimés, couverture complète :
-quatorze panneaux couvrent le prix, la liquidité, l'arbitrage, les
+quinze panneaux couvrent le prix, la liquidité, l'arbitrage, les
 liquidations, les flux ETF, le marché à terme, les news, le calendrier macro,
 la macro, la dominance, la chaîne et la relecture de séance. La piste de confort laissée ouverte à la pause
 précédente — une disposition de grille configurable — est faite (§3.6) :
@@ -1973,6 +2001,10 @@ sont en fin de section.
   écran et aide au clavier (§3.13).
 - ~~**La pression du carnet**~~ — fait : la part des acheteurs dans le volume
   des niveaux affichés, sur la ligne du spread.
+- ~~**Des signaux jamais mis à l'épreuve**~~ — fait : le panneau ANALYSE mesure
+  les flèches du graphique sur l'historique, contre une référence (§3.14), et
+  résume chaque intervalle d'un coup d'œil.
+- ~~**Sortir ses données**~~ — fait : export CSV de l'historique sauvegardé.
 
 **Pour la surveillance :**
 
@@ -2138,9 +2170,9 @@ sont en fin de section.
   sans la lever : c'est le rendu Dash de chaque ligne qui coûte. Un rendu du
   carnet hors de Dash, direct dans la page, la lèverait, au prix d'un second
   chemin de rendu à côté de `render_book`.
-- **L'historique se remplit à l'usage** — rien n'est préchargé : la première
-  ouverture d'un intervalle, comme chaque page nouvelle en reculant, paie un
-  appel à Binance. Tout télécharger coûterait environ six cents appels.
+- **Le quart d'heure et la demi-heure se remplissent à l'usage** — le reste est
+  complété en tâche de fond (§3.14) ; ces deux-là coûteraient quatre cent
+  soixante-dix appels de plus, pour des bougies qui vieillissent vite.
 
 **À trancher :**
 

@@ -20,7 +20,7 @@ chaînes pour décider ce qui repart.
 from __future__ import annotations
 
 import pandas as pd
-from flask import jsonify, request
+from flask import Response, jsonify, request
 
 from btcterm import indicators as ind
 from btcterm import sources
@@ -273,6 +273,12 @@ def push_payload(hub, interval: str, limit: int) -> dict:
 #: page. La marge est tronquée après calcul, jamais renvoyée.
 WARMUP_BARS = 200
 
+#: L'export : les champs de Binance utiles hors du terminal, et un plafond
+#: bien au-delà de ce que le disque tient pour le bitcoin.
+EXPORT_COLUMNS = ("time", "open", "high", "low", "close", "volume",
+                  "quote_vol", "trades", "taker_buy_base", "taker_buy_quote")
+EXPORT_MAX = 2_000_000
+
 #: Bornes de la taille de page — Binance plafonne `/api/v3/klines` à 1000.
 PAGE_MAX = 1000
 PAGE_DEFAULT = 365
@@ -328,6 +334,25 @@ def register_api(app, hub) -> None:
         # Un taux de secours se dit : en euros, le graphique l'annonce.
         payload["eur_stale"] = hub.eur_rate_stale()
         return jsonify(payload)
+
+    @app.server.get("/api/export")
+    def _export():
+        """L'historique d'un intervalle en CSV, tout ce que le disque tient.
+
+        Bougies closes seulement, et jamais la démonstration : un fichier se
+        relit hors du terminal, loin de tout bandeau d'avertissement.
+        """
+        interval = request.args.get("interval", default="1d")
+        if interval not in sources.KLINE_FREQ:
+            return jsonify({"error": f"intervalle inconnu : {interval}"}), 400
+        df = hub.deep_klines(interval, limit=EXPORT_MAX)
+        if df.empty:
+            return jsonify({"error": "aucun historique pour cet intervalle"}), 404
+        columns = [c for c in EXPORT_COLUMNS if c in df.columns]
+        return Response(
+            df[columns].to_csv(index=False), mimetype="text/csv",
+            headers={"Content-Disposition":
+                     f'attachment; filename="btcusdt-{interval}.csv"'})
 
     @app.server.get("/api/perp")
     def _perp():

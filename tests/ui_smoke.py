@@ -25,6 +25,7 @@ import os
 import shutil
 import sys
 import time
+import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -532,6 +533,36 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                   etat["series"] >= 1 and len(etat["badge"]) > 8,
                   etat["badge"][:44])
 
+        print("\nOnglet analyse")
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
+                 .find(t => t.textContent === 'ANALYSE').click();
+        """)
+        browser.wait_for(
+            "(document.getElementById('analysis-summary')?.textContent || '')"
+            ".includes('RSI')"
+            " && (document.getElementById('analysis-stats')?.textContent || '')"
+            ".length > 20", timeout=15)
+        analyse = browser.js("""
+            return {resume: document.getElementById('analysis-summary').textContent,
+                    bilan: document.getElementById('analysis-stats').textContent};
+        """)
+        check("les intervalles se lisent d'un coup d'œil",
+              "15m" in analyse["resume"] and "1w" in analyse["resume"],
+              analyse["resume"][:60])
+        check("le bilan dit sa référence",
+              "rester investi" in analyse["bilan"]
+              or "insuffisant" in analyse["bilan"], analyse["bilan"][:60])
+        lien = browser.js(
+            "return document.getElementById('analysis-export').href;")
+        with urllib.request.urlopen(lien, timeout=10) as reponse:
+            debut = reponse.read(200).decode()
+        check("l'export se télécharge", debut.startswith("time,open,"), lien)
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
+                 .find(t => t.textContent === 'MACRO').click();
+        """)
+
         print("\nOnglet liquidations")
         browser.js("""
             Array.from(document.querySelectorAll('#cell-arb .cell-tab'))
@@ -707,7 +738,7 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "!document.getElementById('layout-overlay')"
             ".className.includes('layout-overlay-hidden')", timeout=8))
         check("un rang par panneau", browser.js(
-            "return document.querySelectorAll('.layout-row').length;") == 14)
+            "return document.querySelectorAll('.layout-row').length;") == 15)
         browser.js("""
             const rang = Array.from(document.querySelectorAll('.layout-row'))
                 .find(r => r.querySelector('.layout-panel-name')

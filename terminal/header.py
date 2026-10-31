@@ -22,6 +22,7 @@ from dash import Input, Output, State, html
 
 from btcterm.hub import MarketHub
 
+from .fx import DOLLARS, display
 from .grid import AREAS, reveal
 from .theme import C, MONO
 
@@ -55,6 +56,17 @@ def price_title(currency: str | None, rate: float, stale: bool = False) -> str:
     if stale:
         title += " — taux de secours : source de change injoignable"
     return title
+
+
+def range_text(ticker: dict, fx=DOLLARS) -> str:
+    """Plus haut, plus bas et volume sur 24 h, vides sans réponse de Binance."""
+    try:
+        high, low = float(ticker["highPrice"]), float(ticker["lowPrice"])
+        volume = float(ticker["quoteVolume"])
+    except (KeyError, TypeError, ValueError):
+        return ""
+    return (f"H {high * fx.rate:,.0f} · L {low * fx.rate:,.0f} · "
+            f"vol {volume * fx.rate / 1e9:.2f} Md{fx.unit}")
 
 
 #: Les familles du cache du hub, dites comme le reste du bandeau.
@@ -109,6 +121,8 @@ def layout():
         html.Span(id="hdr-price", style={**STAT, "fontSize": "14px",
                                          "fontWeight": "600"}),
         html.Span(id="hdr-change", style=STAT),
+        html.Span(id="hdr-range", style={**STAT, "color": C["muted"]},
+                  title="plus haut, plus bas et volume échangé sur 24 h"),
         html.Span(id="hdr-spread", style=STAT),
         html.Span(id="hdr-sources", style={**STAT, "color": C["orange"]}),
         html.Button("⚙", id="layout-btn", className="layout-btn",
@@ -150,6 +164,7 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         Output("hdr-price", "title"),
         Output("hdr-change", "children"),
         Output("hdr-change", "style"),
+        Output("hdr-range", "children"),
         Output("hdr-spread", "children"),
         Output("hdr-status", "children"),
         Output("hdr-sources", "children"),
@@ -169,7 +184,9 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         price_txt = price_text(live, currency, rate, stale)
         price_tip = price_title(currency, rate, stale)
 
-        change_txt, change_style = change_text(hub.ticker())
+        ticker = hub.ticker()
+        change_txt, change_style = change_text(ticker)
+        range_txt = range_text(ticker, display(hub, currency))
 
         spreads = [b.spread_pct for b in hub.books.values() if b.spread_pct]
         spread_txt = f"spread min {min(spreads):.4f} %" if spreads else ""
@@ -178,8 +195,9 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         status = (f"{hub.connected_count}/5 flux · "
                   f"{uptime // 3600:02d}:{uptime % 3600 // 60:02d}:{uptime % 60:02d}")
 
-        return (price_txt, price_tip, change_txt, change_style, spread_txt,
-                status, *sources_text(hub.failing_sources(), time.time()))
+        return (price_txt, price_tip, change_txt, change_style, range_txt,
+                spread_txt, status,
+                *sources_text(hub.failing_sources(), time.time()))
 
 
 def _register_reveal(app: dash.Dash) -> None:
