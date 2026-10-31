@@ -13,16 +13,21 @@ Le mensonge change de forme : en octobre 2026, les mêmes noms résolvent en
 une adresse publique qui ne répond pas (`SINKHOLES`). Une connexion déjà
 ouverte y survit, puisqu'elle ne repasse pas par le DNS : la panne ne s'est
 vue qu'au redémarrage suivant, quatre plateformes sur cinq injoignables.
+Une réponse publique ressemblant à une réponse saine, attendre de reconnaître
+le mensonge, c'est attendre la panne suivante. Les noms des plateformes
+(`GUARDED_DOMAINS`) sont donc toujours demandés à DoH, quoi que dise le
+système.
 
-Ce module enveloppe `socket.getaddrinfo`. Quand la réponse du système, pour
-un nom public, ne contient que des adresses de bouclage, nulles ou connues
-pour être des trous noirs (ou quand le nom n'existe soudain plus), il
-redemande le nom à un résolveur DNS sur
-HTTPS joint **par son adresse IP** — 1.1.1.1 puis 8.8.8.8 —, de sorte
+Ce module enveloppe `socket.getaddrinfo`. Quand le nom est celui d'une
+plateforme, ou quand la réponse du système, pour un nom public, ne contient
+que des adresses de bouclage, nulles ou connues pour être des trous noirs
+(ou quand le nom n'existe soudain plus), il redemande le nom à un résolveur
+DNS sur HTTPS joint **par son adresse IP** — 1.1.1.1 puis 8.8.8.8 —, de sorte
 qu'aucune résolution empoisonnable n'entre dans la boucle. La réponse
-saine est gardée le temps de son TTL. Tout le reste passe tel quel : un
-hôte correctement résolu ne coûte qu'une comparaison, et un nom local
-(`localhost`, `*.local`) garde le droit de valoir 127.0.0.1.
+saine est gardée le temps de son TTL, et reste servie si DoH se tait. Tout
+le reste passe tel quel : un hôte correctement résolu ne coûte qu'une
+comparaison, et un nom local (`localhost`, `*.local`) garde le droit de
+valoir 127.0.0.1.
 
 `requests` (urllib3) comme `websockets` (via `loop.getaddrinfo`) cherchent
 `socket.getaddrinfo` au moment de l'appel : l'enveloppe posée par
@@ -46,7 +51,7 @@ from typing import Callable, Optional
 import requests
 
 __all__ = ["install", "uninstall", "is_installed", "resolve_doh",
-           "looks_poisoned", "DOH_ENDPOINTS"]
+           "looks_poisoned", "is_guarded", "DOH_ENDPOINTS", "GUARDED_DOMAINS"]
 
 log = logging.getLogger("btcterm.resolver")
 
@@ -57,10 +62,16 @@ DOH_ENDPOINTS: tuple[str, ...] = (
     "https://8.8.8.8/resolve",
 )
 
+#: Domaines dont la réponse du système ne fait jamais foi : ceux des cinq
+#: plateformes. Quatre sont déjà falsifiés depuis le Cambodge, le cinquième
+#: est là pour le jour où il le sera.
+GUARDED_DOMAINS: tuple[str, ...] = (
+    "binance.com", "bybit.com", "okx.com", "coinbase.com", "kraken.com",
+)
+
 #: Adresses publiques que le fournisseur d'accès substitue aux domaines
-#: interdits. Aucune détection générale n'est possible — une réponse
-#: publique ressemble à une réponse saine —, d'où une liste, à compléter
-#: quand `ConnectTimeoutError` revient sur un nom que DoH résout autrement.
+#: interdits, écartées pour les noms que `GUARDED_DOMAINS` ne couvre pas et
+#: pour les réponses de DoH lui-même.
 SINKHOLES: frozenset[str] = frozenset({"203.190.164.182"})
 
 #: Le TTL renvoyé est borné : jamais moins d'une demi-minute (ne pas
@@ -71,9 +82,14 @@ TTL_MAX = 3600.0
 #: Délai d'une requête DoH. Court : elle s'ajoute au chemin d'une connexion.
 DOH_TIMEOUT = 4.0
 
+#: DoH muet, un nom n'y est redemandé qu'à cet intervalle : chaque essai peut
+#: coûter deux fois `DOH_TIMEOUT`, et les noms gardés passent tous par lui.
+DOH_RETRY = 60.0
+
 _original: Optional[Callable] = None
 _lock = threading.Lock()
 _cache: dict[str, tuple[float, list[str]]] = {}
+_retry_at: dict[str, float] = {}
 _reported: set[str] = set()
 
 
@@ -100,6 +116,12 @@ def _is_sinkhole(addr: str) -> bool:
     except ValueError:
         return False
     return ip.is_loopback or ip.is_unspecified
+
+
+def is_guarded(host: str) -> bool:
+    """Vrai pour un nom sous l'un des `GUARDED_DOMAINS`."""
+    return any(host == domain or host.endswith("." + domain)
+               for domain in GUARDED_DOMAINS)
 
 
 def looks_poisoned(host: str, infos: list) -> bool:
@@ -136,9 +158,12 @@ def _fetch_doh(endpoint: str, host: str) -> tuple[list[str], float]:
 def resolve_doh(host: str, fetch: Optional[Callable] = None) -> list[str]:
     """Adresses IPv4 de `host` par DNS sur HTTPS, avec cache borné par TTL.
 
-    Essaie les résolveurs de `DOH_ENDPOINTS` dans l'ordre ; une liste vide
-    signifie qu'aucun n'a répondu utilement. `fetch` remplace `_fetch_doh`
-    et n'existe que pour les tests.
+    Essaie les résolveurs de `DOH_ENDPOINTS` dans l'ordre. S'ils se taisent,
+    la dernière réponse saine reste servie, même périmée — mieux qu'un
+    retour au résolveur qui ment — et ils ne sont repris qu'après
+    `DOH_RETRY` ; une liste vide signifie qu'ils n'ont jamais répondu
+    utilement pour ce nom. `fetch` remplace `_fetch_doh` et n'existe que
+    pour les tests.
     """
     fetch = fetch or _fetch_doh
     now = time.monotonic()
@@ -146,6 +171,8 @@ def resolve_doh(host: str, fetch: Optional[Callable] = None) -> list[str]:
         hit = _cache.get(host)
         if hit and hit[0] > now:
             return list(hit[1])
+        if _retry_at.get(host, 0.0) > now:
+            return list(hit[1]) if hit else []
     for endpoint in DOH_ENDPOINTS:
         try:
             addrs, ttl = fetch(endpoint, host)
@@ -156,8 +183,11 @@ def resolve_doh(host: str, fetch: Optional[Callable] = None) -> list[str]:
             ttl = min(max(ttl, TTL_MIN), TTL_MAX)
             with _lock:
                 _cache[host] = (now + ttl, addrs)
+                _retry_at.pop(host, None)
             return list(addrs)
-    return []
+    with _lock:
+        _retry_at[host] = now + DOH_RETRY
+    return list(hit[1]) if hit else []
 
 
 def _rebuild(addrs: list[str], port, family, type_, proto, flags) -> list:
@@ -187,18 +217,24 @@ def _getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
         error = True
     else:
         error = False
-    if not isinstance(name, str) or not looks_poisoned(name, infos):
+    if not isinstance(name, str) or not (
+            is_guarded(name) or looks_poisoned(name, infos)):
         if error:
             raise socket.gaierror(socket.EAI_NONAME, f"nom inconnu : {name}")
         return infos
     addrs = resolve_doh(name)
     rebuilt = _rebuild(addrs, port, family, type, proto, flags) if addrs else []
     if rebuilt:
+        # Un nom gardé passe ici même quand le système dit vrai : seul un
+        # désaccord complet se signale, et sans trancher plus que ça — deux
+        # réponses différentes peuvent aussi être deux points d'un CDN.
+        honest = {info[4][0] for info in infos} & set(addrs)
         with _lock:
-            first = name not in _reported
-            _reported.add(name)
+            first = not honest and name not in _reported
+            if first:
+                _reported.add(name)
         if first:
-            log.warning("résolution empoisonnée pour %s (%s) : "
+            log.warning("résolution du système écartée pour %s (%s) : "
                         "DoH répond %s", name,
                         infos[0][4][0] if infos else "NXDOMAIN", ", ".join(addrs))
         return rebuilt
@@ -228,6 +264,7 @@ def uninstall() -> None:
         socket.getaddrinfo = _original
         _original = None
         _cache.clear()
+        _retry_at.clear()
         _reported.clear()
 
 

@@ -179,12 +179,13 @@ signale par un bandeau orange : les chiffres affichés ne sont alors pas réels.
 (au Cambodge, par exemple) ne refusent pas `api.binance.com`, `stream.bybit.com`
 ou `ws.okx.com` : leur résolveur DNS y répond `127.0.0.1`, et le terminal
 tombe sur la démo sans qu'aucune erreur ne le dise. Le hub pose au démarrage
-une résolution de secours (`btcterm/resolver.py`) : dès qu'un nom public
-résout en adresse de bouclage, ou en une adresse publique connue pour ne pas
-répondre (`SINKHOLES`), il est redemandé à un résolveur DNS sur HTTPS
-joint par son adresse IP (1.1.1.1, puis 8.8.8.8) — et les connexions
-partent vers les vraies adresses. Rien à configurer ; un avertissement
-`résolution empoisonnée pour …` dans le journal signale chaque nom sauvé.
+une résolution de secours (`btcterm/resolver.py`) : les noms des cinq
+plateformes, et tout nom public qui résout en adresse de bouclage ou en une
+adresse connue pour ne pas répondre (`SINKHOLES`), sont demandés à un résolveur
+DNS sur HTTPS joint par son adresse IP (1.1.1.1, puis 8.8.8.8) — et les
+connexions partent vers les vraies adresses. Rien à configurer ; un
+avertissement `résolution du système écartée pour …` dans le journal signale
+chaque nom sur lequel le système et DoH se contredisent.
 
 Le remède de fond est de faire de même pour tout le système, ce qui vaut
 aussi pour le navigateur et les outils en ligne de commande. Avec

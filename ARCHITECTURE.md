@@ -654,8 +654,11 @@ en `203.190.164.182`, adresse publique qui ne répond pas. Rien ne l'a
 signalé, parce que les connexions déjà ouvertes ne repassent pas par le DNS :
 le service a tourné normalement jusqu'au redémarrage suivant, qui a perdu
 d'un coup l'accès à quatre plateformes sur cinq, chandeliers compris. Une réponse publique
-ressemblant à une réponse saine, aucune détection générale n'est possible :
-ces adresses sont listées dans `SINKHOLES`.
+ressemblant à une réponse saine, aucune détection générale n'est possible.
+Lister ces adresses dans `SINKHOLES` ne protège que de la dernière panne : les
+noms des cinq plateformes (`GUARDED_DOMAINS`) sont donc **toujours** demandés
+à DoH, quoi que dise le système. Si DoH se tait, la dernière réponse saine reste
+servie, même périmée, et il n'est retenté qu'après `DOH_RETRY`.
 
 `btcterm/resolver.py` enveloppe `socket.getaddrinfo`. Quand la réponse du
 système pour un nom public ne contient que des adresses de bouclage, nulles

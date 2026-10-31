@@ -10,6 +10,8 @@ comprenne pourquoi. L'enveloppe posée sur `socket.getaddrinfo` doit :
   correctement résolu, une adresse littérale, `localhost` ;
 - reconnaître l'empoisonnement (toutes les adresses de bouclage ou
   nulles, ou un NXDOMAIN) et redemander le nom au résolveur DoH ;
+- ne jamais croire le système sur les noms des plateformes, même quand
+  sa réponse a l'air saine ;
 - reconstruire des entrées `getaddrinfo` de forme normale à partir des
   adresses obtenues, en respectant le type de socket demandé ;
 - garder la réponse en cache le temps de son TTL, borné ;
@@ -106,11 +108,11 @@ def test_diagnostic():
 
 
 def test_passage_tel_quel():
-    poser({"api.kraken.com": ["104.17.185.205"], "localhost": ["127.0.0.1"]})
+    poser({"api.coingecko.com": ["104.17.185.205"], "localhost": ["127.0.0.1"]})
     try:
         doh = Compteur({})
         resolver._fetch_doh = doh
-        assert adresses(socket.getaddrinfo("api.kraken.com", 443)) == ["104.17.185.205"]
+        assert adresses(socket.getaddrinfo("api.coingecko.com", 443)) == ["104.17.185.205"]
         assert adresses(socket.getaddrinfo("localhost", 80)) == ["127.0.0.1"]
         assert adresses(socket.getaddrinfo("10.0.0.7", 80)) == ["10.0.0.7"]
         assert doh.appels == [], "un nom sain ne doit pas déclencher de DoH"
@@ -135,6 +137,98 @@ def test_empoisonnement_et_reconstruction():
         # Cache : un seul appel DoH pour ces deux résolutions.
         assert doh.appels == [(ep1, "api.binance.com")]
     finally:
+        resolver._fetch_doh = orig
+        deposer()
+
+
+def test_un_nom_garde_ne_depend_d_aucune_liste():
+    """Une adresse publique jamais vue : rien ne la distingue d'une vraie.
+
+    C'est le scénario d'octobre 2026 rejoué avec la prochaine adresse :
+    `SINKHOLES` ne la connaît pas, et le nom part quand même vers DoH.
+    """
+    poser({"stream.bybit.com": ["198.51.100.7"]})
+    ep1 = resolver.DOH_ENDPOINTS[0]
+    doh = Compteur({(ep1, "stream.bybit.com"): (["65.9.168.13"], 60.0)})
+    orig = resolver._fetch_doh
+    resolver._fetch_doh = doh
+    try:
+        assert "198.51.100.7" not in resolver.SINKHOLES
+        infos = socket.getaddrinfo("stream.bybit.com", 443,
+                                   type=socket.SOCK_STREAM)
+        assert adresses(infos) == ["65.9.168.13"]
+    finally:
+        resolver._fetch_doh = orig
+        deposer()
+
+
+def test_le_domaine_garde_est_borne():
+    for nom in ("binance.com", "api.binance.com", "ws.okx.com",
+                "advanced-trade-ws.coinbase.com", "ws.kraken.com"):
+        assert resolver.is_guarded(nom), nom
+    for nom in ("notbinance.com", "binance.com.exemple.org", "coindesk.com",
+                "data-api.binance.vision", "localhost"):
+        assert not resolver.is_guarded(nom), nom
+
+
+def test_doh_muet_la_derniere_reponse_saine_reste_servie():
+    """DoH tombe : pas de retour au mensonge, ni huit secondes par appel."""
+    poser({"api.binance.com": ["198.51.100.7"]})
+    ep1 = resolver.DOH_ENDPOINTS[0]
+    doh = Compteur({(ep1, "api.binance.com"): (["108.158.2.161"], 60.0)})
+    orig = resolver._fetch_doh
+    resolver._fetch_doh = doh
+    try:
+        socket.getaddrinfo("api.binance.com", 443)
+
+        #: Le TTL expire et DoH se tait.
+        doh.reponses.clear()
+        doh.appels.clear()
+        with resolver._lock:
+            resolver._cache["api.binance.com"] = (0.0, ["108.158.2.161"])
+        for _ in range(3):
+            assert adresses(socket.getaddrinfo(
+                "api.binance.com", 443)) == ["108.158.2.161"]
+        assert len(doh.appels) == len(resolver.DOH_ENDPOINTS), doh.appels
+
+        #: Sans réponse saine connue, le système reste le dernier recours,
+        #: sans repayer DoH à chaque appel.
+        doh.appels.clear()
+        with resolver._lock:
+            resolver._cache.clear()
+            resolver._retry_at.clear()
+        for _ in range(3):
+            assert adresses(socket.getaddrinfo(
+                "api.binance.com", 443)) == ["198.51.100.7"]
+        assert len(doh.appels) == len(resolver.DOH_ENDPOINTS), doh.appels
+    finally:
+        resolver._fetch_doh = orig
+        deposer()
+
+
+def test_systeme_honnete_rien_a_signaler():
+    """Kraken résout juste : on passe par DoH, sans crier à la falsification."""
+    import logging
+
+    poser({"ws.kraken.com": ["104.16.14.28", "104.16.15.28"]})
+    ep1 = resolver.DOH_ENDPOINTS[0]
+    doh = Compteur({(ep1, "ws.kraken.com"): (["104.16.14.28"], 60.0)})
+    orig = resolver._fetch_doh
+    resolver._fetch_doh = doh
+
+    class Retenue(logging.Handler):
+        messages: list = []
+
+        def emit(self, record):
+            self.messages.append(record.getMessage())
+
+    retenue = Retenue()
+    resolver.log.addHandler(retenue)
+    try:
+        socket.getaddrinfo("ws.kraken.com", 443)
+        assert not retenue.messages, retenue.messages
+    finally:
+        resolver.log.removeHandler(retenue)
         resolver._fetch_doh = orig
         deposer()
 
