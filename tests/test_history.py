@@ -262,6 +262,32 @@ def test_binance_muet_le_disque_repond():
     print("  ✓ panne à froid : le disque répond, le dit, et Binance n'est pas harcelé")
 
 
+def test_binance_muet_en_pleine_seance_se_dit():
+    """Le cache mémoire sert sa dernière série : elle se dit figée aussi."""
+    banc = Banc(1200)
+    with banc as binance:
+        hub = hub_sur(banc)
+        vivante = hub.klines("1h", 365)
+        assert not vivante.attrs.get("stale")
+
+        binance.panne = True
+        cle = "klines:1h:365"
+        date, valeur = hub._cache._entries[cle]
+        hub._cache._entries[cle] = (date - 3600, valeur)
+        figee = hub.klines("1h", 365)
+        assert figee.attrs.get("stale") is True
+        assert figee["open_time"].iloc[-1] == DEBUT + 1199 * HEURE
+        assert not vivante.attrs.get("stale"), "l'objet du cache a été modifié"
+
+        #: La panne passée, le marqueur disparaît de lui-même.
+        binance.panne = False
+        hub._klines_retry_at = 0.0
+        hub._cache._entries[cle] = (date - 3600, valeur)
+        assert not hub.klines("1h", 365).attrs.get("stale")
+        hub.history.close()
+    print("  ✓ panne en séance : la bougie figée se dit, puis le marqueur s'efface")
+
+
 def test_disque_vide_la_demo_reste_le_dernier_recours():
     banc = Banc(1200)
     with banc as binance:

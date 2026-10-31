@@ -36,6 +36,8 @@ rien du tout.
 from __future__ import annotations
 
 import json
+import logging
+import threading
 import time
 import uuid
 
@@ -49,6 +51,8 @@ from btcterm.sources import KLINE_FREQ
 from . import lwc
 from .panels import arbitrage, liquidations, orderbook
 from .panels.price import INTERVALS as PRICE_INTERVALS
+
+log = logging.getLogger("terminal.push")
 
 #: Cadence du pousseur, plus serrée que REFRESH_FAST_MS : c'est la
 #: raison d'être du canal — descendre sous 100 ms sans payer un
@@ -142,6 +146,32 @@ def _price_target(hub, interval: str) -> dict:
     """
     return {"update": lwc.push_payload(
         hub, interval, PRICE_INTERVALS.get(interval, 365))}
+
+
+class _PriceRead:
+    """Une lecture de la cible prix, hors de la boucle du pousseur.
+
+    La cible prix peut demander à Binance la fin de la série : 140 à 350 ms
+    toutes les cinq secondes, le délai de connexion entier quand il se tait.
+    Lue dans la boucle, c'était autant de carnet figé pour un panneau qui se
+    veut sans réseau. La boucle lance la lecture, continue, et ramasse le
+    résultat au tour où il est prêt. Thread démon : à l'arrêt du service, un
+    appel en cours ne retient pas le processus.
+    """
+
+    def __init__(self, hub, interval: str):
+        self.value: dict | None = None
+        self.done = threading.Event()
+        threading.Thread(target=self._read, args=(hub, interval),
+                         name="push-price", daemon=True).start()
+
+    def _read(self, hub, interval: str) -> None:
+        try:
+            self.value = _price_target(hub, interval)
+        except Exception:  # noqa: BLE001 — retenté à la cadence suivante
+            log.exception("lecture de la cible prix (%s)", interval)
+        finally:
+            self.done.set()
 
 
 def _merge(state: dict, raw: str | bytes) -> dict:
@@ -249,6 +279,8 @@ def serve(hub, ws) -> None:
     price_due = 0.0
     depth_due = 0.0
     book_due = 0.0
+    # La lecture de la cible prix en cours, s'il y en a une.
+    price_read: _PriceRead | None = None
     try:
         while not hub.stopping.is_set():
             # Entre deux trames, la boucle dort sur la réception :
@@ -268,6 +300,8 @@ def serve(hub, ws) -> None:
                         sent.clear()
                         next_send = time.monotonic()
                         price_due = depth_due = book_due = 0.0
+                        # Elle portait peut-être sur l'intervalle d'avant.
+                        price_read = None
                 continue
 
             depth = time.monotonic() >= depth_due
@@ -279,11 +313,14 @@ def serve(hub, ws) -> None:
                 book_due = time.monotonic() + (
                     PUSH_BOOK_EXPANDED_INTERVAL
                     if state["expanded"] == "book" else PUSH_BOOK_INTERVAL)
-            if (state["price_interval"]
+            if (state["price_interval"] and price_read is None
                     and time.monotonic() >= price_due):
-                frame["price-lwc"] = _price_target(
-                    hub, state["price_interval"])
+                price_read = _PriceRead(hub, state["price_interval"])
                 price_due = time.monotonic() + PUSH_PRICE_INTERVAL
+            if price_read is not None and price_read.done.is_set():
+                if price_read.value is not None:
+                    frame["price-lwc"] = price_read.value
+                price_read = None
             changed = {
                 target: blob
                 for target, props in frame.items()
@@ -297,10 +334,15 @@ def serve(hub, ws) -> None:
                     f"{json.dumps(target)}:{blob}"
                     for target, blob in changed.items()) + "}")
                 sent.update(changed)
-            next_send = time.monotonic() + PUSH_INTERVAL
-    except ConnectionClosed:
+            # Le réveil se cale sur le carnet : au pas de la boucle, ses
+            # 250 ms s'arrondissaient à 300.
+            next_send = min(time.monotonic() + PUSH_INTERVAL, book_due)
+    except (ConnectionClosed, OSError):
         # Fin normale : le navigateur est parti, ou le repli sur
-        # l'horloge a pris le relais.
+        # l'horloge a pris le relais. `OSError` : la socket est morte avant
+        # que le paquet de fermeture ne soit lu — un onglet tué, une machine
+        # qui s'endort. Laissée filer, elle coûtait deux traces au journal
+        # du service, gunicorn tentant ensuite de répondre sur la même socket.
         return
     # Le hub s'arrête : c'est le serveur qui prend congé.
     try:

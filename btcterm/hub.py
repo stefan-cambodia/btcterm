@@ -496,15 +496,24 @@ class MarketHub:
         ce repli, un panneau prix vide et une trace dans la console
         seraient tout ce que l'utilisateur obtiendrait.
         """
+        key = f"klines:{interval}:{limit}"
         try:
-            return self._cache.get(
-                f"klines:{interval}:{limit}",
+            df = self._cache.get(
+                key,
                 self.TTL_KLINES,
                 lambda: self._through_history(
                     lambda: self.history.latest(interval, limit),
                     lambda: sources.fetch_klines(self.symbol, interval, limit),
                 ),
             )
+            # Binance se tait en pleine séance : le cache sert sa dernière
+            # série, et la bougie en cours s'y fige. Elle se dit comme
+            # l'autre. Copie superficielle : l'objet du cache, que le mémo
+            # du pousseur suit à la trace, reste celui d'une lecture réussie.
+            if self._cache.stale(key):
+                df = df.copy(deep=False)
+                df.attrs["stale"] = True
+            return df
         except Exception:
             df = self._stored_klines(interval, limit)
             if df.empty:

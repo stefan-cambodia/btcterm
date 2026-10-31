@@ -1246,7 +1246,10 @@ secondes, jusqu'à la figer plus d'une minute, ce qui faisait échouer
 `ui_smoke.py` sur l'agrandissement du carnet ; à 250 ms, leur retard reste
 stable sous 350 ms. Le coût allant à la ligne, le carnet en plein écran, 41
 lignes au lieu de 17, part toutes les 500 ms : à 250 ms, en sortir prenait
-encore près de six secondes. Mesuré cible par cible sur un
+encore près de six secondes. La cible prix, seule à pouvoir toucher au réseau,
+est lue hors de la boucle (`_PriceRead`) : 140 à 350 ms toutes les cinq
+secondes, et le délai de connexion entier si Binance se tait, ne figent plus
+le carnet. Mesuré cible par cible sur un
 hub réel : le carnet coûte 1,4 ms rendu et sérialisation compris,
 l'arbitrage 1 ms, les liquidations rien ; la profondeur en coûtait 23,6
 — dont vingt de validation `go.Figure` — et 0,9 depuis qu'elle est un

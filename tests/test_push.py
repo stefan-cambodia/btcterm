@@ -315,6 +315,8 @@ def test_le_carnet_part_a_sa_cadence():
     avant = [t for t, f in carnets if "50,001" not in json.dumps(f)]
     ecarts = [b - a for a, b in zip(avant, avant[1:])]
     assert len(avant) >= 2 and min(ecarts) >= PUSH_BOOK_INTERVAL * 0.9, ecarts
+    #: Et pas au pas de la boucle : 250 ms, pas 300.
+    assert sorted(ecarts)[len(ecarts) // 2] < 0.29, ecarts
     assert len(carnets) <= 1 / PUSH_BOOK_INTERVAL + 3, len(carnets)
 
     #: La plateforme annoncée part sans attendre la cadence.
@@ -354,6 +356,125 @@ def test_le_carnet_ralentit_en_plein_ecran():
     assert len(pleins) >= 2, ws.trames
     assert min(ecarts) >= PUSH_BOOK_EXPANDED_INTERVAL * 0.9, ecarts
     print(f"  ✓ plein écran : un carnet toutes les {min(ecarts):.2f} s")
+
+
+class WsDeSecours:
+    """Une WebSocket sans navigateur : retient ce qui lui est envoyé."""
+
+    def __init__(self, a_lire=()):
+        self.trames = []
+        self.a_lire = list(a_lire)
+        self.closed = False
+
+    def receive(self, timeout=None):
+        time.sleep(min(timeout or 0, 0.02))
+        return self.a_lire.pop(0) if self.a_lire else None
+
+    def send(self, data):
+        self.trames.append((time.monotonic(), json.loads(data)))
+
+    def close(self):
+        self.closed = True
+
+
+def test_le_carnet_n_attend_pas_le_reseau():
+    """Binance qui traîne ne fige pas le carnet.
+
+    La cible prix peut coûter un appel réseau, jusqu'au délai de connexion
+    entier ; lue dans la boucle, c'était autant de carnet immobile.
+    """
+    from terminal.push import serve
+
+    hub = hub_garni()
+    bloque = threading.Event()
+    lectures = []
+
+    def lente(hub_, interval):
+        lectures.append(interval)
+        bloque.wait(5)
+        return {"update": {"interval": interval}}
+
+    import terminal.push as push
+    original = push._price_target
+    push._price_target = lente
+    ws = WsDeSecours(['{"price_interval": "1h"}'])
+    threading.Timer(1.0, hub.stop).start()
+    try:
+        serve(hub, ws)
+    finally:
+        bloque.set()
+        push._price_target = original
+
+    carnets = [f for _, f in ws.trames if "book-table" in f]
+    assert len(carnets) >= 3, f"carnet figé : {len(carnets)} trames en 1 s"
+    assert lectures == ["1h"], f"lectures empilées : {lectures}"
+    print(f"  ✓ {len(carnets)} carnets pendant une lecture de 5 s, une seule lecture")
+
+
+def test_la_cible_prix_arrive_quand_elle_est_prete():
+    from terminal.push import serve
+    import terminal.push as push
+
+    hub = hub_garni()
+    original = push._price_target
+    push._price_target = lambda hub_, interval: {"update": {"i": interval}}
+    ws = WsDeSecours(['{"price_interval": "1h"}'])
+    threading.Timer(0.5, hub.stop).start()
+    try:
+        serve(hub, ws)
+    finally:
+        push._price_target = original
+    prix = [f["price-lwc"] for _, f in ws.trames if "price-lwc" in f]
+    assert prix == [{"update": {"i": "1h"}}], prix
+    print("  ✓ la cible prix part une fois, dès qu'elle est lue")
+
+
+def test_un_ancien_intervalle_n_est_pas_pousse():
+    """La lecture de l'intervalle d'avant n'atteint pas le navigateur."""
+    from terminal.push import serve
+    import terminal.push as push
+
+    hub = hub_garni()
+    libere = threading.Event()
+
+    def lente(hub_, interval):
+        if interval == "1h":
+            libere.wait(2)
+        return {"update": {"interval": interval}}
+
+    original = push._price_target
+    push._price_target = lente
+    ws = WsDeSecours(['{"price_interval": "1h"}'])
+    threading.Timer(0.2, lambda: ws.a_lire.append(
+        '{"price_interval": "4h"}')).start()
+    threading.Timer(0.4, libere.set).start()
+    threading.Timer(0.8, hub.stop).start()
+    try:
+        serve(hub, ws)
+    finally:
+        push._price_target = original
+    vus = [f["price-lwc"]["update"]["interval"] for _, f in ws.trames
+           if "price-lwc" in f]
+    assert vus == ["4h"], vus
+    print("  ✓ seul l'intervalle affiché part")
+
+
+def test_une_socket_morte_ne_fait_pas_de_trace():
+    """Un onglet tué : `OSError` au lieu du paquet de fermeture.
+
+    L'exception sortait de `serve`, et le journal du service en gardait deux
+    traces — la nôtre, puis gunicorn répondant sur la même socket.
+    """
+    from terminal.push import serve
+
+    class WsMorte(WsDeSecours):
+        def send(self, data):
+            raise OSError(9, "Bad file descriptor")
+
+    hub = hub_garni()
+    serve(hub, WsMorte())   # lèverait si l'erreur n'était pas retenue
+    hub.stop()
+    print("  ✓ socket morte : fin de boucle, sans exception")
 
 
 def test_la_boucle_sort_a_l_arret():
