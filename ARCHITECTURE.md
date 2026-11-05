@@ -2311,7 +2311,17 @@ constaté à l'usage, ou de l'un des deux points ouverts.
 - **Le coût du carnet à la ligne** — la cadence réduite contourne la limite
   sans la lever : c'est le rendu Dash de chaque ligne qui coûte. Un rendu du
   carnet hors de Dash, direct dans la page, la lèverait, au prix d'un second
-  chemin de rendu à côté de `render_book`.
+  chemin de rendu à côté de `render_book`. Mesuré le 5 novembre 2026
+  (Firefox headless, minuterie de 50 ms pendant 20 s) : la page ne tient
+  que 204 minuteries sur 400 en taille normale, et 30 sur 400 en plein
+  écran, avec des gels jusqu'à 8,9 s malgré la cadence de 500 ms. Sans le
+  carnet, elle en tient 361 ; avec le carnet seul, 238. L'arbitrage et les
+  liquidations n'en coûtent qu'une vingtaine. Piste retenue, pas encore
+  écrite : le serveur envoie des données préformatées (`book_payload`) au
+  lieu de composants, et un script de la page les écrit dans le tableau, en
+  place. Ce serait le seul moteur de rendu, pour le canal push comme pour
+  l'interrogation (Store `book-data` et callback clientside) : il
+  remplacerait `render_book` au lieu de le doubler.
 - **Le quart d'heure et la demi-heure se remplissent à l'usage** — le reste est
   complété en tâche de fond (§3.14) ; ces deux-là coûteraient quatre cent
   soixante-dix appels de plus, pour des bougies qui vieillissent vite.
