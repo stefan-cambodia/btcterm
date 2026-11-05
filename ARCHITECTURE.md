@@ -91,8 +91,9 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── charts.py                  figures Plotly des autres panneaux
 │   ├── assets/                    CSS et JS servis au navigateur — dont
 │   │                              lwc-price.js et lwc-perp.js, les dessins
-│   │                              des panneaux prix et perpétuel, et
-│   │                              vendor/ (Lightweight Charts, sans CDN)
+│   │                              des panneaux prix et perpétuel, book.js,
+│   │                              le carnet écrit en place, et vendor/
+│   │                              (Lightweight Charts, sans CDN)
 │   └── panels/                    price · orderbook · arbitrage ·
 │                                   liquidations · journal · etf · perp ·
 │                                   position · news · calendar · alerts ·
@@ -828,11 +829,11 @@ terminal/
 ├── theme.py         palette et styles partagés
 ├── charts.py        constructeurs de figures Plotly (autres panneaux)
 ├── assets/          CSS et JS — lwc-price.js et lwc-perp.js dessinent
-│                    prix et perpétuel, vendor/ porte Lightweight Charts
-│                    (aucun CDN)
+│                    prix et perpétuel, book.js écrit le carnet en place,
+│                    vendor/ porte Lightweight Charts (aucun CDN)
 └── panels/          un module par panneau
     ├── price.py         chandeliers, indicateurs, profil de volume
-    ├── orderbook.py     carnet, murs + profondeur comparée
+    ├── orderbook.py     carnet (données pour book.js), murs + profondeur
     ├── arbitrage.py     écarts inter-plateformes
     ├── etf.py           flux des ETF spot
     ├── perp.py          financement, open interest, positionnement,
@@ -1266,15 +1267,7 @@ pousse le rendu des six cibles rapides — carnet, profondeur, arbitrage et son
 compteur, liquidations et leurs badges — à une cadence de 100 ms. Deux
 cibles ont la leur. La profondeur part à la seconde, une figure entière que
 des carnets jamais immobiles faisaient repartir à chaque trame — la moitié du
-temps processeur d'un onglet ouvert, au profil. Le carnet part toutes les
-250 ms, la période du repli par interrogation : le coût n'était pas au serveur
-mais au rendu Dash, qui ne suivait pas à dix images par seconde. Dans Firefox
-headless, les minuteries de la page dérivaient de 0,7 s à 6 s en trente
-secondes, jusqu'à la figer plus d'une minute, ce qui faisait échouer
-`ui_smoke.py` sur l'agrandissement du carnet ; à 250 ms, leur retard reste
-stable sous 350 ms. Le coût allant à la ligne, le carnet en plein écran, 41
-lignes au lieu de 17, part toutes les 500 ms : à 250 ms, en sortir prenait
-encore près de six secondes. La cible prix, seule à pouvoir toucher au réseau,
+temps processeur d'un onglet ouvert, au profil. La cible prix, seule à pouvoir toucher au réseau,
 est lue hors de la boucle (`_PriceRead`) : 140 à 350 ms toutes les cinq
 secondes, et le délai de connexion entier si Binance se tait, ne figent plus
 le carnet. Mesuré cible par cible sur un
@@ -1286,6 +1279,30 @@ cible s'y est jointe avec la voie A, à la cadence de l'horloge lente qu'elle
 double : la bougie courante du panneau prix et ses derniers points
 d'indicateurs, jamais la série entière — le navigateur tient la série, le
 canal ne transporte que la mutation (§3.2).
+
+**Le carnet ne passe pas par Dash.** Rendu en composants, il ne suivait pas
+dix trames par seconde : dans Firefox headless, les minuteries de la page
+dérivaient de 0,7 s à 6 s en trente secondes, jusqu'à la figer plus d'une
+minute. Ralentir à 250 ms, et à 500 ms en plein écran, contournait la limite
+sans la lever : mesurée le 5 novembre 2026 (minuterie de 50 ms pendant
+20 s), la page ne tenait que 204 minuteries sur 400, et 30 en plein écran,
+avec des gels jusqu'à 8,9 s ; sans le carnet, elle en tenait 361. Le coût
+n'était pas au serveur, mais dans la réconciliation de chaque ligne. Le
+carnet part donc en données déjà formatées (`book_payload` : prix dans la
+devise, quantités, largeur des barres, ligne de spread, murs), et
+`assets/book.js` construit le tableau une fois puis n'en touche que les
+textes qui changent. Il ne le reconstruit qu'au changement du nombre de
+lignes ou quand Dash a remonté le conteneur ; les couleurs sont des
+variables CSS que le serveur pose sur ce conteneur (`BOOK_VARS`). Les deux
+canaux aboutissent au même appel, `window.btcBook.render` : push.js y remet
+la cible `book-data` au lieu de passer par `set_props`, et le repli écrit
+le Store du même nom, qu'un callback clientside transmet. Il n'y a donc
+qu'un moteur de rendu, et le formatage reste en Python, testé sans
+navigateur. Résultat, à 100 ms, plein écran compris : 370 minuteries sur 400,
+348 en plein écran, autant que sans carnet ; la trame pèse 0,9 Ko au lieu de
+11 (1,7 au lieu de 25 en plein écran), et l'agrandissement passe en 0,4 s
+au lieu de 1,8 à 4,6. `ui_smoke.py` vérifie que les lignes restent les
+mêmes éléments d'une trame à l'autre.
 
 Trois décisions structurent le canal :
 
@@ -2087,13 +2104,13 @@ Reste, hors étape :
 La feuille de route est soldée et les chantiers d'hygiène aussi : plus rien
 n'est *en cours*. Ce qui suit n'est donc pas un chemin ordonné mais l'état
 des manques constatés à la clôture et depuis — chacun à ouvrir quand l'usage le
-fera sentir, aucun ne conditionnant les autres. Les deux qui restent ouverts
-sont en fin de section.
+fera sentir, aucun ne conditionnant les autres. Le seul qui reste ouvert est
+en fin de section.
 
 **Point de reprise** (pause du 5 novembre 2026) : `main` porte tout le travail
 de la séance, le service tourne sur ce code et les contrôles passent — tests
 Python et `ui_smoke.py`. Rien n'est entamé : la séance suivante part d'un manque
-constaté à l'usage, ou de l'un des deux points ouverts.
+constaté à l'usage, ou du point resté ouvert.
 
 **Pour l'analyse :**
 
@@ -2299,29 +2316,24 @@ constaté à l'usage, ou de l'un des deux points ouverts.
 - ~~**Le carnet sature la page**~~ — constaté au contrôle Firefox, deux
   contrôles du plein écran qui échouaient et qu'on mettait sur le compte de
   la charge de la machine, à tort : le rendu Dash ne suivait pas dix carnets
-  par seconde. Fait : 250 ms pour le carnet, 500 ms en plein écran (§3.10).
+  par seconde. Fait : 250 ms pour le carnet, 500 ms en plein écran (§3.10) —
+  un contournement, levé depuis (ci-dessous).
 - ~~**Le carnet attend le réseau**~~ — mesuré au même moment : la cible prix,
   lue dans la boucle du pousseur, figeait le carnet 140 à 350 ms toutes les
   cinq secondes, et plus longtemps si Binance se taisait. Fait : elle est lue
   à côté (`_PriceRead`, §3.10). Une socket morte, qui laissait deux traces au
   journal du service, termine désormais la boucle sans bruit.
+- ~~**Le coût du carnet à la ligne**~~ — la cadence réduite contournait la
+  limite sans la lever. Mesuré le 5 novembre 2026, la page ne tenait que la
+  moitié de ses minuteries, et gelait jusqu'à 8,9 s en plein écran ;
+  l'arbitrage et les liquidations, eux, n'en coûtaient qu'une vingtaine sur
+  400. Fait : le carnet part en données et `assets/book.js` l'écrit en place,
+  seul moteur de rendu pour les deux canaux — il remplace `render_book` au
+  lieu de le doubler. À 100 ms, plein écran compris, la page tient autant de
+  minuteries que sans carnet (§3.10).
 
 **Constaté, pas encore ouvert :**
 
-- **Le coût du carnet à la ligne** — la cadence réduite contourne la limite
-  sans la lever : c'est le rendu Dash de chaque ligne qui coûte. Un rendu du
-  carnet hors de Dash, direct dans la page, la lèverait, au prix d'un second
-  chemin de rendu à côté de `render_book`. Mesuré le 5 novembre 2026
-  (Firefox headless, minuterie de 50 ms pendant 20 s) : la page ne tient
-  que 204 minuteries sur 400 en taille normale, et 30 sur 400 en plein
-  écran, avec des gels jusqu'à 8,9 s malgré la cadence de 500 ms. Sans le
-  carnet, elle en tient 361 ; avec le carnet seul, 238. L'arbitrage et les
-  liquidations n'en coûtent qu'une vingtaine. Piste retenue, pas encore
-  écrite : le serveur envoie des données préformatées (`book_payload`) au
-  lieu de composants, et un script de la page les écrit dans le tableau, en
-  place. Ce serait le seul moteur de rendu, pour le canal push comme pour
-  l'interrogation (Store `book-data` et callback clientside) : il
-  remplacerait `render_book` au lieu de le doubler.
 - **Le quart d'heure et la demi-heure se remplissent à l'usage** — le reste est
   complété en tâche de fond (§3.14) ; ces deux-là coûteraient quatre cent
   soixante-dix appels de plus, pour des bougies qui vieillissent vite.

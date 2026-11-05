@@ -140,6 +140,17 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         time.sleep(1.2)
         check("le carnet vit sans l'horloge", browser.js(
             "return document.querySelector('#book-table').textContent;") != avant)
+        # Écrit en place par assets/book.js : les lignes restent les mêmes
+        # éléments, seuls leurs textes changent. Rendu par Dash, chaque trame
+        # les recréait, et la page gelait en plein écran.
+        browser.js("window.__ligne = document.querySelector('#book-table tr');"
+                   "window.__texte = document.querySelector('#book-table')"
+                   ".textContent;")
+        time.sleep(1.0)
+        check("le carnet s'écrit en place, sans recréer ses lignes", browser.js(
+            "return document.querySelector('#book-table tr') === window.__ligne"
+            " && document.querySelector('#book-table').textContent"
+            " !== window.__texte;"))
         # L'agrandissement ne peut arriver que par le canal : le callback
         # du carnet ne lit `expanded` qu'en State, et l'horloge qui
         # l'aurait rejoué est coupée tant que le push tient. On attend le

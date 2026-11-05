@@ -70,6 +70,14 @@
                 }
                 continue;
             }
+            // Le carnet non plus : ses données vont droit au script qui
+            // l'écrit en place (book.js), sans réconciliation Dash.
+            if (id === "book-data") {
+                if (window.btcBook) {
+                    window.btcBook.render(frame[id].data);
+                }
+                continue;
+            }
             // Un panneau replié derrière un onglet n'est pas dans la
             // page : sa mise à jour est écartée. Au remontage, Dash
             // rejoue lui-même le callback du panneau — il se remplit

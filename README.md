@@ -72,7 +72,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
 | **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
-| **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 250 ms |
+| **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Liquidations** | positions fermées de force — Binance, toutes paires, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
@@ -108,12 +108,13 @@ place avec les liquidations et le journal. Un panneau caché n'est pas dans la p
 se remplit dès qu'on l'affiche.
 
 **Push** — les panneaux à 250 ms ont deux canaux : quand le navigateur tient
-un WebSocket ouvert sur `/push`, le serveur pousse le rendu à 100 ms, le
-carnet à 250 ms (500 ms en plein écran) et la profondeur à la seconde, et
-l'horloge est coupée ; sinon — ou dès que la connexion tombe — l'interrogation
-reprend, sans rien casser. Le bandeau affiche le canal en vigueur (« push » ou
-« poll »). C'est ce qui garde le carnet vif sur un tunnel SSH lointain, où
-chaque aller-retour HTTP paie la latence.
+un WebSocket ouvert sur `/push`, le serveur pousse le rendu à 100 ms, carnet
+compris, et la profondeur à la seconde, et l'horloge est coupée. Sans
+WebSocket — ou dès que la connexion tombe — l'interrogation reprend, sans rien
+casser. Le bandeau affiche le canal en vigueur (« push » ou « poll »). C'est ce
+qui garde le carnet vif sur un tunnel SSH lointain, où chaque aller-retour HTTP
+paie la latence. Le carnet part d'ailleurs en données que la page écrit en
+place, sans passer par Dash : 0,9 Ko par trame au lieu de 11.
 
 **Disposition** — le **⚙** du bandeau ouvre un dialogue où chaque panneau se
 range dans la cellule de son choix : un sélecteur par panneau, donc aucun moyen
@@ -330,7 +331,9 @@ parler à aucun compte ; une ligne de commande (`/`), la mesure d'un mouvement,
 les lignes de tendance et la capture du graphique ; les murs du carnet, toutes
 plateformes réunies ; le perpétuel comparé sur Binance, Bybit et OKX ; la carte
 des rendements mensuels ; et une sonnerie trente minutes avant chaque échéance
-macro.
+macro. Le carnet, enfin, n'est plus rendu par Dash : la page écrit en place des
+données préformatées, et il repart dix fois par seconde, plein écran compris,
+là où il faisait geler la page jusqu'à neuf secondes à deux fois par seconde.
 Ce même journal a ensuite compté cinquante-quatre resynchronisations
 Kraken en une matinée, et nommé la cause qu'on croyait fortuite : le flux
 décrit une fenêtre de vingt-cinq niveaux, le carnet en gardait cent, et

@@ -36,12 +36,12 @@ from btcterm.hub import MarketHub  # noqa: E402
 from terminal.panels.liquidations import ROWS_MAX  # noqa: E402
 from terminal.panels.orderbook import DEPTH, DEPTH_MAX  # noqa: E402
 from terminal.push import (DEFAULT_STATE,  # noqa: E402
-                           PUSH_BOOK_EXPANDED_INTERVAL, PUSH_BOOK_INTERVAL,
+                           PUSH_BOOK_INTERVAL,
                            PUSH_DEPTH_INTERVAL, PUSH_INTERVAL,
                            PUSH_PRICE_INTERVAL, _frame, _merge,
                            _price_target)
 
-CIBLES = {"book-table", "depth-chart", "arb-table", "arb-count",
+CIBLES = {"book-data", "depth-chart", "arb-table", "arb-count",
           "liq-table", "liq-badges"}
 
 
@@ -75,6 +75,17 @@ def serialise(frame: dict) -> dict[str, str]:
 def lignes(blob: str) -> int:
     """Nombre de lignes de table dans une cible sérialisée."""
     return blob.count('"Tr"')
+
+
+def rangs(props) -> int:
+    """Lignes que le carnet occupera à l'écran : niveaux et spread.
+
+    Le carnet part en données (`book_payload`), plus en composants.
+    """
+    if isinstance(props, str):
+        props = json.loads(props)
+    data = (props or {}).get("data") or {}
+    return len(data.get("asks", [])) + len(data.get("bids", [])) + 1
 
 
 def test_merge_ne_fait_pas_confiance():
@@ -162,10 +173,12 @@ def test_cible_prix_mutation_memoisee():
 def test_frame_vise_les_cibles_des_callbacks():
     frame = _frame(hub_garni(), dict(DEFAULT_STATE))
     assert set(frame) == CIBLES, set(frame) ^ CIBLES
+    props_attendues = {"depth-chart": "figure", "book-data": "data"}
     for cible, props in frame.items():
-        prop = "figure" if cible == "depth-chart" else "children"
+        prop = props_attendues.get(cible, "children")
         assert set(props) == {prop}, f"{cible} : {set(props)}"
-    print(f"  ✓ {len(CIBLES)} cibles, children partout sauf la figure")
+    print(f"  ✓ {len(CIBLES)} cibles : la figure, les données du carnet, "
+          "children ailleurs")
 
 
 def test_frame_suit_l_etat():
@@ -174,15 +187,15 @@ def test_frame_suit_l_etat():
     #: La plateforme annoncée choisit le carnet rendu.
     binance = serialise(_frame(hub, dict(DEFAULT_STATE)))
     kraken = serialise(_frame(hub, {**DEFAULT_STATE, "exchange": "Kraken"}))
-    assert "60,001" in binance["book-table"], "carnet Binance attendu"
-    assert "50,001" in kraken["book-table"], "carnet Kraken attendu"
-    assert "60,001" not in kraken["book-table"]
+    assert "60,001" in binance["book-data"], "carnet Binance attendu"
+    assert "50,001" in kraken["book-data"], "carnet Kraken attendu"
+    assert "60,001" not in kraken["book-data"]
 
     #: L'agrandissement du carnet passe de 8 à 20 niveaux par côté
     #: (2 × niveaux + la ligne de spread) — et ne touche que lui.
     plein = serialise(_frame(hub, {**DEFAULT_STATE, "expanded": "book"}))
-    assert lignes(binance["book-table"]) == 2 * DEPTH + 1
-    assert lignes(plein["book-table"]) == 2 * DEPTH_MAX + 1
+    assert rangs(binance["book-data"]) == 2 * DEPTH + 1
+    assert rangs(plein["book-data"]) == 2 * DEPTH_MAX + 1
     assert plein["arb-table"] == binance["arb-table"]
 
     #: Même logique pour les liquidations, avec un fil injecté plus
@@ -210,7 +223,7 @@ def test_le_carnet_suit_la_devise():
         raise AssertionError("le carnet a appelé la source de change")
 
     def carnet(etat):
-        return json.dumps(_frame(hub, etat)["book-table"],
+        return json.dumps(_frame(hub, etat)["book-data"],
                           cls=PlotlyJSONEncoder, ensure_ascii=False)
 
     original = sources.fetch_eur_rate
@@ -290,7 +303,7 @@ def test_carnets_vides_rendus_dits():
                              dict(DEFAULT_STATE)))
     assert set(json.loads("{" + ",".join(
         f'"{c}":{b}' for c, b in frame.items()) + "}")) == CIBLES
-    assert "connexion en cours" in frame["book-table"]
+    assert "connexion en cours" in frame["book-data"]
     assert "en attente" in frame["arb-table"]
     print("  ✓ six cibles même à vide, chacune disant son état")
 
@@ -306,7 +319,7 @@ def test_serialisation_stable():
     hub = hub_garni()
     etat = dict(DEFAULT_STATE)
     un, deux = serialise(_frame(hub, etat)), serialise(_frame(hub, etat))
-    for cible in CIBLES - {"book-table"}:
+    for cible in CIBLES - {"book-data"}:
         assert un[cible] == deux[cible], f"{cible} fluctue sans raison"
     print("  ✓ cibles stables à données constantes — le différentiel a un sens")
 
@@ -320,24 +333,23 @@ def test_l_age_du_carnet_avance():
     """
     hub = hub_garni()
     etat = dict(DEFAULT_STATE)
-    un = serialise(_frame(hub, etat))["book-table"]
+    un = serialise(_frame(hub, etat))["book-data"]
     time.sleep(0.05)
-    deux = serialise(_frame(hub, etat))["book-table"]
+    deux = serialise(_frame(hub, etat))["book-data"]
     assert un != deux, "l'âge du flux n'avance pas"
     print("  ✓ l'âge du flux avance d'un rendu à l'autre")
 
 
 def test_le_carnet_part_a_sa_cadence():
-    """Le carnet ne part que quatre fois par seconde, pas à chaque trame.
+    """Le carnet part à chaque trame du canal, et un changement d'état aussitôt.
 
-    Il change à chaque trame par l'âge de son flux : à 100 ms, le rendu
-    Dash ne suivait pas et la page se figeait peu à peu. Un changement
-    d'état, lui, n'attend pas : le changement de plateforme se voit tout de
-    suite.
+    Rendu par Dash, il devait partir à 250 ms : la page ne suivait pas à
+    100. Écrit en place par assets/book.js, il reprend la cadence du canal,
+    et le changement de plateforme se voit sans attendre.
     """
     from terminal.push import serve
 
-    assert PUSH_INTERVAL < PUSH_BOOK_INTERVAL <= 0.25
+    assert PUSH_BOOK_INTERVAL <= PUSH_INTERVAL
 
     class WsFactice:
         def __init__(self):
@@ -358,12 +370,12 @@ def test_le_carnet_part_a_sa_cadence():
     threading.Timer(1.0, hub.stop).start()
     serve(hub, ws)
 
-    carnets = [(t, f) for t, f in ws.trames if "book-table" in f]
+    carnets = [(t, f) for t, f in ws.trames if "book-data" in f]
     avant = [t for t, f in carnets if "50,001" not in json.dumps(f)]
     ecarts = [b - a for a, b in zip(avant, avant[1:])]
-    assert len(avant) >= 2 and min(ecarts) >= PUSH_BOOK_INTERVAL * 0.9, ecarts
-    #: Et pas au pas de la boucle : 250 ms, pas 300.
-    assert sorted(ecarts)[len(ecarts) // 2] < 0.29, ecarts
+    assert len(avant) >= 3 and min(ecarts) >= PUSH_BOOK_INTERVAL * 0.9, ecarts
+    #: Au pas du canal, pas au double.
+    assert sorted(ecarts)[len(ecarts) // 2] < PUSH_BOOK_INTERVAL * 1.5, ecarts
     assert len(carnets) <= 1 / PUSH_BOOK_INTERVAL + 3, len(carnets)
 
     #: La plateforme annoncée part sans attendre la cadence.
@@ -372,12 +384,13 @@ def test_le_carnet_part_a_sa_cadence():
     print(f"  ✓ {len(carnets)} carnets en une seconde, changement d'état immédiat")
 
 
-def test_le_carnet_ralentit_en_plein_ecran():
-    """41 lignes au lieu de 17 : le rendu coûte à la ligne, et à 250 ms la
-    page saturait encore, sortie du plein écran comprise."""
-    from terminal.push import serve
+def test_le_plein_ecran_garde_la_cadence():
+    """41 lignes au lieu de 17, à la même cadence.
 
-    assert PUSH_BOOK_EXPANDED_INTERVAL >= 2 * PUSH_BOOK_INTERVAL
+    Rendu par Dash, le plein écran devait ralentir à 500 ms, et la page
+    gelait encore ; écrit en place, il ne coûte pas plus que la vue réduite.
+    """
+    from terminal.push import serve
 
     class WsFactice:
         def __init__(self):
@@ -393,16 +406,17 @@ def test_le_carnet_ralentit_en_plein_ecran():
 
     hub = hub_garni()
     ws = WsFactice()
-    threading.Timer(1.3, hub.stop).start()
+    threading.Timer(1.0, hub.stop).start()
     serve(hub, ws)
 
     #: La première trame part avant l'annonce : elle ne compte pas.
     pleins = [t for t, f in ws.trames
-              if lignes(json.dumps(f.get("book-table", ""))) > 2 * DEPTH + 1]
+              if rangs(f.get("book-data")) == 2 * DEPTH_MAX + 1]
     ecarts = [b - a for a, b in zip(pleins, pleins[1:])]
-    assert len(pleins) >= 2, ws.trames
-    assert min(ecarts) >= PUSH_BOOK_EXPANDED_INTERVAL * 0.9, ecarts
-    print(f"  ✓ plein écran : un carnet toutes les {min(ecarts):.2f} s")
+    assert len(pleins) >= 5, len(pleins)
+    assert sorted(ecarts)[len(ecarts) // 2] < PUSH_BOOK_INTERVAL * 1.5, ecarts
+    print(f"  ✓ plein écran : {len(pleins)} carnets de "
+          f"{2 * DEPTH_MAX + 1} lignes en une seconde")
 
 
 class WsDeSecours:
@@ -452,7 +466,7 @@ def test_le_carnet_n_attend_pas_le_reseau():
         bloque.set()
         push._price_target = original
 
-    carnets = [f for _, f in ws.trames if "book-table" in f]
+    carnets = [f for _, f in ws.trames if "book-data" in f]
     assert len(carnets) >= 3, f"carnet figé : {len(carnets)} trames en 1 s"
     assert lectures == ["1h"], f"lectures empilées : {lectures}"
     print(f"  ✓ {len(carnets)} carnets pendant une lecture de 5 s, une seule lecture")

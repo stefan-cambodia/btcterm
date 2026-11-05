@@ -2,9 +2,16 @@
 Panneau carnet d'ordres et profondeur.
 
 Panneau « rapide » : il lit les carnets tenus en mémoire par le hub, sans
-aucun appel réseau — le taux de change compris (`eur_rate_cached`). Le
-coût d'un rafraîchissement se limite donc à sérialiser quelques dizaines
-de lignes.
+aucun appel réseau — le taux de change compris (`eur_rate_cached`).
+
+Le carnet n'est pas rendu par Dash. Le serveur envoie des données déjà
+formatées (`book_payload`) et `assets/book.js` les écrit dans le tableau, en
+place : seuls les textes qui changent sont touchés. Rendu par Dash, chaque
+ligne coûtait un arbre de composants à réconcilier, et la page ne tenait
+plus que la moitié de ses minuteries, avec des gels de près de neuf
+secondes en plein écran (mesure du 5 novembre 2026). Le canal push et le
+repli par interrogation livrent les mêmes données au même script : il n'y a
+qu'un moteur de rendu, et le formatage reste ici, testé sans navigateur.
 
 Le carnet suit la devise du panneau prix. La profondeur n'en a pas : elle
 s'exprime en écart relatif et en bitcoins.
@@ -18,7 +25,7 @@ from dash import Input, Output, State, dcc, html
 
 from ..charts import build_depth_chart
 from ..fx import display
-from ..theme import C, MONO, PANEL_STYLE, TABLE_STYLE, TITLE_STYLE
+from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
 #: Le carnet et la profondeur partagent désormais une cellule haute de
 #: deux rangées, au lieu d'une chacun : la place regagnée revient aux
@@ -36,6 +43,16 @@ DEPTH_MAX = 20
 WALL_BUCKET = 0.01
 #: Niveaux lus par carnet et par côté.
 WALL_DEPTH = 100
+
+#: Les couleurs que `assets/book.js` applique, posées en variables CSS sur
+#: le conteneur : le thème garde une seule définition, ici.
+BOOK_VARS = {
+    "--book-ask": C["red"], "--book-bid": C["green"],
+    "--book-ask-bar": f"{C['red']}22", "--book-bid-bar": f"{C['green']}22",
+    "--book-text": C["text"], "--book-muted": C["muted"],
+    "--book-spread": C["yellow"], "--book-border": C["border"],
+    "--book-mono": MONO,
+}
 
 
 def layout(title=None):
@@ -57,7 +74,14 @@ def layout(title=None):
                 style={"fontSize": "9px", "whiteSpace": "nowrap"},
             ),
         ], style=TITLE_STYLE),
-        html.Div(id="book-table", style={"flex": "1", "overflowY": "auto"}),
+        # Rempli par assets/book.js, jamais par Dash : sans enfants côté
+        # Dash, React ne touche pas à ce que le script y écrit.
+        html.Div(id="book-table",
+                 style={"flex": "1", "overflowY": "auto", **BOOK_VARS}),
+        # Les données du repli par interrogation ; le canal push, lui, les
+        # remet directement au script.
+        dcc.Store(id="book-data"),
+        dcc.Store(id="book-sink"),
     ], style=PANEL_STYLE)
 
 
@@ -71,22 +95,6 @@ def depth_layout(title=None):
             config={"displayModeBar": False, "scrollZoom": True},
         ),
     ], style=PANEL_STYLE)
-
-
-def _row(price, qty, ratio, color, decimals=2):
-    """Ligne de carnet, avec une barre de fond proportionnelle au volume."""
-    return html.Tr([
-        html.Td(f"{price:,.{decimals}f}",
-                style={"color": color, "textAlign": "right",
-                       "padding": "1px 6px"}),
-        html.Td(f"{qty:.4f}", style={"color": C["muted"], "textAlign": "right",
-                                     "padding": "1px 6px"}),
-        html.Td(style={
-            "background": f"linear-gradient(to right, {color}22 {ratio*100:.0f}%,"
-                          f" transparent {ratio*100:.0f}%)",
-            "width": "45%",
-        }),
-    ])
 
 
 def wall(books: dict, side: str) -> tuple[float, float] | None:
@@ -113,7 +121,7 @@ def wall(books: dict, side: str) -> tuple[float, float] | None:
     return max(totals.items(), key=lambda item: item[1], default=None)
 
 
-def _walls(books: dict, mid: float | None, fx):
+def _walls(books: dict, mid: float | None, fx) -> dict | None:
     """La ligne des murs ; rien tant qu'aucun carnet connecté n'en donne.
 
     Les écarts sont ramenés au prix de la plateforme affichée : c'est celui
@@ -127,24 +135,23 @@ def _walls(books: dict, mid: float | None, fx):
         price = mid * (1 + level[0] / 100) * fx.rate
         return f"{side} {price:,.0f} ({level[0]:+.2f} %) · {level[1]:.1f} BTC"
 
-    return html.Div([
-        html.Span("murs ", style={"color": C["muted"]}),
-        html.Span(label("achat", bid), style={"color": C["green"]}),
-        html.Span(" | ", style={"color": C["muted"]}),
-        html.Span(label("vente", ask), style={"color": C["red"]}),
-    ], title=fx.title("la tranche la plus chargée de chaque côté, toutes "
-                      "plateformes connectées, par écart à leur prix médian"),
-       style={"fontFamily": MONO, "fontSize": "10px", "textAlign": "center",
-              "padding": "6px"})
+    return {"bid": label("achat", bid), "ask": label("vente", ask),
+            "title": fx.title("la tranche la plus chargée de chaque côté, "
+                              "toutes plateformes connectées, par écart à "
+                              "leur prix médian")}
 
 
-def render_book(hub, exchange: str, expanded: bool,
-                currency: str | None = None):
-    """Le carnet d'une plateforme, prêt à poser dans `book-table`.
+def book_payload(hub, exchange: str, expanded: bool,
+                 currency: str | None = None) -> dict:
+    """Le carnet d'une plateforme, en données prêtes pour `assets/book.js`.
 
     Fonction pure vis-à-vis du rendu : le callback Dash et le pousseur
     WebSocket l'appellent tous deux — un seul code décide de ce que le
     panneau montre, quel que soit le canal qui l'amène au navigateur.
+
+    Chaque niveau est `[prix, quantité, largeur de la barre en %]`, les prix
+    déjà dans la devise affichée ; les ventes viennent dans l'ordre de
+    l'écran, la plus chère en haut. Sans niveaux, seul `message` est rendu.
 
     `currency` est la devise du panneau prix. Les carnets restent cotés en
     dollars en mémoire : seul l'affichage est converti, comme au bandeau.
@@ -161,9 +168,7 @@ def render_book(hub, exchange: str, expanded: bool,
     asks = book.top("asks", depth)
 
     if not bids or not asks:
-        message = book.error or "connexion en cours…"
-        return html.Div(message, style={"color": C["muted"], "fontFamily": MONO,
-                                        "fontSize": "11px", "padding": "12px"})
+        return {"message": book.error or "connexion en cours…"}
 
     largest = max((q for _, q in bids + asks), default=1) or 1
     bought = sum(q for _, q in bids)
@@ -171,27 +176,20 @@ def render_book(hub, exchange: str, expanded: bool,
     spread = book.spread or 0
     spread_pct = book.spread_pct or 0
 
-    table = html.Table([
-        html.Tbody(
-            [_row(p * fx.rate, q, q / largest, C["red"], decimals)
-             for p, q in reversed(asks)]
-            + [html.Tr(html.Td(
-                f"{fx.warning}spread {spread * fx.rate:,.2f} {fx.unit} · "
-                f"{spread_pct:.4f} % · achat {pressure:.0f} % · "
-                f"{book.age_ms:.0f} ms",
-                colSpan=3,
-                title=fx.title("achat : part des acheteurs dans le volume des "
-                               "niveaux affichés"),
-                style={"color": C["yellow"], "textAlign": "center",
-                       "fontSize": "10px", "padding": "3px",
-                       "borderTop": f"1px solid {C['border']}",
-                       "borderBottom": f"1px solid {C['border']}"},
-            ))]
-            + [_row(p * fx.rate, q, q / largest, C["green"], decimals)
-               for p, q in bids]
-        )
-    ], style=TABLE_STYLE)
-    return html.Div([table, _walls(hub.books, book.mid, fx)])
+    def levels(side):
+        return [[f"{p * fx.rate:,.{decimals}f}", f"{q:.4f}",
+                 round(q / largest * 100)] for p, q in side]
+
+    return {
+        "asks": levels(reversed(asks)),
+        "bids": levels(bids),
+        "spread": (f"{fx.warning}spread {spread * fx.rate:,.2f} {fx.unit} · "
+                   f"{spread_pct:.4f} % · achat {pressure:.0f} % · "
+                   f"{book.age_ms:.0f} ms"),
+        "spread_title": fx.title("achat : part des acheteurs dans le volume "
+                                 "des niveaux affichés"),
+        "walls": _walls(hub.books, book.mid, fx),
+    }
 
 
 def render_depth(hub):
@@ -201,7 +199,7 @@ def render_depth(hub):
 
 def register(app, hub):
     @app.callback(
-        Output("book-table", "children"),
+        Output("book-data", "data"),
         Input("tick-fast", "n_intervals"),
         Input("book-exchange", "value"),
         # Le Store global plutôt que le sélecteur, qui quitte la page avec
@@ -213,7 +211,16 @@ def register(app, hub):
         State("expanded", "data"),
     )
     def _refresh_book(_tick, exchange, currency, expanded):
-        return render_book(hub, exchange, expanded == "book", currency)
+        return book_payload(hub, exchange, expanded == "book", currency)
+
+    # Le script écrit le carnet ; la sortie n'est qu'un puits.
+    app.clientside_callback(
+        "function (data) {"
+        " if (window.btcBook) { window.btcBook.render(data); }"
+        " return window.dash_clientside.no_update; }",
+        Output("book-sink", "data"),
+        Input("book-data", "data"),
+    )
 
     @app.callback(
         Output("depth-chart", "figure"),

@@ -169,13 +169,42 @@ def test_le_moteur_ecarte_le_carnet_croise():
 def test_la_pression_acheteuse_se_lit_sur_le_spread():
     """La part des acheteurs dans le volume des niveaux affichés."""
     from btcterm.hub import MarketHub
-    from terminal.panels.orderbook import render_book
+    from terminal.panels.orderbook import book_payload
 
     hub = MarketHub(collect_news=False, keep_journal=False)
     hub.books["Binance"].replace(bids={99.0: 3.0, 98.0: 3.0},
                                  asks={101.0: 1.0, 102.0: 1.0})
-    assert "achat 75 %" in str(render_book(hub, "Binance", False))
+    carnet = book_payload(hub, "Binance", False)
+    assert "achat 75 %" in carnet["spread"]
     print("  ✓ 6 BTC à l'achat contre 2 à la vente : achat 75 %")
+
+
+def test_le_carnet_part_en_donnees():
+    """Le carnet part en données formatées, dans l'ordre de l'écran.
+
+    `assets/book.js` ne fait que poser les textes : tout ce qui se décide —
+    ordre, devise, décimales, largeur des barres — se décide ici.
+    """
+    from btcterm.hub import MarketHub
+    from terminal.panels.orderbook import DEPTH, DEPTH_MAX, book_payload
+
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    assert book_payload(hub, "Binance", False) == {
+        "message": "connexion en cours…"}
+    hub.books["Binance"].replace(
+        bids={60_000.0 - i: float(i) for i in range(1, 30)},
+        asks={60_000.0 + i: float(i) for i in range(1, 30)})
+    carnet = book_payload(hub, "Binance", False)
+    #: Les ventes de la plus chère à la moins chère, puis les achats du
+    #: meilleur au moins bon : le spread tombe au milieu.
+    assert [r[0] for r in carnet["asks"]][-2:] == ["60,002.00", "60,001.00"]
+    assert [r[0] for r in carnet["bids"]][:2] == ["59,999.00", "59,998.00"]
+    assert carnet["asks"][-1][1] == "1.0000"
+    #: La barre la plus longue est le plus gros niveau affiché.
+    assert carnet["asks"][0][2] == 100 and carnet["asks"][-1][2] == 12
+    assert len(carnet["asks"]) == len(carnet["bids"]) == DEPTH
+    assert len(book_payload(hub, "Binance", True)["bids"]) == DEPTH_MAX
+    print("  ✓ niveaux formatés, ordre de l'écran, barres, plein écran")
 
 
 def test_les_murs_reunissent_les_plateformes():
@@ -187,7 +216,7 @@ def test_les_murs_reunissent_les_plateformes():
     """
     from btcterm.hub import MarketHub
     from terminal.fx import Display
-    from terminal.panels.orderbook import render_book, wall
+    from terminal.panels.orderbook import book_payload, wall
 
     hub = MarketHub(collect_news=False, keep_journal=False)
     assert wall(hub.books, "bids") is None, "aucun carnet connecté"
@@ -213,11 +242,12 @@ def test_les_murs_reunissent_les_plateformes():
     assert wall(hub.books, "bids")[1] == 6.0
     hub.books["Kraken"].connected = True
 
-    rendu = str(render_book(hub, "Binance", False, None))
-    assert "achat 100 (-0.10 %) · 7.0 BTC" in rendu
-    assert "vente 100 (+0.10 %) · 3.0 BTC" in rendu
+    murs = book_payload(hub, "Binance", False, None)["walls"]
+    assert murs["bid"] == "achat 100 (-0.10 %) · 7.0 BTC"
+    assert murs["ask"] == "vente 100 (+0.10 %) · 3.0 BTC"
     hub._cache.get("eur", hub.TTL_EUR, lambda: 0.5)
-    assert "achat 50 (-0.10 %)" in str(render_book(hub, "Binance", False, "EUR"))
+    murs = book_payload(hub, "Binance", False, "EUR")["walls"]
+    assert murs["bid"].startswith("achat 50 (-0.10 %)")
     print("  ✓ tranches réunies, carnet coupé écarté, prix dans la devise")
 
 

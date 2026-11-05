@@ -267,7 +267,7 @@ def test_carnet_suit_la_devise():
     """Le carnet lit la devise en Input, comme le bandeau : le sélecteur
     quitte la page avec le panneau prix, et la bascule doit se voir tout
     de suite, y compris quand le canal push a coupé l'horloge."""
-    carnet = APP.callback_map["book-table.children"]
+    carnet = APP.callback_map["book-data.data"]
     assert {"id": "currency", "property": "data"} in carnet["inputs"]
     print("  ✓ le carnet suit la devise du panneau prix")
 

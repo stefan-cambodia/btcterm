@@ -20,7 +20,10 @@ Le contrat avec `assets/push.js` :
   applique par `dash_clientside.set_props` : le même chemin de mise à
   jour qu'une réponse de callback, sérialisé par le même encodeur —
   le navigateur ne voit pas la différence entre les deux canaux.
-- une cible fait exception : `price-lwc`, la mutation du panneau prix
+- le carnet, `book-data`, porte des données et non des composants :
+  push.js les remet à `window.btcBook`, qui les écrit dans la page, au
+  lieu de passer par set_props (`panels/orderbook.py`).
+- une autre cible fait exception : `price-lwc`, la mutation du panneau prix
   en rendu Lightweight Charts. Elle n'existe que si le navigateur
   annonce `price_interval` (le rendu Plotly ne l'annonce pas), ne porte
   que la dernière bougie et les derniers points d'indicateurs, à sa
@@ -76,19 +79,15 @@ PUSH_PRICE_INTERVAL = 2.0
 #: canal. L'arbitrage et les liquidations, eux, gardent la cadence du canal.
 PUSH_DEPTH_INTERVAL = 1.0
 
-#: Cadence du carnet, celle du repli par interrogation : il change à
-#: chaque trame, ne serait-ce que par l'âge de son flux, et c'est le rendu
-#: Dash qui ne suivait pas. À 100 ms, les minuteries de la page dérivaient
-#: de 0,7 s à 6 s en trente secondes, jusqu'à la figer plus d'une minute
-#: (Firefox headless) ; à 250 ms, leur retard reste stable sous 350 ms. Le
-#: canal garde ce qui fait son intérêt : aucun aller-retour, sur un tunnel
-#: SSH lointain comme en local.
-PUSH_BOOK_INTERVAL = 0.25
-
-#: La même, carnet en plein écran : 41 lignes au lieu de 17, et le rendu
-#: coûte à la ligne. À 250 ms, la page y saturait encore, et sortir du
-#: plein écran prenait près de six secondes.
-PUSH_BOOK_EXPANDED_INTERVAL = 0.5
+#: Cadence du carnet : celle du canal, plein écran compris. Rendu par Dash,
+#: il devait partir à 250 ms, et à 500 ms en plein écran : chaque trame
+#: était un arbre de composants à réconcilier, et la page ne tenait plus que
+#: la moitié de ses minuteries, avec des gels jusqu'à neuf secondes en plein
+#: écran. Écrit en place par assets/book.js, à 100 ms, elle en tient 370
+#: sur 400 en taille normale et 348 en plein écran (Firefox headless, le
+#: 6 novembre 2026) — autant que sans carnet du tout. La trame pèse 0,9 Ko
+#: au lieu de 11, ce qu'un tunnel SSH sent aussi.
+PUSH_BOOK_INTERVAL = PUSH_INTERVAL
 
 #: L'état que le navigateur annonce, et ses valeurs tant qu'il n'a rien
 #: dit — les mêmes défauts que la page au chargement. `price_interval`
@@ -128,7 +127,7 @@ def _frame(hub, state: dict, depth: bool = True,
         "liq-badges": {"children": liq_badges},
     }
     if book:
-        frame["book-table"] = {"children": orderbook.render_book(
+        frame["book-data"] = {"data": orderbook.book_payload(
             hub, state["exchange"], state["expanded"] == "book",
             state["currency"])}
     if depth:
@@ -311,9 +310,7 @@ def serve(hub, ws) -> None:
             if depth:
                 depth_due = time.monotonic() + PUSH_DEPTH_INTERVAL
             if book:
-                book_due = time.monotonic() + (
-                    PUSH_BOOK_EXPANDED_INTERVAL
-                    if state["expanded"] == "book" else PUSH_BOOK_INTERVAL)
+                book_due = time.monotonic() + PUSH_BOOK_INTERVAL
             if (state["price_interval"] and price_read is None
                     and time.monotonic() >= price_due):
                 price_read = _PriceRead(hub, state["price_interval"])
@@ -335,8 +332,8 @@ def serve(hub, ws) -> None:
                     f"{json.dumps(target)}:{blob}"
                     for target, blob in changed.items()) + "}")
                 sent.update(changed)
-            # Le réveil se cale sur le carnet : au pas de la boucle, ses
-            # 250 ms s'arrondissaient à 300.
+            # Le réveil se cale sur le carnet : si sa cadence s'écarte un
+            # jour de celle du canal, elle ne s'arrondira pas à son pas.
             next_send = min(time.monotonic() + PUSH_INTERVAL, book_due)
     except (ConnectionClosed, OSError):
         # Fin normale : le navigateur est parti, ou le repli sur
