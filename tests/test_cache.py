@@ -10,7 +10,8 @@ Trois choses sont vérifiées ici, sans réseau :
 - le cache sert sa dernière valeur quand la source tombe, mais sait
   qu'elle est de secours (`stale`) ;
 - la première panne d'une source et son rétablissement laissent une
-  ligne de journal, une seule chacune, pas une par lecture ;
+  ligne de journal, une seule chacune, pas une par lecture, et la durée
+  dite au retour est celle de la panne vue, pas celle d'un oubli ;
 - l'instantané de marché n'écrit que des valeurs fraîches : une source
   en panne donne NULL, pas sa valeur d'il y a six heures ;
 - un collecteur qui n'a rien obtenu lève, au lieu de rendre un vide
@@ -82,6 +83,56 @@ def test_secours_et_fraicheur():
     finally:
         hub_module.log.removeHandler(capture)
     print("  ✓ secours servi mais non frais, panne et retour dits une fois")
+
+
+def test_le_retour_ne_compte_pas_l_oubli():
+    """Une source relue après un long oubli n'a pas été en panne tout ce temps.
+
+    Le journal du service a dit « de nouveau servie après 1915 min » d'une
+    source qui avait échoué une fois, puis que personne n'avait relue
+    pendant trente-deux heures : son panneau était replié.
+    """
+    def panne():
+        raise ConnectionError("injoignable")
+
+    def echoue(cache, cle):
+        try:
+            cache.get(cle, 0, panne)
+        except ConnectionError:
+            pass
+
+    def recule(cache, cle, debut, fin):
+        cache._failing[cle] -= debut
+        cache._failed_at[cle] -= fin
+
+    cache = TTLCache()
+    capture = Capture()
+    hub_module.log.addHandler(capture)
+    try:
+        #: Relue sans relâche pendant dix minutes : la durée est celle de
+        #: la panne, comme avant.
+        echoue(cache, "suivie")
+        recule(cache, "suivie", 600, 30)
+        cache.get("suivie", 0, lambda: 1)
+        assert capture.lignes[-1] == "source suivie de nouveau servie après 10 min"
+
+        #: Un échec, puis trente-deux heures sans lecture.
+        echoue(cache, "oubliee")
+        recule(cache, "oubliee", 1915 * 60, 1915 * 60)
+        cache.get("oubliee", 0, lambda: 1)
+        assert capture.lignes[-1] == (
+            "source oubliee de nouveau servie à sa première lecture depuis "
+            "1915 min (panne constatée : moins d'une minute)"), capture.lignes[-1]
+
+        #: Quatre minutes d'échecs, puis la machine dort une nuit.
+        echoue(cache, "endormie")
+        recule(cache, "endormie", 836 * 60, 832 * 60)
+        cache.get("endormie", 0, lambda: 1)
+        assert capture.lignes[-1].endswith(
+            "depuis 832 min (panne constatée : 4 min)"), capture.lignes[-1]
+    finally:
+        hub_module.log.removeHandler(capture)
+    print("  ✓ la durée dite est celle de la panne vue, pas celle de l'oubli")
 
 
 def test_l_instantane_n_ecrit_que_le_frais():

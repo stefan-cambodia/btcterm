@@ -47,6 +47,11 @@ __all__ = ["MarketHub", "TTLCache"]
 
 log = logging.getLogger("btcterm.hub")
 
+#: Un échec plus vieux que ce délai ne confirme plus la panne : le bandeau
+#: cesse de la dire, et son rétablissement ne s'en attribue pas la durée.
+FAILING_WINDOW = 900
+
+
 class TTLCache:
     """Cache mémoire à durée de vie, sûr entre threads.
 
@@ -127,11 +132,28 @@ class TTLCache:
                         key, sources.brief_error(exc), age)
 
     def _note_recovery(self, key: str) -> None:
+        """Le retour d'une source, avec la durée de panne qu'on a vue.
+
+        Une source que personne n'a relue depuis son dernier échec — le
+        panneau qui la lit était replié, ou la machine dormait — n'a pas été
+        en panne tout ce temps : on ne sait d'elle que l'intervalle entre ses
+        échecs. Le journal du service a affiché « après 1915 min » pour un
+        seul échec suivi de trente-deux heures sans lecture.
+        """
+        now = time.time()
         with self._lock:
             since = self._failing.pop(key, None)
-        if since is not None:
+            last = self._failed_at.get(key, since)
+        if since is None:
+            return
+        if now - last <= FAILING_WINDOW:
             log.warning("source %s de nouveau servie après %.0f min",
-                        key, (time.time() - since) / 60)
+                        key, (now - since) / 60)
+            return
+        seen = last - since
+        log.warning("source %s de nouveau servie à sa première lecture depuis "
+                    "%.0f min (panne constatée : %s)", key, (now - last) / 60,
+                    "moins d'une minute" if seen < 60 else f"{seen / 60:.0f} min")
 
     def peek(self, key: str) -> Optional[Any]:
         with self._lock:
@@ -169,7 +191,7 @@ class MarketHub:
     #: Une panne se dit au bandeau tant que la source a échoué depuis moins
     #: que ce délai. Une page d'historique ratée une fois, que personne ne
     #: relit, s'efface ainsi d'elle-même au lieu de rester affichée.
-    FAILING_WINDOW = 900
+    FAILING_WINDOW = FAILING_WINDOW
     TTL_TICKER = 5
     TTL_EUR = 3600
     #: Délai avant de réinterroger une source de change en panne.

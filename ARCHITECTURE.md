@@ -1605,7 +1605,14 @@ CoinGecko répondant à côté — sans une ligne dans le journal du service :
 le cache servait sa dernière valeur, et rien ne le disait. `TTLCache`
 journalise désormais la première panne d'une source (clé, erreur, âge de
 la valeur servie) puis son rétablissement avec la durée — une ligne
-chacun, pas une par lecture —, et un collecteur qui n'a rien obtenu
+chacun, pas une par lecture. Cette durée est celle de la panne *vue* :
+une source restée sans lecture plus de `FAILING_WINDOW` après son dernier
+échec, parce que son panneau était replié ou que la machine dormait, n'a
+pas été en panne tout ce temps. Sa ligne de retour dit alors
+depuis quand elle n'avait pas été lue et l'intervalle entre ses échecs
+(« à sa première lecture depuis 1915 min (panne constatée : moins d'une
+minute) »), là où le journal annonçait trente-deux heures de panne pour un
+seul échec. Un collecteur qui n'a rien obtenu
 lève au lieu de rendre un vide : `fetch_perp_snapshot` rendait `{}`
 quand ses deux endpoints tombaient, et le cache le stockait comme une
 lecture réussie, invisible au secours. L'erreur y tient en une ligne
@@ -2164,6 +2171,12 @@ constaté à l'usage, ou de l'un des deux points ouverts.
   d'une source et son rétablissement, tient par clé si la dernière
   lecture était fraîche ou de secours, l'instantané n'écrit que le
   frais, et un collecteur sans rien lève (§4.3).
+- ~~**Une panne qui dure tant qu'on ne regarde pas**~~ — constaté dans le
+  journal du service : « klines:4h:350 de nouveau servie après 1915 min »,
+  pour un seul échec suivi de trente-deux heures sans lecture, le panneau
+  ANALYSE étant replié ; la nuit de sommeil gonflait de même la durée des
+  pannes d'avant le coucher. Fait : au-delà de `FAILING_WINDOW` sans
+  lecture, le retour dit l'oubli et la panne constatée séparément (§4.3).
 - ~~**Les alertes après un redémarrage**~~ — constaté au balayage des
   panneaux du service en marche : « aucune alerte — les seuils
   veillent » quand le journal en comptait onze sur la journée. Fait :
