@@ -618,4 +618,7 @@ les lignes) ou un seuil de cours en dollars (`alerte 80000`). Une commande incon
   ligne de commande, eux, s'en remettent au DNS du système.
 - Le terminal se lie à `127.0.0.1:8050` ; `--host` et `--port` permettent d'en
   changer.
-- Le dépôt est versionné avec git (branche `main`, pas de remote).
+- Le dépôt est versionné avec git et publié sur GitHub
+  (`stefan-cambodia/btcterm`) : le travail se mène sur une branche, fusionnée
+  dans `main` par pull request, en avance rapide pour garder un historique
+  linéaire.

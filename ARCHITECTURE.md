@@ -1914,6 +1914,14 @@ nées l'une et l'autre d'un panneau qui semblait en panne sans l'être :
 Comme à chaque clôture, plus rien n'est *en cours* : les prochains
 chantiers s'ouvriront à l'usage.
 
+Ils se sont ouverts : une série de manques tirés de l'usage a été comblée
+depuis — historique des bougies sur disque, résolution DNS qui ne dépend plus
+du FAI, bascule € étendue à tout le marché du moment, panneaux ANALYSE et
+POSITION, lecture et annotation du graphique, murs du carnet, perpétuel
+comparé — et fusionnée dans `main` le 5 novembre 2026 (pull request n° 1,
+douze commits). Chacun est barré dans « Ce qui manque encore » ci-dessous.
+Le numéro de version, lui, est resté à 1.1.0.
+
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
@@ -2074,6 +2082,11 @@ n'est *en cours*. Ce qui suit n'est donc pas un chemin ordonné mais l'état
 des manques constatés à la clôture et depuis — chacun à ouvrir quand l'usage le
 fera sentir, aucun ne conditionnant les autres. Les deux qui restent ouverts
 sont en fin de section.
+
+**Point de reprise** (pause du 5 novembre 2026) : `main` porte tout le travail
+de la séance, le service tourne sur ce code et les contrôles passent — tests
+Python et `ui_smoke.py`. Rien n'est entamé : la séance suivante part d'un manque
+constaté à l'usage, ou de l'un des deux points ouverts.
 
 **Pour l'analyse :**
 
