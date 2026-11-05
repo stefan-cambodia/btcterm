@@ -25,7 +25,7 @@ import pandas as pd
 from . import sources
 from .alerts import Alert, AlertEngine
 from .arbitrage import ArbitrageEngine
-from .analysis import signal_stats
+from .analysis import monthly_returns, rule_stats, signal_stats
 from .history import KlineHistory
 from .journal import Journal
 from .newsdb import NewsCollector
@@ -579,6 +579,16 @@ class MarketHub:
             f"signal_stats:{interval}", self.TTL_SIGNAL_STATS,
             lambda: signal_stats(self.deep_klines(interval)))
 
+    def rule_stats(self, interval: str) -> Optional[dict]:
+        """Les règles simples face à la détention (§ analysis)."""
+        return self._cache.get(
+            f"rule_stats:{interval}", self.TTL_SIGNAL_STATS,
+            lambda: rule_stats(self.deep_klines(interval)))
+
+    def monthly_returns(self) -> Optional[dict]:
+        """Les rendements mensuels, le mois en cours compris."""
+        return monthly_returns(self.klines("1M", limit=120))
+
     def _backfill_loop(self) -> None:
         """Complète l'historique vers le passé, une page à la fois.
 
@@ -940,6 +950,30 @@ class MarketHub:
             # de Binance : le règlement réel gagne.
             resampled = resampled[resampled["time"] < base["time"].iloc[0]]
         return pd.concat([resampled, base], ignore_index=True)
+
+    def perp_compare(self) -> dict[str, dict]:
+        """Le perpétuel par plateforme ; une plateforme muette est absente.
+
+        Binance vient de `perp_snapshot` et de son open interest, déjà lus
+        par le panneau. Bybit et OKX s'y ajoutent à la même cadence : une
+        seule plateforme en panne ne prive pas des autres, et le bandeau la
+        nomme comme toute source qui se tait.
+        """
+        rows: dict[str, dict] = {}
+        snapshot = self.perp_snapshot()
+        if snapshot.get("funding_rate") is not None:
+            oi = self.open_interest_extended()
+            rows["Binance"] = {
+                **snapshot,
+                "oi_usd": (float(oi["oi_usd"].dropna().iloc[-1])
+                           if oi is not None and not oi.empty else None)}
+        for name, key, fetch in (("Bybit", "perp_bybit", sources.fetch_bybit_perp),
+                                 ("OKX", "perp_okx", sources.fetch_okx_perp)):
+            try:
+                rows[name] = self._cache.get(key, self.TTL_PERP, fetch)
+            except Exception:
+                continue
+        return rows
 
     def perp_snapshot(self) -> dict:
         """Prix marqué, financement courant et positionnement des comptes."""

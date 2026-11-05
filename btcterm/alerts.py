@@ -71,6 +71,7 @@ hub factice.
 
 from __future__ import annotations
 
+import datetime as dt
 import threading
 import time
 from collections import deque
@@ -80,7 +81,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from . import indicators as ind
-from . import newsdb
+from . import macrocal, newsdb
 
 __all__ = ["Alert", "AlertEngine", "DEFAULT_CONFIG",
            "COOLDOWN", "HYSTERESIS_PCT", "SLOW_EVERY"]
@@ -105,6 +106,11 @@ DEFAULT_CONFIG: dict = {
     "rsi_oversold": 20.0,
     #: sonner sur les signaux gradués forts (±2) de la bougie close.
     "signal_strong": True,
+    #: sonner quand la clôture journalière franchit sa MA 200 : la seule
+    #: lecture que le bilan du panneau ANALYSE n'ait pas démentie.
+    "trend_flip": True,
+    #: prévenir avant les échéances macro du calendrier (§ macrocal).
+    "event_soon": True,
     #: glissement de la dominance BTC sur 24 h, en points de part.
     "dominance_shift_pts": 1.5,
     #: flux ETF : |flux net du dernier jour publié| en M$.
@@ -133,6 +139,13 @@ SLOW_EVERY = 60.0
 #: marge de chauffe des lissages.
 KLINE_INTERVAL = "1h"
 KLINE_LIMIT = 400
+
+#: Avance de l'alerte d'échéance, en secondes.
+EVENT_LEAD = 1800.0
+
+#: L'alerte de tendance lit le journalier : assez de bougies pour sa MA 200.
+TREND_WINDOW = 200
+TREND_LIMIT = 365
 
 
 @dataclass
@@ -173,7 +186,7 @@ def normalize_config(data) -> dict:
             < config["rsi_overbought"] <= 100):
         config["rsi_overbought"] = DEFAULT_CONFIG["rsi_overbought"]
         config["rsi_oversold"] = DEFAULT_CONFIG["rsi_oversold"]
-    for key in ("sound", "signal_strong"):
+    for key in ("sound", "signal_strong", "trend_flip", "event_soon"):
         if isinstance(data.get(key), bool):
             config[key] = data[key]
     levels = []
@@ -273,7 +286,8 @@ class AlertEngine:
         if now >= self._next_slow:
             self._next_slow = now + SLOW_EVERY
             for rule in (self._check_funding, self._check_news,
-                         self._check_technical, self._check_dominance,
+                         self._check_technical, self._check_trend,
+                         self._check_event, self._check_dominance,
                          self._check_etf, self._check_chain):
                 try:
                     rule(hub, opportunities, config, now)
@@ -408,6 +422,59 @@ class AlertEngine:
                 self._fire("signal",
                            f"signal {sens} sur la bougie 1 h close "
                            f"({close:,.0f} $)", now)
+
+    def _check_trend(self, hub, _opps, config, now) -> None:
+        """La clôture journalière passe de l'autre côté de sa MA 200.
+
+        Un événement daté, comme le signal gradué, mais sur l'intervalle où
+        il a un sens. Sa date est dans le message : relue du journal au
+        redémarrage, la sonnerie du jour n'est pas rejouée.
+        """
+        if not config["trend_flip"]:
+            return
+        df = hub.klines("1d", limit=TREND_LIMIT)
+        if (df.attrs.get("demo", False) or df.attrs.get("stale", False)
+                or len(df) < TREND_WINDOW + 3):
+            return
+        ma = ind.sma(df["close"], TREND_WINDOW)
+        # La dernière ligne est la bougie en cours : elle flotte.
+        above, before = (df["close"].iloc[-2] > ma.iloc[-2],
+                         df["close"].iloc[-3] > ma.iloc[-3])
+        if above == before:
+            return
+        day = pd.Timestamp(df["time"].iloc[-2]).strftime("%Y-%m-%d")
+        with self._lock:
+            known = any(a.kind == "flip" and day in a.message
+                        for a in self.alerts)
+        if not known:
+            sens = "au-dessus" if above else "sous"
+            self._fire("flip", f"clôture du {day} {sens} de la MA 200 "
+                                f"journalière ({df['close'].iloc[-2]:,.0f} $)",
+                       now)
+
+    def _check_event(self, _hub, _opps, config, now) -> None:
+        """Une échéance macro approche : le temps de réduire ou de s'écarter.
+
+        Un FOMC ou un CPI bougent le cours en quelques secondes : c'est avant
+        qu'il faut le savoir. Une sonnerie par échéance, datée dans son
+        message, donc pas rejouée au redémarrage.
+        """
+        if not config["event_soon"]:
+            return
+        moment = dt.datetime.fromtimestamp(now, tz=dt.timezone.utc)
+        for event in macrocal.upcoming(moment.date() - dt.timedelta(days=1)):
+            left = (event.when_utc - moment).total_seconds()
+            if left > EVENT_LEAD:
+                break
+            if left <= 0:
+                continue
+            stamp = event.when_utc.strftime("%Y-%m-%d %H:%M")
+            with self._lock:
+                known = any(a.kind == "event" and stamp in a.message
+                            for a in self.alerts)
+            if not known:
+                self._fire("event", f"{event.kind} dans {int(left // 60)} min "
+                                    f"({stamp} UTC) : {event.label}", now)
 
     def _check_dominance(self, hub, _opps, config, now) -> None:
         """Glissement de la dominance BTC sur vingt-quatre heures.

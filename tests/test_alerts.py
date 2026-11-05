@@ -502,6 +502,121 @@ def test_les_sonneries_survivent_au_redemarrage():
     print("  ✓ la journée sonnée revient au démarrage, le journal reste intact")
 
 
+def test_changement_de_tendance_journaliere():
+    """La clôture franchit sa MA 200 : une sonnerie, datée, jamais rejouée."""
+    from btcterm.alerts import Alert
+
+    def serie(fin):
+        """Trois cents jours plats à 100, puis deux clôtures et la bougie en cours."""
+        df = klines_frame([100.0] * 300 + fin)
+        df["time"] = pd.date_range("2026-01-01", periods=len(df), freq="D")
+        return df
+
+    class Hub:
+        frame = None
+
+        def klines(self, interval, limit=0):
+            assert interval == "1d", interval
+            return self.frame
+
+    hub = Hub()
+    e = AlertEngine()
+    e.configure(DEFAULT_CONFIG)
+    regle = e.config
+
+    def flips():
+        return [a for a in e.alerts if a.kind == "flip"]
+
+    #: Le cours reste au même endroit : rien.
+    hub.frame = serie([100.0, 100.0, 100.0])
+    e._check_trend(hub, None, regle, T0)
+    assert not flips()
+
+    #: L'avant-dernière ligne franchit : une sonnerie, et une seule.
+    hub.frame = serie([100.0, 120.0, 121.0])
+    e._check_trend(hub, None, regle, T0)
+    e._check_trend(hub, None, regle, T0 + 60)
+    assert len(flips()) == 1, "la même clôture a resonné"
+    assert "au-dessus" in flips()[0].message
+
+    #: La bougie en cours seule ne décide de rien : elle flotte.
+    autre = AlertEngine()
+    autre.configure(DEFAULT_CONFIG)
+    hub.frame = serie([100.0, 100.0, 120.0])
+    autre._check_trend(hub, None, autre.config, T0)
+    assert not [a for a in autre.alerts if a.kind == "flip"]
+
+    #: Relue du journal au redémarrage, la sonnerie du jour ne rejoue pas.
+    relu = AlertEngine()
+    relu.configure(DEFAULT_CONFIG)
+    relu.restore([Alert(time=T0, kind="flip", message=flips()[0].message)])
+    hub.frame = serie([100.0, 120.0, 121.0])
+    relu._check_trend(hub, None, relu.config, T0)
+    assert len([a for a in relu.alerts if a.kind == "flip"]) == 1
+
+    #: Ni sur la démonstration, ni sur un historique figé, ni décochée.
+    for drapeau in ("demo", "stale"):
+        muet = AlertEngine()
+        muet.configure(DEFAULT_CONFIG)
+        hub.frame = serie([100.0, 120.0, 121.0])
+        hub.frame.attrs[drapeau] = True
+        muet._check_trend(hub, None, muet.config, T0)
+        assert not muet.alerts, drapeau
+    eteint = AlertEngine()
+    eteint.configure({**DEFAULT_CONFIG, "trend_flip": False})
+    hub.frame = serie([100.0, 120.0, 121.0])
+    eteint._check_trend(hub, None, eteint.config, T0)
+    assert not eteint.alerts
+    print("  ✓ une sonnerie par franchissement, sur bougie close seulement")
+
+
+def test_echeance_macro_annoncee():
+    """Une sonnerie trente minutes avant, une seule, jamais après coup."""
+    from btcterm import macrocal
+    from btcterm.alerts import Alert
+
+    echeance = macrocal.EVENTS[len(macrocal.EVENTS) // 2]
+    heure = echeance.when_utc.timestamp()
+
+    def echeances(moteur):
+        return [a for a in moteur.alerts if a.kind == "event"]
+
+    def moteur(**reglages):
+        e = AlertEngine()
+        e.configure({**DEFAULT_CONFIG, **reglages})
+        return e
+
+    #: Une heure avant : trop tôt.
+    e = moteur()
+    e._check_event(None, None, e.config, heure - 3600)
+    assert not echeances(e)
+
+    #: Vingt minutes avant : une sonnerie, et une seule malgré les tours.
+    e._check_event(None, None, e.config, heure - 1200)
+    e._check_event(None, None, e.config, heure - 1140)
+    assert len(echeances(e)) == 1
+    assert echeance.kind in echeances(e)[0].message
+    assert "dans 20 min" in echeances(e)[0].message
+
+    #: Une fois passée, rien.
+    tard = moteur()
+    tard._check_event(None, None, tard.config, heure + 60)
+    assert not echeances(tard)
+
+    #: Relue au redémarrage, elle ne rejoue pas.
+    relu = moteur()
+    relu.restore([Alert(time=heure - 1200, kind="event",
+                        message=echeances(e)[0].message)])
+    relu._check_event(None, None, relu.config, heure - 600)
+    assert len(echeances(relu)) == 1
+
+    #: Décochée, silence.
+    eteint = moteur(event_soon=False)
+    eteint._check_event(None, None, eteint.config, heure - 1200)
+    assert not eteint.alerts
+    print("  ✓ annoncée une fois, avant, et pas rejouée au redémarrage")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nMoteur d'alertes — {len(tests)} vérifications\n" + "─" * 60)

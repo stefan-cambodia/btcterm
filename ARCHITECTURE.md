@@ -25,7 +25,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant quinze panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant seize panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement doublés d'un canal push pour les panneaux rapides, un hub
   qui n'ouvre qu'une connexion par plateforme et un collecteur de news en
@@ -62,7 +62,8 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   │                              terme, chaîne, news, sentiment
 │   ├── macrocal.py                calendrier macro tenu à la main
 │   ├── newsdb.py                  base de news : schéma, scoring, collecte
-│   ├── analysis.py                état des intervalles, bilan des signaux
+│   ├── analysis.py                état des intervalles, bilan des signaux,
+│   │                              règles simples, position, saisonnalité
 │   ├── history.py                 bougies closes sur disque
 │   │                              (~/.btcterm/klines.db)
 │   ├── journal.py                 journal des liquidations + épisodes
@@ -93,9 +94,9 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   │                              des panneaux prix et perpétuel, et
 │   │                              vendor/ (Lightweight Charts, sans CDN)
 │   └── panels/                    price · orderbook · arbitrage ·
-│                                   liquidations · etf · perp · news ·
-│                                   calendar · alerts · macro ·
-│                                   dominance · onchain
+│                                   liquidations · journal · etf · perp ·
+│                                   position · news · calendar · alerts ·
+│                                   macro · dominance · onchain · analysis
 │
 ├── tests/
 │   ├── test_indicators_parity.py  non-régression des indicateurs
@@ -280,7 +281,7 @@ d'elle, le marché qui monte, et un carnet qui ne se croise pas.
 | Change | `fetch_eur_rate` |
 | Institutionnel | `fetch_etf_flows` |
 | Macro | `fetch_m2_supply` |
-| Marché à terme | `fetch_funding_history`, `fetch_open_interest`, `fetch_perp_snapshot` |
+| Marché à terme | `fetch_funding_history`, `fetch_open_interest`, `fetch_perp_snapshot`, `fetch_bybit_perp`, `fetch_okx_perp` |
 | Agrégats de marché | `fetch_market_global` |
 | Chaîne | `fetch_chain_chart`, `fetch_chain_stats` |
 | News | `fetch_rss_entries`, `fetch_cryptopanic_posts`, `fetch_fear_greed`, `fetch_fear_greed_history` |
@@ -538,7 +539,7 @@ de l'open interest compris.
 
 Douze panneaux qu'il faut balayer des yeux couvraient la surveillance
 active ; la passive demande l'inverse — que le terminal prévienne.
-`AlertEngine` évalue onze règles dans la boucle d'observation du hub
+`AlertEngine` évalue treize règles dans la boucle d'observation du hub
 (1 s), toutes nourries par ce que le hub tient déjà, sans aucune
 connexion nouvelle :
 
@@ -598,6 +599,25 @@ on-chain tirent déjà — mêmes caches, aucune requête de plus :
   a son front. Un rythme qui s'étire dit que le réseau a perdu des
   mineurs depuis le dernier ajustement — ce que le panneau on-chain
   colore déjà en orange.
+
+Les deux dernières sont des événements datés, comme le signal gradué,
+mais tirés de ce que le bilan du panneau ANALYSE (§3.14) et le
+calendrier (§2.6) ont appris au terminal :
+
+- **tendance journalière** — la clôture journalière passe de l'autre
+  côté de sa MA 200, la seule lecture que le bilan n'ait pas démentie.
+  Elle est lue sur la dernière bougie journalière *close*, et se tait
+  sur la démonstration comme sur un historique périmé ;
+- **échéance proche** — un FOMC, un CPI, un NFP ou un PCE du calendrier
+  tombe dans moins de trente minutes (`EVENT_LEAD`) : un tel chiffre
+  bouge le cours en quelques secondes, et c'est avant qu'il faut le
+  savoir.
+
+Toutes deux portent leur date dans leur message : relues du journal au
+redémarrage (voir plus bas), elles ne sont pas rejouées. Chacune se
+débraye d'une case, comme le signal gradué — qui reste armé par défaut
+malgré ce que le bilan en dit : c'est un réglage de l'utilisateur, pas
+un défaut du terminal.
 
 Les règles d'état sonnent sur le **front montant** et pas avant un
 délai de garde de 10 minutes : une condition qui dure ne sonne qu'une
@@ -812,30 +832,34 @@ terminal/
 │                    (aucun CDN)
 └── panels/          un module par panneau
     ├── price.py         chandeliers, indicateurs, profil de volume
-    ├── orderbook.py     carnet + profondeur comparée
+    ├── orderbook.py     carnet, murs + profondeur comparée
     ├── arbitrage.py     écarts inter-plateformes
     ├── etf.py           flux des ETF spot
-    ├── perp.py          financement, open interest, positionnement
+    ├── perp.py          financement, open interest, positionnement,
+    │                    comparaison Binance · Bybit · OKX
+    ├── position.py      position saisie à la main, taille d'après l'ATR
     ├── liquidations.py  positions fermées de force
+    ├── journal.py       relecture des 24 h : alertes, épisodes, bilan
     ├── dominance.py     parts de capitalisation
     ├── onchain.py       hashrate, difficulté, mempool
     ├── news.py          fil de news + Fear & Greed (courbe 90 j agrandi)
     ├── calendar.py      échéances macro : FOMC, CPI, NFP, PCE
     ├── alerts.py        sonneries et réglages du moteur d'alertes
-    └── macro.py         cours contre masse monétaire M2
+    ├── macro.py         cours contre masse monétaire M2
+    └── analysis.py      intervalles, bilan des signaux, règles, saisonnalité
 ```
 
 ```
 ┌─────────┬──────────────────┬─────────────────┐
-│         │ CARNET  PROFOND. │ ARBITRAGE  LIQ. │
+│         │ CARNET  PROFOND. │ ARBITR. LIQ. J. │
 │         │                  ├─────────────────┤
 │  prix   │                  │                 │
 │         │                  │ NEWS  CALENDRIER│
 │         │                  │      ALERTES    │
 │         ├──────────────────┤                 │
-│         │ ETF   PERPÉTUEL  │                 │
+│         │ ETF  PERP.  POS. │                 │
 │         ├──────────────────┴─────────────────┤
-│         │ MACRO  DOMINANCE  ON-CHAIN         │
+│         │ MACRO  DOMINANCE  ON-CHAIN  ANALYSE│
 └─────────┴────────────────────────────────────┘
 ```
 
@@ -1434,10 +1458,29 @@ moteur, la liste et les lignes suivent sans chemin propre. Le seuil est enregist
 en dollars quelle que soit la devise affichée, et un clic à moins de six pixels
 d'un seuil existant le retire.
 
+Les **lignes de tendance** (`T`, puis glisser) sont des séries à deux points, pas
+des dessins sur le canvas : elles suivent le zoom, le pan et l'échelle sans rien
+à recalculer, et `autoscaleInfoProvider` les tient hors de l'échelle des prix.
+Elles se gardent en dollars et en heures absolues, dans le navigateur, ce qui les
+fait survivre à la devise, à l'intervalle et au rechargement : à l'affichage,
+leurs bouts retombent sur les bougies de l'intervalle courant. Chacune se
+prolonge jusqu'à la dernière bougie, en géométrique si l'échelle est
+logarithmique, puisque c'est là qu'elle est droite.
+
+La **mesure** (Ctrl + glisser) dit le mouvement entre deux points : pourcentage,
+écart de prix, bougies, durée. Le cadre reste à l'écran, une mesure se lisant
+après le geste ; son Échap est capté avant celui du plein écran, comme celui du
+zoom.
+
 Les **raccourcis** (`assets/terminal.js`) cliquent sur le contrôle existant :
 l'état reste aux callbacks, et le panneau retiré de la grille rend simplement sa
 touche sans effet. Le focus d'une case cochée à la souris ne les fait pas taire ;
 seuls les champs de saisie gardent le clavier.
+
+La **ligne de commande** (`/`) suit le même principe et lit ses cibles dans la
+page, pour qu'aucune liste de panneaux ne soit à tenir à jour et qu'un
+réarrangement de la grille ne la casse pas. Une commande inconnue reste affichée
+en rouge : une faute de frappe se corrige, elle ne doit pas s'évanouir.
 
 ### 3.14 Le panneau ANALYSE : mettre les signaux à l'épreuve
 
@@ -1457,6 +1500,23 @@ chiffres aussi plausibles qu'un bilan juste.
 Les réserves sont écrites sous le tableau : sans frais, fenêtres qui se recouvrent
 quand deux signaux sont proches, et description du passé plutôt que promesse.
 
+Les **règles** répondent à la question que ce bilan pose. Trois tenues sont
+comparées sur la même période, frais compris : rester investi, ne l'être
+qu'au-dessus de la MA 200, ou que quand la MA 9 passe la MA 26. La règle lit la
+clôture et n'agit qu'à l'ouverture suivante : elle encaisse donc en entier la
+bougie qui la fait sortir, ce qu'un krach simulé vérifie. Sur le journalier
+depuis 2018, à 0,1 % par passage, les deux règles font à peu près le rendement de
+la détention (25,8 et 27,2 % par an contre 24,7) en n'étant investies que 53 %
+du temps, avec un repli maximal de 64 % contre 77. Les liquidités n'y rapportent
+rien, et neuf ans d'un seul actif ne disent pas ce qui se passera ensuite.
+
+La **carte des rendements mensuels** (`monthly_returns`) lit les bougies
+mensuelles, mois en cours compris : une ligne par année, son total composé au
+bout, et pour chaque mois sa moyenne, la part de mois haussiers au survol. Neuf
+années font neuf points par mois — c'est une description, pas une régularité
+établie, et la réserve est écrite sous la carte comme celles du bilan. L'**ATR** à quatorze bougies, en % du cours, rejoint le
+résumé des intervalles : c'est lui que le panneau POSITION lit (§3.15).
+
 Le bilan lit 20 000 bougies closes au plus (23 ms) ; `prepare_price_frame` n'est
 pas repris, le Connors RSI coûtant cher pour une colonne que le signal ne lit
 pas, et `test_analysis.py` compare les deux pour qu'ils ne divergent jamais. Sa
@@ -1464,6 +1524,32 @@ profondeur vient du complément en tâche de fond (`_backfill_loop`) : une page
 toutes les deux secondes, de l'intervalle mensuel à l'heure. Le quart d'heure et
 la demi-heure, trois fois et demie plus coûteux, se remplissent à l'usage.
 Mesuré à la première exécution : 129 appels, 125 000 bougies, 16 Mo.
+
+### 3.15 Le panneau POSITION : la vôtre, et combien en prendre
+
+Un terminal de marché ne dit pas ce que le marché fait à *votre* position. Le
+panneau POSITION (onglet de la cellule ETF) pose deux questions côte à côte :
+
+- **la position tenue** — sens, quantité, entrée, stop : valeur, résultat
+  latent, distance qu'il reste jusqu'au stop (négative s'il est franchi) et
+  multiple du risque pris (`R`), le résultat rapporté à la perte prévue à
+  l'entrée. Un stop du mauvais côté n'a pas de multiple ;
+- **la taille qu'autorise un risque** — capital et pourcentage accepté, le stop
+  étant placé à quelques ATR journaliers (deux par défaut) : c'est la
+  volatilité du moment qui dit combien en prendre, pas l'envie. Le levier
+  implicite passe en rouge au-delà de 1, quand le capital ne couvre plus la
+  taille.
+
+Le terminal **ne parle à aucun compte** : tout se saisit à la main, en dollars
+comme les seuils d'alerte, et les champs vivent dans le `localStorage`. Le
+serveur ne les reçoit que le temps du calcul (`position_state`,
+`position_size`, testés sans Dash) et n'en écrit rien.
+
+Le **bandeau** affiche le résultat même panneau replié, comme il suit la
+devise : un callback clientside recopie sens, quantité et entrée dans le Store
+global `position`, persisté, que le bandeau lit à chaque tour d'horloge lente.
+Un panneau caché n'étant pas dans la page (§3.5), c'est ce Store, et non les
+champs, qui porte la position entre deux ouvertures de l'onglet.
 
 ## 4. Patrons transverses
 
@@ -1739,7 +1825,7 @@ suivante.
 
 **Où en est-on.** Les cinq étapes sont faites — socle extrait, couche de rendu
 tranchée, données mutualisées, doublons supprimés, couverture complète :
-quinze panneaux couvrent le prix, la liquidité, l'arbitrage, les
+seize panneaux couvrent le prix, la liquidité, l'arbitrage, les
 liquidations, les flux ETF, le marché à terme, les news, le calendrier macro,
 la macro, la dominance, la chaîne et la relecture de séance. La piste de confort laissée ouverte à la pause
 précédente — une disposition de grille configurable — est faite (§3.6) :
@@ -1986,7 +2072,7 @@ Reste, hors étape :
 La feuille de route est soldée et les chantiers d'hygiène aussi : plus rien
 n'est *en cours*. Ce qui suit n'est donc pas un chemin ordonné mais l'état
 des manques constatés à la clôture et depuis — chacun à ouvrir quand l'usage le
-fera sentir, aucun ne conditionnant les autres. Les trois qui restent ouverts
+fera sentir, aucun ne conditionnant les autres. Les deux qui restent ouverts
 sont en fin de section.
 
 **Pour l'analyse :**
@@ -2005,6 +2091,40 @@ sont en fin de section.
   les flèches du graphique sur l'historique, contre une référence (§3.14), et
   résume chaque intervalle d'un coup d'œil.
 - ~~**Sortir ses données**~~ — fait : export CSV de l'historique sauvegardé.
+- ~~**Ce qui marche, alors**~~ — le bilan disant que les flèches n'apportent
+  rien, le panneau compare quelques règles simples à la détention (§3.14), et
+  les flèches se masquent d'une touche.
+- ~~**Un seul perpétuel**~~ — fait : financement, prime et open interest de
+  Binance, Bybit et OKX côte à côte ; une plateforme muette n'efface pas les
+  autres et se nomme au bandeau.
+- ~~**Une ligne de commande**~~ — fait : `/`, un mot, Entrée (§3.13).
+- ~~**Mesurer un mouvement**~~ — fait : Ctrl + glisser, qui reprend le cadre du
+  zoom et reste à l'écran jusqu'au clic suivant, à Échap ou à un pan (§3.13).
+- ~~**La saisonnalité et la volatilité**~~ — fait : carte des rendements mensuels
+  et ATR par intervalle au panneau ANALYSE (§3.14). Neuf années font neuf points
+  par mois : c'est une description, pas une régularité établie.
+- ~~**Les murs du carnet**~~ — fait : la tranche la plus chargée de chaque côté,
+  plateformes réunies, par écart à leur prix médian respectif. Le premier essai
+  additionnait les prix absolus et posait un mur d'achat au-dessus du mur de
+  vente : les plateformes cotent à plusieurs dizaines de dollars d'écart, la
+  raison même qui recentre la profondeur comparée. Un carnet coupé ne compte
+  plus, ses niveaux étant périmés.
+- ~~**Une image du graphique**~~ — fait : touche P et commande `capture`.
+- ~~**Tracer une tendance**~~ — fait : `T`, puis glisser (§3.13).
+- ~~**Relier le terminal à une position**~~ — fait : le panneau POSITION suit une
+  position saisie à la main et dimensionne d'après le risque et l'ATR journalier.
+  Il ne parle à aucun compte, et ses champs restent dans le navigateur.
+- ~~**Prévenir avant une échéance**~~ — fait : une sonnerie trente minutes avant
+  chaque FOMC, CPI, NFP et PCE du calendrier, datée pour ne pas être rejouée.
+- ~~**La sortie du plein écran**~~ — jugée lente à tort sur un contrôle qui
+  chronométrait mal. Mesurée au millième, la mise en page revient en 170 ms
+  (médiane, 372 au pire) et le carnet retrouve ses 17 lignes en 750 ms, le temps
+  d'un aller-retour du Store `expanded` : il n'y a rien à corriger.
+- ~~**Sonner sur ce qui a tenu**~~ — fait : alerte quand la clôture journalière
+  franchit sa MA 200, seule lecture que le bilan n'ait pas démentie. Datée dans
+  son message, elle n'est pas rejouée au redémarrage. L'alerte sur les signaux
+  ±2 reste active par défaut, malgré ce que le bilan en dit : c'est un réglage
+  de l'utilisateur, pas un défaut du terminal.
 
 **Pour la surveillance :**
 
@@ -2162,10 +2282,6 @@ sont en fin de section.
 
 **Constaté, pas encore ouvert :**
 
-- **La sortie du plein écran** — de 1,1 à 4,6 s dans Firefox headless, là où
-  y entrer en prend 1,2 à 1,5. La page reste réactive ensuite : le coût est
-  ponctuel, sans doute le redimensionnement de tous les graphiques, mais il
-  n'a pas été mesuré en détail, ni dans un navigateur normal.
 - **Le coût du carnet à la ligne** — la cadence réduite contourne la limite
   sans la lever : c'est le rendu Dash de chaque ligne qui coûte. Un rendu du
   carnet hors de Dash, direct dans la page, la lèverait, au prix d'un second

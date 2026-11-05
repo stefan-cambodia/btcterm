@@ -40,7 +40,8 @@ ROWS = 30
 #: Couleur d'étiquette par règle — celles des panneaux correspondants.
 KIND_COLORS = {"price": C["yellow"], "liq": C["red"],
                "funding": C["orange"], "news": C["blue"], "arb": C["green"],
-               "trend": C["purple"], "rsi": C["cyan"], "signal": C["green"],
+               "trend": C["purple"], "flip": C["purple"], "event": C["orange"],
+               "rsi": C["cyan"], "signal": C["green"],
                "dominance": C["yellow"], "etf": C["green"],
                "chain": C["purple"]}
 
@@ -128,6 +129,18 @@ def layout(title=None):
                     id="alert-signal",
                     options=[{"label": "signaux ±2", "value": "on"}],
                     value=["on"] if config["signal_strong"] else [],
+                    inline=True, className="tf-check",
+                    style={"fontSize": "9px", "display": "inline-block"}),
+                dcc.Checklist(
+                    id="alert-trend",
+                    options=[{"label": "tendance J", "value": "on"}],
+                    value=["on"] if config["trend_flip"] else [],
+                    inline=True, className="tf-check",
+                    style={"fontSize": "9px", "display": "inline-block"}),
+                dcc.Checklist(
+                    id="alert-event",
+                    options=[{"label": "échéances", "value": "on"}],
+                    value=["on"] if config["event_soon"] else [],
                     inline=True, className="tf-check",
                     style={"fontSize": "9px", "display": "inline-block"}),
                 dcc.Checklist(
@@ -238,6 +251,8 @@ def register(app, hub):
         Input("alert-mempool", "value"),
         Input("alert-block", "value"),
         Input("alert-signal", "value"),
+        Input("alert-trend", "value"),
+        Input("alert-event", "value"),
         Input("alert-sound", "value"),
         State("alert-price-input", "value"),
         State("alert-config", "data"),
@@ -245,7 +260,7 @@ def register(app, hub):
     )
     def _edit(_add, _dels, liq, funding, news_score, arb,
               ma200, rsi_hi, rsi_lo, dominance, etf, mempool, block,
-              signal, sound, level, stored):
+              signal, trend, event, sound, level, stored):
         trigger = dash.ctx.triggered_id
         # Un composant qui vient d'être monté déclenche aussi ce
         # callback (n_clicks 0, valeurs du Store) : sans valeur de
@@ -287,6 +302,8 @@ def register(app, hub):
                       "etf_flow_musd": etf, "mempool_mb": mempool,
                       "block_minutes": block,
                       "signal_strong": bool(signal),
+                      "trend_flip": bool(trend),
+                      "event_soon": bool(event),
                       "sound": bool(sound)}
             config = normalize_config(merged)
 

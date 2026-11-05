@@ -106,6 +106,7 @@ class Firefox:
     SHIFT = "\ue008"
 
     ALT = "\ue00a"
+    CTRL = "\ue009"
 
     def _actions(self, *sources):
         self.send("WebDriver:PerformActions", {"actions": list(sources)})
@@ -144,12 +145,30 @@ class Firefox:
 
     def shift_drag(self, x0, y0, x1, y1):
         """Maj enfoncée pendant tout le glisser de (x0, y0) à (x1, y1)."""
+        self._key_drag(self.SHIFT, x0, y0, x1, y1)
+
+    def drag(self, x0, y0, x1, y1):
+        """Un glisser sans modificateur."""
+        self._actions(
+            {"type": "pointer", "id": "mouse",
+             "parameters": {"pointerType": "mouse"}, "actions": [
+                {"type": "pointerMove", "x": x0, "y": y0, "origin": "viewport"},
+                {"type": "pointerDown", "button": 0},
+                {"type": "pointerMove", "x": x1, "y": y1, "origin": "viewport",
+                 "duration": 100},
+                {"type": "pointerUp", "button": 0}]})
+
+    def ctrl_drag(self, x0, y0, x1, y1):
+        """Ctrl enfoncée pendant tout le glisser."""
+        self._key_drag(self.CTRL, x0, y0, x1, y1)
+
+    def _key_drag(self, key, x0, y0, x1, y1):
         pause = {"type": "pause", "duration": 0}
         self._actions(
             {"type": "key", "id": "kb", "actions": [
-                {"type": "keyDown", "value": self.SHIFT},
+                {"type": "keyDown", "value": key},
                 pause, pause, pause, pause,
-                {"type": "keyUp", "value": self.SHIFT}]},
+                {"type": "keyUp", "value": key}]},
             {"type": "pointer", "id": "mouse",
              "parameters": {"pointerType": "mouse"}, "actions": [
                 pause,

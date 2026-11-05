@@ -25,8 +25,8 @@ import pkgutil  # noqa: E402
 from btcterm.hub import MarketHub  # noqa: E402
 from terminal.app import create_app  # noqa: E402
 from terminal.grid import CELLS, DEFAULT_PLACEMENT, body  # noqa: E402
-from terminal.header import (change_text, price_text,  # noqa: E402
-                             price_title, sources_text)
+from terminal.header import (change_text, position_text,  # noqa: E402
+                             price_text, price_title, sources_text)
 from terminal.panels import PANELS  # noqa: E402
 
 
@@ -270,6 +270,22 @@ def test_carnet_suit_la_devise():
     carnet = APP.callback_map["book-table.children"]
     assert {"id": "currency", "property": "data"} in carnet["inputs"]
     print("  ✓ le carnet suit la devise du panneau prix")
+
+
+def test_la_position_au_bandeau():
+    """Le bandeau lit le Store global : le panneau peut être replié."""
+    assert "position" in APP_IDS and "hdr-position" in APP_IDS
+    assert "position." in CALLBACK_KEYS, "Store position sans relais"
+    assert position_text(None, 100.0)[0] == ""
+    assert position_text({"side": "long"}, 100.0)[0] == ""
+
+    texte, style = position_text({"side": "long", "quantity": 2, "entry": 90.0},
+                                 100.0)
+    assert texte == "long +20 $ (+11.11 %)" and style["color"] == "#00d4aa"
+    texte, style = position_text({"side": "short", "quantity": 2, "entry": 90.0},
+                                 100.0)
+    assert texte.startswith("short -20 $") and style["color"] != "#00d4aa"
+    print("  ✓ position suivie au bandeau, dans le bon sens")
 
 
 def test_les_sources_en_panne_au_bandeau():

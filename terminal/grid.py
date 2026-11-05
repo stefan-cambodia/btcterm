@@ -23,7 +23,7 @@ import dash
 from dash import ALL, Input, Output, State, dcc, html
 
 from .panels import (alerts, analysis, arbitrage, calendar, dominance, etf, journal,
-                     liquidations, macro, news, onchain, orderbook, perp,
+                     liquidations, macro, news, onchain, orderbook, perp, position,
                      price)
 from .theme import C
 
@@ -80,7 +80,8 @@ CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
             ("liq", "LIQUIDATIONS", liquidations.layout),
             ("journal", "JOURNAL", journal.layout)),
     "etf": (("etf", "FLUX ETF", etf.layout),
-            ("perp", "PERPÉTUEL", perp.layout)),
+            ("perp", "PERPÉTUEL", perp.layout),
+            ("position", "POSITION", position.layout)),
     "news": (("news", "NEWS", news.layout),
              ("cal", "CALENDRIER", calendar.layout),
              ("alerts", "ALERTES", alerts.layout)),

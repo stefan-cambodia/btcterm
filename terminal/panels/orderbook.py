@@ -12,6 +12,8 @@ s'exprime en écart relatif et en bitcoins.
 
 from __future__ import annotations
 
+import math
+
 from dash import Input, Output, State, dcc, html
 
 from ..charts import build_depth_chart
@@ -25,6 +27,15 @@ from ..theme import C, MONO, PANEL_STYLE, TABLE_STYLE, TITLE_STYLE
 #: ne manque plus du tout.
 DEPTH = 8
 DEPTH_MAX = 20
+
+#: Les murs se cherchent par tranches d'écart au prix médian, en % : soit
+#: quelques dollars à ce cours. Pas en prix absolu : les plateformes cotent à
+#: plusieurs dizaines de dollars d'écart, et additionner leurs carnets tels
+#: quels posait un mur d'achat au-dessus du mur de vente. La profondeur
+#: comparée se recentre pour la même raison.
+WALL_BUCKET = 0.01
+#: Niveaux lus par carnet et par côté.
+WALL_DEPTH = 100
 
 
 def layout(title=None):
@@ -78,6 +89,55 @@ def _row(price, qty, ratio, color, decimals=2):
     ])
 
 
+def wall(books: dict, side: str) -> tuple[float, float] | None:
+    """La tranche la plus chargée d'un côté, plateformes réunies.
+
+    Rend `(écart au prix médian en %, BTC)`. L'arrondi s'éloigne du milieu :
+    un mur d'achat reste sous le prix, un mur de vente au-dessus, jusque
+    dans la toute première tranche. Un carnet déconnecté ne compte pas : ses
+    niveaux sont ceux de sa dernière trame, et un mur fantôme serait pire
+    qu'aucun.
+    """
+    sign = -1 if side == "bids" else 1
+    totals: dict[float, float] = {}
+    for book in books.values():
+        mid = book.mid
+        if not book.connected or not mid:
+            continue
+        for price, qty in book.top(side, WALL_DEPTH):
+            distance = abs(price / mid - 1) * 100
+            # L'arrondi intérieur écarte le bruit du calcul en flottants.
+            step = max(1, math.ceil(round(distance / WALL_BUCKET, 6)))
+            bucket = sign * step * WALL_BUCKET
+            totals[bucket] = totals.get(bucket, 0.0) + qty
+    return max(totals.items(), key=lambda item: item[1], default=None)
+
+
+def _walls(books: dict, mid: float | None, fx):
+    """La ligne des murs ; rien tant qu'aucun carnet connecté n'en donne.
+
+    Les écarts sont ramenés au prix de la plateforme affichée : c'est celui
+    qu'on a sous les yeux, juste au-dessus.
+    """
+    bid, ask = wall(books, "bids"), wall(books, "asks")
+    if bid is None or ask is None or not mid:
+        return None
+
+    def label(side, level):
+        price = mid * (1 + level[0] / 100) * fx.rate
+        return f"{side} {price:,.0f} ({level[0]:+.2f} %) · {level[1]:.1f} BTC"
+
+    return html.Div([
+        html.Span("murs ", style={"color": C["muted"]}),
+        html.Span(label("achat", bid), style={"color": C["green"]}),
+        html.Span(" | ", style={"color": C["muted"]}),
+        html.Span(label("vente", ask), style={"color": C["red"]}),
+    ], title=fx.title("la tranche la plus chargée de chaque côté, toutes "
+                      "plateformes connectées, par écart à leur prix médian"),
+       style={"fontFamily": MONO, "fontSize": "10px", "textAlign": "center",
+              "padding": "6px"})
+
+
 def render_book(hub, exchange: str, expanded: bool,
                 currency: str | None = None):
     """Le carnet d'une plateforme, prêt à poser dans `book-table`.
@@ -111,7 +171,7 @@ def render_book(hub, exchange: str, expanded: bool,
     spread = book.spread or 0
     spread_pct = book.spread_pct or 0
 
-    return html.Table([
+    table = html.Table([
         html.Tbody(
             [_row(p * fx.rate, q, q / largest, C["red"], decimals)
              for p, q in reversed(asks)]
@@ -131,6 +191,7 @@ def render_book(hub, exchange: str, expanded: bool,
                for p, q in bids]
         )
     ], style=TABLE_STYLE)
+    return html.Div([table, _walls(hub.books, book.mid, fx)])
 
 
 def render_depth(hub):

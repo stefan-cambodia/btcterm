@@ -78,6 +78,8 @@ def _shared_stores() -> list:
         # sélecteur n'est alors pas dans la page, et ses lecteurs doivent
         # la connaître.
         dcc.Store(id="currency", storage_type="local"),
+        # La position suivie : même raison, le bandeau la lit panneau replié.
+        dcc.Store(id="position", storage_type="local"),
     ]
 
 

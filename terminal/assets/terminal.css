@@ -318,6 +318,34 @@ body {
 /* Les couleurs viennent du thème via lwc-price.js ; ici, seulement la
    géométrie des éléments posés par-dessus le canvas. */
 
+.command-bar {
+    position: fixed;
+    top: 46px;
+    left: 50%;
+    z-index: 200;
+    width: 420px;
+    transform: translateX(-50%);
+    border: 1px solid #fbbf24;
+    border-radius: 4px;
+    background: #111827;
+}
+
+.command-bar input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 7px 10px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: #e2e8f0;
+    font-family: inherit;
+    font-size: 12px;
+}
+
+.command-bar-error {
+    border-color: #ff3d6b;
+}
+
 .keys-help {
     position: fixed;
     top: 50%;
@@ -386,6 +414,45 @@ body {
     border: 1px dashed;
     background: rgba(34, 211, 238, 0.12);
     pointer-events: none;
+}
+
+.lwc-draw-preview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 9;
+    display: none;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.lwc-draw-hint {
+    position: absolute;
+    top: 34px;
+    left: 8px;
+    z-index: 9;
+    display: none;
+    font-size: 10px;
+    pointer-events: none;
+}
+
+.lwc-drawing {
+    cursor: crosshair;
+}
+
+.lwc-measure {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    margin-bottom: 3px;
+    padding: 1px 5px;
+    transform: translateX(-50%);
+    border-radius: 3px;
+    background: #111827;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 /* Le rappel du geste n'a sa place qu'en plein écran : dans la grille,

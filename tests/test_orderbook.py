@@ -178,6 +178,49 @@ def test_la_pression_acheteuse_se_lit_sur_le_spread():
     print("  ✓ 6 BTC à l'achat contre 2 à la vente : achat 75 %")
 
 
+def test_les_murs_reunissent_les_plateformes():
+    """Une muraille à cheval sur deux carnets se voit, un carnet coupé non.
+
+    Les deux plateformes cotent à des prix différents, comme en vrai : en
+    prix absolu, leurs carnets se croiseraient et le mur d'achat passerait
+    au-dessus du mur de vente.
+    """
+    from btcterm.hub import MarketHub
+    from terminal.fx import Display
+    from terminal.panels.orderbook import render_book, wall
+
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    assert wall(hub.books, "bids") is None, "aucun carnet connecté"
+
+    #: 3 BTC ici, 4 là, au même écart de leur prix médian respectif (100 et
+    #: 110) : plus lourds ensemble que les 6 BTC isolés sur Binance.
+    hub.books["Binance"].replace(bids={99.9: 3.0, 99.0: 6.0},
+                                 asks={100.1: 1.0})
+    hub.books["Kraken"].replace(bids={109.89: 4.0}, asks={110.11: 2.0})
+    hub.books["Binance"].connected = hub.books["Kraken"].connected = True
+    achat, vente = wall(hub.books, "bids"), wall(hub.books, "asks")
+    assert abs(achat[0] + 0.1) < 1e-6 and achat[1] == 7.0, achat
+    assert abs(vente[0] - 0.1) < 1e-6 and vente[1] == 3.0, vente
+
+    #: Un mur d'achat reste sous le prix, même tout contre lui.
+    hub.books["Bybit"].replace(bids={99.9999: 90.0}, asks={100.0001: 90.0})
+    hub.books["Bybit"].connected = True
+    assert wall(hub.books, "bids")[0] < 0 < wall(hub.books, "asks")[0]
+    hub.books["Bybit"].connected = False
+
+    #: Un carnet déconnecté garde ses niveaux, mais ne compte plus.
+    hub.books["Kraken"].connected = False
+    assert wall(hub.books, "bids")[1] == 6.0
+    hub.books["Kraken"].connected = True
+
+    rendu = str(render_book(hub, "Binance", False, None))
+    assert "achat 100 (-0.10 %) · 7.0 BTC" in rendu
+    assert "vente 100 (+0.10 %) · 3.0 BTC" in rendu
+    hub._cache.get("eur", hub.TTL_EUR, lambda: 0.5)
+    assert "achat 50 (-0.10 %)" in str(render_book(hub, "Binance", False, "EUR"))
+    print("  ✓ tranches réunies, carnet coupé écarté, prix dans la devise")
+
+
 def test_le_backoff_repart_apres_une_connexion_qui_a_tenu():
     """Une coupure après une longue connexion n'hérite pas du backoff.
 

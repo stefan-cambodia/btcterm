@@ -20,6 +20,7 @@ import time
 import dash
 from dash import Input, Output, State, html
 
+from btcterm.analysis import position_state
 from btcterm.hub import MarketHub
 
 from .fx import DOLLARS, display
@@ -69,9 +70,23 @@ def range_text(ticker: dict, fx=DOLLARS) -> str:
             f"vol {volume * fx.rate / 1e9:.2f} Md{fx.unit}")
 
 
+def position_text(position: dict | None, price: float | None,
+                  fx=DOLLARS) -> tuple[str, dict]:
+    """Le résultat de la position suivie, et son style ; vide sans position."""
+    position = position or {}
+    state = position_state(position.get("side"), position.get("quantity"),
+                           position.get("entry"), price)
+    if state is None:
+        return "", STAT
+    return (f"{position.get('side')} {state['pnl'] * fx.rate:+,.0f} {fx.unit} "
+            f"({state['pnl_pct']:+.2f} %)",
+            {**STAT, "color": C["green" if state["pnl"] >= 0 else "red"]})
+
+
 #: Les familles du cache du hub, dites comme le reste du bandeau.
 SOURCE_LABELS = {
     "klines": "chandeliers Binance", "perp": "perpétuel", "oi": "open interest",
+    "perp_bybit": "perpétuel Bybit", "perp_okx": "perpétuel OKX",
     "funding": "financement", "eur": "taux de change", "ticker": "variation 24 h",
     "global": "dominance", "chain": "on-chain", "chain_stats": "on-chain",
     "etf": "flux ETF", "m2": "masse monétaire",
@@ -124,6 +139,8 @@ def layout():
         html.Span(id="hdr-range", style={**STAT, "color": C["muted"]},
                   title="plus haut, plus bas et volume échangé sur 24 h"),
         html.Span(id="hdr-spread", style=STAT),
+        html.Span(id="hdr-position", style=STAT,
+                  title="résultat de la position suivie au panneau POSITION"),
         html.Span(id="hdr-sources", style={**STAT, "color": C["orange"]}),
         html.Button("⚙", id="layout-btn", className="layout-btn",
                     title="disposition de la grille"),
@@ -169,12 +186,15 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         Output("hdr-status", "children"),
         Output("hdr-sources", "children"),
         Output("hdr-sources", "title"),
+        Output("hdr-position", "children"),
+        Output("hdr-position", "style"),
         Input("tick-slow", "n_intervals"),
         # En Input et non en State : basculer $/€ se voit tout de suite,
         # sans attendre le tour d'horloge suivant.
         Input("currency", "data"),
+        State("position", "data"),
     )
-    def _refresh(_tick, currency):
+    def _refresh(_tick, currency, position):
         live = hub.reference_price()
         # Le taux n'est demandé qu'en euros : il vient d'un appel réseau,
         # mis en cache une heure par le hub.
@@ -197,7 +217,8 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
 
         return (price_txt, price_tip, change_txt, change_style, range_txt,
                 spread_txt, status,
-                *sources_text(hub.failing_sources(), time.time()))
+                *sources_text(hub.failing_sources(), time.time()),
+                *position_text(position, live, display(hub, currency)))
 
 
 def _register_reveal(app: dash.Dash) -> None:

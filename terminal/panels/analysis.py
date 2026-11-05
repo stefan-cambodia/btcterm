@@ -2,9 +2,10 @@
 Panneau analyse : où en est le marché, et ce que valent les signaux.
 
 Deux tableaux côte à côte. À gauche, chaque intervalle d'un coup d'œil, ce
-qu'il faudrait sinon aller lire graphique par graphique. À droite, le bilan
-des signaux du panneau prix sur l'historique sauvegardé : les flèches du
-graphique n'avaient jamais été mises à l'épreuve.
+qu'il faudrait sinon aller lire graphique par graphique. À droite, au choix,
+le bilan des signaux du panneau prix sur l'historique sauvegardé — les
+flèches du graphique n'avaient jamais été mises à l'épreuve — ou quelques
+règles simples face au fait de rester investi.
 
 Les calculs sont dans `btcterm.analysis`, et leurs réserves aussi : le bilan
 décrit le passé, sans frais, et ses fenêtres se recouvrent. Le panneau les
@@ -32,6 +33,9 @@ STATS_INTERVALS = ("1h", "4h", "1d", "1w")
 
 REFRESH_MS = 30_000
 
+MONTH_LABELS = ("jan", "fév", "mar", "avr", "mai", "jun", "jul", "aoû", "sep",
+                "oct", "nov", "déc")
+
 GRADE_LABEL = {2: "achat fort", 1: "achat", -1: "vente", -2: "vente forte"}
 TREND_LABEL = {"up": ("haussier", "green"), "down": ("baissier", "red"),
                "mixed": ("mixte", "yellow")}
@@ -42,8 +46,16 @@ def layout(title=None):
         html.Div([
             title if title is not None else html.Span("Analyse"),
             html.Div([
-                html.Span("bilan des signaux",
-                          style={"color": C["muted"], "fontSize": "9px"}),
+                dcc.RadioItems(
+                    id="analysis-view",
+                    options=[{"label": "signaux", "value": "signals"},
+                             {"label": "règles", "value": "rules"},
+                             {"label": "mois", "value": "months"}],
+                    value="signals", inline=True, className="tf-radio",
+                    persistence=True, persistence_type="local",
+                    style={"display": "inline-block", "fontSize": "9px",
+                           "marginRight": "10px"},
+                ),
                 dcc.RadioItems(
                     id="analysis-interval",
                     options=[{"label": k, "value": k} for k in STATS_INTERVALS],
@@ -85,7 +97,7 @@ def _summary_row(interval: str, state: dict | None):
     if state is None:
         return html.Tr([_cell(interval, "muted", "left"),
                         _cell("historique insuffisant", "muted"),
-                        _cell(""), _cell(""), _cell("")])
+                        _cell(""), _cell(""), _cell(""), _cell("")])
     label, color = TREND_LABEL[state["trend"]]
     rsi = state["rsi"]
     if state["signal"]:
@@ -99,6 +111,8 @@ def _summary_row(interval: str, state: dict | None):
         _cell(label, color),
         _cell(f"{state['gap']:+.1f} %", "green" if state["gap"] >= 0 else "red"),
         _cell(f"{rsi:.0f}", "red" if rsi >= 70 else "green" if rsi <= 30 else None),
+        _cell("—" if state["atr_pct"] is None else f"{state['atr_pct']:.1f} %",
+              "muted"),
         _cell(signal, tone),
     ])
 
@@ -108,7 +122,8 @@ def render_summary(hub):
     rows = [_summary_row(interval, timeframe_summary(
                 hub.klines(interval, limit=INTERVALS[interval])))
             for interval in SUMMARY_INTERVALS]
-    return html.Table([_header("", "tendance", "MA 200", "RSI", "dernier signal"),
+    return html.Table([_header("", "tendance", "MA 200", "RSI", "ATR",
+                               "dernier signal"),
                        html.Tbody(rows)], style=TABLE_STYLE)
 
 
@@ -161,6 +176,93 @@ def render_stats(stats: dict | None):
     ])
 
 
+def render_rules(stats: dict | None):
+    """Les règles simples face à la détention, sur la même période."""
+    if stats is None:
+        return html.Div("historique insuffisant pour ce bilan",
+                        style={"color": C["muted"], "fontFamily": MONO,
+                               "fontSize": "11px", "padding": "12px"})
+    hold = stats["rows"][0]
+    rows = []
+    for row in stats["rows"]:
+        better = row["annual"] > hold["annual"]
+        safer = row["drawdown"] > hold["drawdown"]
+        rows.append(html.Tr([
+            _cell(row["label"], None, "left"),
+            _cell(f"{row['annual']:+.1f} %",
+                  None if row is hold else "green" if better else "red"),
+            _cell(f"{row['total']:+,.0f} %"),
+            _cell(f"{row['drawdown']:.1f} %",
+                  None if row is hold else "green" if safer else "red"),
+            _cell(f"{row['exposure']:.0f} %"),
+            _cell(str(row["entries"])),
+            _cell(f"{'investie' if row['invested'] else 'hors marché'} "
+                  f"depuis {row['since']:%d/%m/%Y}",
+                  "green" if row["invested"] else "yellow"),
+        ]))
+    note = (f"du {stats['first']:%d/%m/%Y} au {stats['last']:%d/%m/%Y}, "
+            f"{stats['years']:.1f} ans · entrée à l'ouverture qui suit la "
+            f"clôture · frais {stats['fee']:g} % par passage · liquidités "
+            f"sans rendement · le passé ne promet rien")
+    return html.Div([
+        html.Table([_header("règle", "par an", "total", "repli max",
+                            "investi", "entrées", "aujourd'hui"),
+                    html.Tbody(rows)],
+                   style=TABLE_STYLE),
+        html.Div(note, style={"color": C["muted"], "fontFamily": MONO,
+                              "fontSize": "9px", "padding": "6px"}),
+    ])
+
+
+def _heat(value: float | None, text: str, title: str | None = None):
+    """Une case de la carte : plus le mois a bougé, plus sa teinte est franche."""
+    style = {"textAlign": "right", "padding": "0 4px", "whiteSpace": "nowrap",
+             "lineHeight": "12px"}
+    if value is None:
+        return html.Td(text, style={**style, "color": C["muted"]})
+    alpha = min(0x70, 0x12 + int(abs(value) / 40 * 0x5e))
+    return html.Td(text, title=title, style={
+        **style, "color": C["text"],
+        "background": f"{C['green'] if value >= 0 else C['red']}{alpha:02x}"})
+
+
+def render_months(stats: dict | None):
+    """La carte des rendements mensuels, année la plus récente en haut."""
+    if stats is None:
+        return html.Div("historique insuffisant pour ce bilan",
+                        style={"color": C["muted"], "fontFamily": MONO,
+                               "fontSize": "11px", "padding": "12px"})
+    rows = []
+    for year in sorted(stats["grid"], reverse=True):
+        row = stats["grid"][year]
+        rows.append(html.Tr([
+            _heat(None, str(year)),
+            *[_heat(row.get(month),
+                    f"{row[month]:+.0f}" if month in row else "")
+              for month in range(1, 13)],
+            _heat(stats["years"][year], f"{stats['years'][year]:+.0f}"),
+        ]))
+    moyenne = stats["months"]
+    rows.append(html.Tr([
+        _heat(None, "moy."),
+        *[_heat(moyenne[month]["mean"], f"{moyenne[month]['mean']:+.0f}",
+                f"{moyenne[month]['up']:.0f} % de mois haussiers")
+          if month in moyenne else _heat(None, "")
+          for month in range(1, 13)],
+        _heat(None, ""),
+    ]))
+    # Neuf années font neuf points par mois : la réserve est écrite sous la
+    # carte, comme celles du bilan sous son tableau.
+    note = (f"{len(stats['grid'])} années, donc autant de points par mois · "
+            f"une description du passé, pas une saisonnalité établie")
+    return html.Div([
+        html.Table([_header("%", *MONTH_LABELS, "an"), html.Tbody(rows)],
+                   style={**TABLE_STYLE, "fontSize": "9px"}),
+        html.Div(note, style={"color": C["muted"], "fontFamily": MONO,
+                              "fontSize": "9px", "padding": "6px"}),
+    ])
+
+
 def register(app, hub):
     @app.callback(
         Output("analysis-summary", "children"),
@@ -173,8 +275,14 @@ def register(app, hub):
         Output("analysis-stats", "children"),
         Output("analysis-export", "href"),
         Input("analysis-interval", "value"),
+        Input("analysis-view", "value"),
         Input("analysis-tick", "n_intervals"),
     )
-    def _stats(interval, _tick):
-        return (render_stats(hub.signal_stats(interval)),
-                f"/api/export?interval={interval}")
+    def _stats(interval, view, _tick):
+        if view == "months":
+            body = render_months(hub.monthly_returns())
+        elif view == "rules":
+            body = render_rules(hub.rule_stats(interval))
+        else:
+            body = render_stats(hub.signal_stats(interval))
+        return body, f"/api/export?interval={interval}"

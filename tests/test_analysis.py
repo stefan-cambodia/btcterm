@@ -36,6 +36,10 @@ from btcterm.history import PAGE  # noqa: E402
 from btcterm.hub import MarketHub  # noqa: E402
 
 
+#: L'indice de la première MA 200 : deux cents bougies, la dernière comprise.
+TREND_FIRST_VALID = 199
+
+
 def marche(n=600, derive=0.0, graine=7):
     """Une marche aléatoire, au format des chandeliers."""
     alea = np.random.default_rng(graine)
@@ -132,6 +136,235 @@ def test_rien_a_mesurer():
     assert analysis.timeframe_summary(demo) is None
     assert analysis.timeframe_summary(marche(100)) is None
     print("  ✓ ni la démonstration ni un historique court ne font un bilan")
+
+
+def rampe_puis_krach(n=400, krach=320):
+    """Une montée régulière, un effondrement de moitié sur une bougie, un plat."""
+    close = np.linspace(100.0, 300.0, n)
+    close[krach:] = close[krach - 1] / 2
+    close = close + np.sin(np.arange(n))   # le RSI veut des baisses aussi
+    return pd.DataFrame({
+        "time": pd.date_range("2020-01-01", periods=n, freq="D"),
+        "open": np.r_[close[0], close[:-1]], "close": close})
+
+
+def test_une_regle_ne_voit_pas_venir_le_krach():
+    """La règle lit la clôture : elle encaisse la bougie qui la fait sortir.
+
+    C'est l'erreur qui rend un backtest magnifique et faux : sortir à la
+    clôture d'une bougie qu'on vient de voir s'effondrer, ou pire, avant.
+    """
+    stats = analysis.rule_stats(rampe_puis_krach(), fee_pct=0.0)
+    rangs = {row["rule"]: row for row in stats["rows"]}
+    assert rangs["ma200"]["drawdown"] < -45, "le krach a été évité : regard sur le futur"
+    assert abs(rangs["ma200"]["total"] - rangs["hold"]["total"]) < 15
+    print("  ✓ le krach est encaissé en entier, la règle ne sort qu'après")
+
+
+def test_les_regles_partent_du_meme_jour():
+    df = marche(800, derive=0.0005)
+    stats = analysis.rule_stats(df, fee_pct=0.0)
+    assert stats["first"] == df["time"].iloc[TREND_FIRST_VALID + 1]
+    detention = stats["rows"][0]
+    debut, fin = TREND_FIRST_VALID + 1, len(df) - 1
+    attendu = (df["open"].iloc[fin] / df["open"].iloc[debut] - 1) * 100
+    assert abs(detention["total"] - attendu) < 1e-6
+    assert detention["exposure"] == 100 and detention["entries"] == 1
+    print("  ✓ même période pour toutes, détention égale au cours")
+
+
+def test_les_frais_comptent():
+    df = marche(800)
+    sans = {r["rule"]: r for r in analysis.rule_stats(df, fee_pct=0.0)["rows"]}
+    avec = {r["rule"]: r for r in analysis.rule_stats(df, fee_pct=0.1)["rows"]}
+    assert sans["cross"]["entries"] > 5, "pas assez de passages pour le test"
+    assert avec["cross"]["total"] < sans["cross"]["total"]
+    #: Deux passages par entrée : la règle qui bouge le plus paie le plus.
+    perte = sans["cross"]["total"] - avec["cross"]["total"]
+    assert perte > sans["hold"]["total"] - avec["hold"]["total"]
+    assert analysis.rule_stats(marche(150)) is None
+    print("  ✓ chaque passage se paie, la détention une seule fois")
+
+
+def test_les_perpetuels_des_autres_plateformes():
+    """Les réponses réelles de Bybit et d'OKX, réduites à ce qui est lu."""
+    class Reponse:
+        def __init__(self, charge):
+            self.charge = charge
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.charge
+
+    def faux_get(url, params=None, timeout=None):
+        if "tickers" in url and "bybit" in url:
+            return Reponse({"result": {"list": [{
+                "fundingRate": "0.00007", "markPrice": "77626.3",
+                "indexPrice": "77664.6", "openInterestValue": "5356868002.9"}]}})
+        champ = {"funding-rate": {"fundingRate": "0.0001"},
+                 "mark-price": {"markPx": "77635.4"},
+                 "index-tickers": {"idxPx": "77661.3"},
+                 "open-interest": {"oiUsd": "2656956416.1"}}
+        cle = next(c for c in champ if c in url)
+        return Reponse({"data": [champ[cle]]})
+
+    vrai = sources.requests.get
+    sources.requests.get = faux_get
+    try:
+        assert sources.fetch_bybit_perp()["oi_usd"] == 5356868002.9
+        okx = sources.fetch_okx_perp()
+        assert okx["funding_rate"] == 0.0001 and okx["index_price"] == 77661.3
+    finally:
+        sources.requests.get = vrai
+    print("  ✓ champs de Bybit et d'OKX lus, ramenés au même contrat")
+
+
+def test_une_plateforme_muette_n_efface_pas_les_autres():
+    from terminal.fx import Display
+    from terminal.panels import perp as panneau
+
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    bybit = {"funding_rate": 0.00007, "mark_price": 100.1, "index_price": 100.0,
+             "oi_usd": 5e9}
+
+    def panne():
+        raise ConnectionError("injoignable")
+
+    vrais = (sources.fetch_bybit_perp, sources.fetch_okx_perp,
+             sources.fetch_perp_snapshot)
+    sources.fetch_bybit_perp = lambda: bybit
+    sources.fetch_okx_perp = panne
+    sources.fetch_perp_snapshot = lambda symbol: (_ for _ in ()).throw(
+        ConnectionError("injoignable"))
+    try:
+        lignes = hub.perp_compare()
+    finally:
+        (sources.fetch_bybit_perp, sources.fetch_okx_perp,
+         sources.fetch_perp_snapshot) = vrais
+    assert set(lignes) == {"Bybit"}, lignes
+    assert set(hub.failing_sources()) >= {"perp_okx"}
+
+    texte = str(panneau._compare({"Binance": {**bybit, "oi_usd": 3e9},
+                                  "Bybit": bybit}))
+    assert "BIN" in texte and "BYB" in texte and "+0.0070 %" in texte
+    assert "(+0.100)" in texte, "prime attendue"
+    assert "OI total 8.00 Md$" in texte
+    assert "4.00 Md€" in str(panneau._compare(
+        {"Binance": {**bybit, "oi_usd": 3e9}, "Bybit": bybit},
+        Display(0.5, "€")))
+    assert panneau._compare({}) == ""
+    print("  ✓ comparaison partielle plutôt que rien, panne nommée au bandeau")
+
+
+def test_une_position_longue():
+    etat = analysis.position_state("long", 0.5, 100.0, 110.0, stop=95.0)
+    assert etat["value"] == 55.0 and etat["pnl"] == 5.0
+    assert abs(etat["pnl_pct"] - 10) < 1e-9
+    #: Le stop est 13,6 % sous le cours ; le toucher perd 7,50 d'ici.
+    assert abs(etat["stop_pct"] - 15 / 110 * 100) < 1e-9
+    assert etat["stop_loss"] == -7.5
+    #: 5 de gain pour 2,50 de risque pris à l'entrée.
+    assert etat["r"] == 2.0
+    print("  ✓ résultat, distance au stop et multiple du risque")
+
+
+def test_une_position_courte_gagne_a_la_baisse():
+    etat = analysis.position_state("short", 2.0, 100.0, 90.0, stop=105.0)
+    assert etat["pnl"] == 20.0 and abs(etat["pnl_pct"] - 10) < 1e-9
+    assert etat["stop_loss"] == -30.0 and etat["r"] == 2.0
+    print("  ✓ le sens est respecté partout, stop compris")
+
+
+def test_un_stop_incoherent_ne_fait_pas_de_multiple():
+    """Un stop du mauvais côté n'est pas un risque : pas de R inventé."""
+    etat = analysis.position_state("long", 1.0, 100.0, 110.0, stop=105.0)
+    assert etat["r"] is None and etat["stop_pct"] > 0
+
+    #: Un stop franchi se lit comme tel.
+    etat = analysis.position_state("long", 1.0, 100.0, 90.0, stop=95.0)
+    assert etat["stop_pct"] < 0
+
+    for manque in (("long", None, 100, 110), ("long", 1, None, 110),
+                   ("long", 1, 100, None), ("long", 0, 100, 110)):
+        assert analysis.position_state(*manque) is None, manque
+    print("  ✓ champs vides sans calcul, stop incohérent sans multiple")
+
+
+def test_la_taille_suit_le_risque_et_la_volatilite():
+    taille = analysis.position_size(10_000, 1, 2_000, 80_000)
+    #: 100 $ risqués, stop à 2 000 $ : 0,05 BTC, soit 4 000 $.
+    assert taille["risk"] == 100 and abs(taille["quantity"] - 0.05) < 1e-12
+    assert abs(taille["value"] - 4_000) < 1e-9
+    assert abs(taille["leverage"] - 0.4) < 1e-12
+
+    #: Un marché deux fois plus nerveux : deux fois moins de bitcoins.
+    nerveux = analysis.position_size(10_000, 1, 4_000, 80_000)
+    assert abs(nerveux["quantity"] - taille["quantity"] / 2) < 1e-12
+
+    assert analysis.position_size(0, 1, 2_000, 80_000) is None
+    assert analysis.position_size(10_000, 1, None, 80_000) is None
+    print("  ✓ risque constant, taille inverse à la distance du stop")
+
+
+def test_le_panneau_position_rend_ce_qu_il_sait():
+    from terminal.fx import DOLLARS, Display
+    from terminal.panels import position as panneau
+
+    assert "saisir" in str(panneau.render_state(None, DOLLARS))
+    assert "saisir" in str(panneau.render_size(None, "long", DOLLARS))
+    etat = analysis.position_state("long", 0.5, 100.0, 110.0, stop=95.0)
+    rendu = str(panneau.render_state(etat, Display(0.5, "€")))
+    assert "+2.50 €" in rendu and "+10.00 %" in rendu and "+2.00 R" in rendu
+    taille = analysis.position_size(10_000, 1, 2_000, 80_000)
+    assert "78,000.00 $" in str(panneau.render_size(taille, "long", DOLLARS))
+    assert "82,000.00 $" in str(panneau.render_size(taille, "short", DOLLARS))
+    print("  ✓ stop proposé du bon côté, montants dans la devise")
+
+
+def test_l_etat_du_jour_d_une_regle():
+    stats = analysis.rule_stats(rampe_puis_krach(), fee_pct=0.0)
+    rangs = {row["rule"]: row for row in stats["rows"]}
+    assert rangs["hold"]["invested"] is True
+    #: Après le krach, sous sa MA 200 : hors marché, depuis la bougie du krach.
+    assert rangs["ma200"]["invested"] is False
+    assert rangs["ma200"]["since"] == pd.Timestamp("2020-01-01") + pd.Timedelta(days=320)
+    print("  ✓ investie ou hors marché, depuis la bonne bougie")
+
+
+def test_les_rendements_mensuels():
+    from terminal.panels import analysis as panneau
+
+    df = pd.DataFrame({
+        "time": pd.to_datetime(["2024-11-01", "2024-12-01", "2025-01-01"]),
+        "open": [100.0, 110.0, 100.0], "close": [110.0, 99.0, 150.0]})
+    stats = analysis.monthly_returns(df)
+    assert abs(stats["grid"][2024][11] - 10) < 1e-9
+    assert abs(stats["grid"][2024][12] + 10) < 1e-9
+    #: Les mois se composent : +10 % puis -10 % ne font pas zéro.
+    assert abs(stats["years"][2024] + 1) < 1e-9
+    assert stats["months"][1]["up"] == 100 and 3 not in stats["months"]
+
+    demo = df.copy()
+    demo.attrs["demo"] = True
+    assert analysis.monthly_returns(demo) is None
+
+    rendu = str(panneau.render_months(stats))
+    assert "2025" in rendu and "+50" in rendu and "déc" in rendu
+    #: La réserve est écrite : deux années, deux points par mois.
+    assert "2 années" in rendu and "pas une saisonnalité" in rendu
+    assert "100 % de mois haussiers" in rendu
+    assert "historique insuffisant" in str(panneau.render_months(None))
+    print("  ✓ mois composés en années, moyenne par mois, carte rendue")
+
+
+def test_la_volatilite_d_un_intervalle():
+    etat = analysis.timeframe_summary(marche())
+    assert 0 < etat["atr_pct"] < 5
+    sans = marche().drop(columns=["high", "low"])
+    assert analysis.timeframe_summary(sans)["atr_pct"] is None
+    print("  ✓ ATR en % du cours, absent sans extrêmes")
 
 
 def test_l_etat_d_un_intervalle():

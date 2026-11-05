@@ -30,6 +30,7 @@ __all__ = [
     "KLINE_FREQ", "KLINE_HOURS", "generate_demo_ohlcv",
     "fetch_eur_rate", "fetch_m2_supply",
     "fetch_funding_history", "fetch_open_interest", "fetch_perp_snapshot",
+    "fetch_bybit_perp", "fetch_okx_perp",
     "fetch_market_global", "fetch_chain_chart", "fetch_chain_stats",
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
@@ -80,6 +81,8 @@ COINGECKO_GLOBAL = "https://api.coingecko.com/api/v3/global"
 #: API des contrats à terme Binance : financement, open interest et
 #: positionnement des comptes. Publique et sans clé, comme le reste.
 BINANCE_FUTURES = "https://fapi.binance.com"
+BYBIT_REST = "https://api.bybit.com"
+OKX_REST = "https://www.okx.com"
 
 #: Masse monétaire M2 des États-Unis (série H.6 de la Réserve fédérale,
 #: mensuelle, désaisonnalisée), servie par DBnomics. FRED publie la même
@@ -444,6 +447,40 @@ def fetch_open_interest(
         "oi": df["sumOpenInterest"].astype(float),
         "oi_usd": df["sumOpenInterestValue"].astype(float),
     })
+
+
+def fetch_bybit_perp(symbol: str = "BTCUSDT") -> dict[str, float]:
+    """Financement, prix marqué et indice, open interest du perpétuel Bybit."""
+    response = requests.get(
+        f"{BYBIT_REST}/v5/market/tickers",
+        params={"category": "linear", "symbol": symbol}, timeout=8,
+    )
+    response.raise_for_status()
+    row = response.json()["result"]["list"][0]
+    return {"funding_rate": float(row["fundingRate"]),
+            "mark_price": float(row["markPrice"]),
+            "index_price": float(row["indexPrice"]),
+            "oi_usd": float(row["openInterestValue"])}
+
+
+def _okx(path: str, **params: str) -> dict[str, Any]:
+    response = requests.get(f"{OKX_REST}/api/v5/{path}", params=params, timeout=8)
+    response.raise_for_status()
+    return response.json()["data"][0]
+
+
+def fetch_okx_perp(inst_id: str = "BTC-USDT-SWAP") -> dict[str, float]:
+    """La même chose chez OKX, qui répartit ces champs sur quatre endpoints."""
+    return {
+        "funding_rate": float(_okx("public/funding-rate",
+                                   instId=inst_id)["fundingRate"]),
+        "mark_price": float(_okx("public/mark-price", instType="SWAP",
+                                 instId=inst_id)["markPx"]),
+        "index_price": float(_okx("market/index-tickers",
+                                  instId=inst_id.removesuffix("-SWAP"))["idxPx"]),
+        "oi_usd": float(_okx("public/open-interest", instType="SWAP",
+                             instId=inst_id)["oiUsd"]),
+    }
 
 
 def fetch_perp_snapshot(symbol: str = "BTCUSDT") -> dict[str, Any]:

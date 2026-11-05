@@ -72,18 +72,19 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
 | **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
-| **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, âge du flux, choix de la plateforme, devise du panneau prix | 250 ms |
+| **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 250 ms |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Liquidations** | positions fermées de force — Binance, toutes paires, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
 | **Flux ETF** | entrées/sorties nettes des ETF spot ; en plein écran, cumul depuis le lancement, classement des émetteurs et fenêtre réglable (30 j / 90 j / 1 an / tout) | 5 min |
-| **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC (onglet des flux ETF) | 5 min |
+| **Position** | la position tenue, saisie à la main : résultat, distance au stop, multiple du risque ; taille qu'autorise un risque choisi, stop à quelques ATR ; résultat au bandeau. Rien ne quitte le navigateur (onglet des flux ETF) | 2 s |
+| **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; financement, prime et open interest comparés sur Binance, Bybit et OKX (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
-| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, glissement de dominance, jour de flux ETF, réseau chargé (onglet des news) | 2 s |
+| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
-| **Analyse** | tendance, écart à la MA 200, RSI et dernier signal de 15m à 1w ; bilan des signaux sur l'historique, contre une référence ; export CSV (onglet de la macro) | 30 s |
+| **Analyse** | tendance, écart à la MA 200, RSI, ATR et dernier signal de 15m à 1w ; au choix, bilan des signaux contre une référence, règles simples face à la détention, frais compris, ou carte des rendements mensuels ; export CSV (onglet de la macro) | 30 s |
 | **Dominance** | parts de capitalisation et leur tendance journalisée, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
 
@@ -317,6 +318,19 @@ une source REST qui tombe se lit dans `journalctl` — première panne,
 rétablissement, durée, et la cause en clair plutôt qu'une URL tronquée —
 au lieu de laisser des trous muets dans l'historique : l'instantané
 journalisé n'écrit que des valeurs fraîches.
+
+La séance suivante a tiré les conséquences du bilan des signaux, qui disait
+les flèches du graphique sans valeur : le panneau ANALYSE compare désormais
+quelques règles simples à la détention, frais compris — la MA 200 journalière
+fait à peu près le rendement de la détention, investie la moitié du temps et
+avec un repli moindre —, et c'est sur son franchissement qu'une alerte sonne
+maintenant. Le terminal a aussi gagné un seizième panneau, POSITION, qui suit
+une position saisie à la main et dimensionne d'après le risque et l'ATR, sans
+parler à aucun compte ; une ligne de commande (`/`), la mesure d'un mouvement,
+les lignes de tendance et la capture du graphique ; les murs du carnet, toutes
+plateformes réunies ; le perpétuel comparé sur Binance, Bybit et OKX ; la carte
+des rendements mensuels ; et une sonnerie trente minutes avant chaque échéance
+macro.
 Ce même journal a ensuite compté cinquante-quatre resynchronisations
 Kraken en une matinée, et nommé la cause qu'on croyait fortuite : le flux
 décrit une fenêtre de vingt-cinq niveaux, le carnet en gardait cent, et
@@ -566,11 +580,21 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 | `1` à `9` | intervalle du panneau prix, de 15m à 1M |
 | `E` | bascule `$` / `€` |
 | `L` | échelle logarithmique |
+| `S` | afficher ou masquer les flèches du graphique |
+| `P` | enregistrer le graphique en image |
+| `T` | tracer une ligne de tendance : armer, puis glisser d'un point à l'autre |
 | `F` | plein écran du panneau sous la souris |
+| `/` | ligne de commande |
 | `?` | aide |
 | `Échap` | revenir |
 | `Maj` + glisser | zoom sur une zone du graphique |
-| `Alt` + clic | poser une alerte de cours à cette hauteur, ou retirer celle qui s'y trouve |
+| `Ctrl` + glisser | mesurer un mouvement : %, écart de prix, bougies, durée |
+| `Alt` + clic | poser une alerte de cours à cette hauteur, ou retirer l'alerte ou la ligne qui s'y trouve |
+
+La ligne de commande prend un panneau (`etf`, `perp`, `analyse`, `alertes`…), un
+intervalle (`15m`, `4h`, `1M`), `eur`, `usd`, `log`, `signaux`, un sous-graphique
+(`cvd`, `rsi`, `crsi`, `vol`, `profil`), `capture`, `ligne`, `effacer` (toutes
+les lignes) ou un seuil de cours en dollars (`alerte 80000`). Une commande inconnue reste à l'écran, en rouge.
 
 ## Notes
 

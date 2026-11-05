@@ -128,6 +128,10 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("séparateur de spread présent", browser.js(
             "return document.querySelector('#book-table').textContent.includes('spread');"))
 
+        check("les murs se lisent sous le carnet", browser.wait_for(
+            "(document.getElementById('book-table')?.textContent || '')"
+            ".includes('murs')", timeout=5))
+
         print("\nCanal push")
         check("le WebSocket prend la main", browser.wait_for(
             "document.getElementById('hdr-push').textContent === 'push'"))
@@ -277,6 +281,103 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         browser.press("\ue00c")
         check("Échap la referme", browser.wait_for(
             "!document.querySelector('.keys-help')", timeout=3))
+        # Une ligne de tendance : tracée à la souris, gardée à travers la
+        # devise et l'intervalle, retirée d'un Alt + clic.
+        echelle = browser.js("return window.lwcPrice.debug().autoScale;")
+        browser.press("t")
+        check("T arme le tracé", browser.wait_for(
+            "window.lwcPrice.debug().drawMode === true", timeout=3))
+        x0, x1 = int(cadre["left"] + cadre["width"] * 0.3), \
+            int(cadre["left"] + cadre["width"] * 0.6)
+        y0, y1 = int(cadre["top"] + cadre["height"] * 0.45), \
+            int(cadre["top"] + cadre["height"] * 0.35)
+        browser.drag(x0, y0, x1, y1)
+        check("un glisser trace la ligne, et désarme le tracé", browser.wait_for(
+            "window.lwcPrice.debug().drawLines.length === 1"
+            " && window.lwcPrice.debug().drawMode === false", timeout=5))
+        check("la ligne ne touche pas à l'échelle des prix", browser.js(
+            "return window.lwcPrice.debug().autoScale;") == echelle)
+        browser.press("e")
+        browser.wait_for("window.lwcPrice.debug().currency === 'EUR'", timeout=5)
+        ligne = browser.js("""
+            const d = window.lwcPrice.debug();
+            return d.drawLines[0][0].value / d.drawings[0].p0 / d.eur_rate;
+        """)
+        check("elle suit la devise", abs(ligne - 1) < 1e-9, ligne)
+        browser.press("e")
+        browser.wait_for("window.lwcPrice.debug().currency === 'USD'", timeout=5)
+        browser.press("7")
+        browser.wait_for("window.lwcPrice.debug().interval === '1d'"
+                         " && window.lwcPrice.debug().bars > 200", timeout=10)
+        check("elle survit au changement d'intervalle", browser.js(
+            "return window.lwcPrice.debug().drawLines.length;") == 1)
+        browser.press("4")
+        browser.wait_for("window.lwcPrice.debug().interval === '4h'"
+                         " && window.lwcPrice.debug().drawLines.length === 1"
+                         " && window.lwcPrice.debug().bars > 200", timeout=10)
+        time.sleep(0.8)
+        # Le changement d'intervalle a recadré la vue : la ligne n'est plus
+        # où elle a été tracée, et c'est le graphique qui sait où elle est.
+        milieu = browser.js("""
+            const [a, b] = window.lwcPrice.debug().drawLines[0];
+            const p = window.lwcPrice.screen(a.time, a.value);
+            const q = window.lwcPrice.screen(b.time, b.value);
+            return {x: (p.x + q.x) / 2, y: (p.y + q.y) / 2};
+        """)
+        browser.alt_click(cadre["left"] + milieu["x"], cadre["top"] + milieu["y"])
+        check("Alt + clic retire la ligne, sans poser d'alerte", browser.wait_for(
+            "window.lwcPrice.debug().drawLines.length === 0", timeout=5)
+            and browser.js("return window.lwcPrice.debug().alerts;") == 0)
+
+        browser.press("s")
+        check("S masque les flèches", browser.wait_for(
+            "window.lwcPrice.debug().signalsShown === false", timeout=3))
+        browser.press("s")
+        browser.wait_for("window.lwcPrice.debug().signalsShown === true",
+                         timeout=3)
+
+        browser.press("/")
+        check("/ ouvre la ligne de commande", browser.wait_for(
+            "document.activeElement === document.querySelector('.command-bar input')",
+            timeout=3))
+        for touche in ("1", "d", "\ue007"):
+            browser.press(touche)
+        check("une commande change l'intervalle", browser.wait_for(
+            "window.lwcPrice.debug().interval === '1d'"
+            " && !document.querySelector('.command-bar')", timeout=8))
+        browser.press("/")
+        browser.wait_for("!!document.querySelector('.command-bar')", timeout=3)
+        for touche in ("z", "z", "\ue007"):
+            browser.press(touche)
+        check("une commande inconnue reste à l'écran et le dit", browser.wait_for(
+            "!!document.querySelector('.command-bar-error')", timeout=3))
+        browser.press("\ue00c")
+        check("Échap ferme la ligne de commande", browser.wait_for(
+            "!document.querySelector('.command-bar')", timeout=3))
+        check("alerte 90000 pose le seuil", browser.js(
+            "return window.btcCommand('alerte 90000');") and browser.wait_for(
+                "window.lwcPrice.debug().alertLevels.some(a => a.level === 90000)",
+                timeout=5))
+        browser.js("window.dash_clientside.set_props('alert-config',"
+                   " {data: {price_levels: []}});")
+        browser.wait_for("window.lwcPrice.debug().alerts === 0", timeout=5)
+        check("une commande ouvre un onglet", browser.js(
+            "return window.btcCommand('perpetuel');") and browser.wait_for(
+                "document.querySelector('#cell-etf .cell-tab-active')"
+                ".textContent === 'PERPÉTUEL'", timeout=5))
+        browser.js("window.btcCommand('etf');")
+        capture = browser.js("""
+            const vrai = HTMLAnchorElement.prototype.click;
+            let lien = null;
+            HTMLAnchorElement.prototype.click = function () { lien = this; };
+            window.btcCommand('capture');
+            HTMLAnchorElement.prototype.click = vrai;
+            return lien ? [lien.download, lien.href.slice(0, 22),
+                           lien.href.length] : null;
+        """)
+        check("la capture produit une image",
+              capture and capture[1] == "data:image/png;base64,"
+              and capture[2] > 10_000, capture and capture[0])
         browser.press("4")
         browser.wait_for("window.lwcPrice.debug().interval === '4h'"
                          " && window.lwcPrice.debug().bars > 200", timeout=10)
@@ -446,6 +547,21 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
               >= 0.95 * apres["bars"],
               f"{entier['range']} pour {apres['bars']} bougies")
 
+        browser.ctrl_drag(int(cadre["left"] + cadre["width"] * 0.3),
+                          int(cadre["top"] + cadre["height"] * 0.6),
+                          int(cadre["left"] + cadre["width"] * 0.6),
+                          int(cadre["top"] + cadre["height"] * 0.3))
+        mesure = browser.js("return window.lwcPrice.debug().measure;")
+        check("Ctrl + glisser mesure et reste à l'écran",
+              "bougies" in (mesure or "") and browser.js(
+                  "return getComputedStyle(document.querySelector("
+                  "'.lwc-zoom-box')).display === 'block';"), mesure)
+        browser.press("\ue00c")
+        check("Échap efface la mesure sans quitter le plein écran",
+              browser.wait_for(
+                  "!window.lwcPrice.debug().measure", timeout=3) and browser.js(
+                  "return !!document.querySelector('.cell-max');"))
+
         print("\nRetour à la grille")
         browser.js("document.dispatchEvent("
                    "new KeyboardEvent('keydown', {key: 'Escape', bubbles: true}));")
@@ -511,6 +627,51 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
               or "indisponible" in perp["badges"],
               perp["badges"][:46])
 
+        check("les plateformes se comparent", browser.wait_for(
+            "(document.getElementById('perp-compare')?.textContent || '')"
+            ".includes('OI')", timeout=12),
+            browser.js("return document.getElementById('perp-compare')"
+                       ".textContent;")[:60])
+        check("et tout tient dans la largeur", browser.js(
+            "const e = document.getElementById('perp-compare');"
+            "return e.scrollWidth <= e.clientWidth;"))
+
+        print("\nOnglet position")
+        browser.js("window.btcCommand('position');")
+        browser.wait_for("!!document.getElementById('position-result')", timeout=8)
+
+        def saisir(champ, valeur):
+            browser.js(f"document.getElementById('{champ}').focus();")
+            for touche in (*valeur, "\ue007"):
+                browser.press(touche)
+
+        saisir("position-qty", "0.5")
+        saisir("position-entry", "70000")
+        saisir("position-stop", "65000")
+        saisir("position-capital", "10000")
+        check("la position se suit", browser.wait_for(
+            "document.getElementById('position-result').textContent"
+            ".includes('multiple')", timeout=8),
+            browser.js("return document.getElementById('position-result')"
+                       ".textContent;")[:70])
+        check("la taille se calcule d'après l'ATR", browser.wait_for(
+            "document.getElementById('position-result').textContent"
+            ".includes('taille')", timeout=8))
+        check("le panneau tient dans sa cellule", browser.js(
+            "const e = document.getElementById('position-result');"
+            "return e.scrollHeight <= e.clientHeight;"))
+        check("les six champs tiennent sur une ligne", browser.js(
+            "const a = document.getElementById('position-qty');"
+            "const b = document.getElementById('position-atr');"
+            "return Math.abs(a.getBoundingClientRect().top"
+            " - b.getBoundingClientRect().top) < 3;"))
+        check("le bandeau la suit, panneau replié", browser.js(
+            "return window.btcCommand('etf');") and browser.wait_for(
+                "document.getElementById('hdr-position').textContent"
+                ".startsWith('long')", timeout=8),
+            browser.js("return document.getElementById('hdr-position')"
+                       ".textContent;"))
+
         print("\nOnglets dominance et on-chain")
         for label, graphe, badge in (("DOMINANCE", "dominance-chart", "dominance-badges"),
                                      ("ON-CHAIN", "onchain-chart", "onchain-badges")):
@@ -553,6 +714,22 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("le bilan dit sa référence",
               "rester investi" in analyse["bilan"]
               or "insuffisant" in analyse["bilan"], analyse["bilan"][:60])
+        browser.js("""
+            Array.from(document.querySelectorAll('#analysis-view label'))
+                 .find(l => l.textContent.trim() === 'règles').click();
+        """)
+        check("les règles se comparent à la détention", browser.wait_for(
+            "(document.getElementById('analysis-stats')?.textContent || '')"
+            ".includes('rester investi')"
+            " && document.getElementById('analysis-stats').textContent"
+            ".includes('repli max')", timeout=10))
+        browser.js("""
+            Array.from(document.querySelectorAll('#analysis-view label'))
+                 .find(l => l.textContent.trim() === 'mois').click();
+        """)
+        check("les mois se lisent par année", browser.wait_for(
+            "(document.getElementById('analysis-stats')?.textContent || '')"
+            ".includes('déc')", timeout=10))
         lien = browser.js(
             "return document.getElementById('analysis-export').href;")
         with urllib.request.urlopen(lien, timeout=10) as reponse:
@@ -568,7 +745,9 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             Array.from(document.querySelectorAll('#cell-arb .cell-tab'))
                  .find(t => t.textContent === 'LIQUIDATIONS').click();
         """)
-        time.sleep(2.5)
+        browser.wait_for("!!document.getElementById('liq-table')"
+                         " && !!document.getElementById('liq-badges')", timeout=10)
+        time.sleep(1)
         liq = browser.js("""
             return {badges: document.getElementById('liq-badges').textContent,
                     table: document.getElementById('liq-table').textContent};
@@ -738,7 +917,7 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "!document.getElementById('layout-overlay')"
             ".className.includes('layout-overlay-hidden')", timeout=8))
         check("un rang par panneau", browser.js(
-            "return document.querySelectorAll('.layout-row').length;") == 15)
+            "return document.querySelectorAll('.layout-row').length;") == 16)
         browser.js("""
             const rang = Array.from(document.querySelectorAll('.layout-row'))
                 .find(r => r.querySelector('.layout-panel-name')

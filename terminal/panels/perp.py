@@ -39,6 +39,10 @@ from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 #: chiffre lisible, un taux de 0,0001 ne parlant à personne.
 PERIODS_PER_YEAR = 3 * 365
 
+#: Les plateformes, en abrégé : la ligne de comparaison doit tenir dans la
+#: largeur d'une cellule étroite.
+EXCHANGE_TAG = {"Binance": "BIN", "Bybit": "BYB", "OKX": "OKX"}
+
 
 def layout(title=None):
     return html.Div([
@@ -48,6 +52,10 @@ def layout(title=None):
                       style={"fontSize": "9px", "whiteSpace": "nowrap",
                              "marginLeft": "10px"}),
         ], style=TITLE_STYLE),
+        html.Div(id="perp-compare",
+                 style={"fontFamily": MONO, "fontSize": "9px",
+                        "padding": "0 10px 3px", "whiteSpace": "nowrap",
+                        "overflow": "hidden"}),
         # Le graphique est créé dans ce div par assets/lwc-perp.js ; le
         # Store porte la configuration que le serveur transmet au client
         # (le thème — une seule définition, ici), les puits sont ceux
@@ -62,6 +70,39 @@ def layout(title=None):
         ], style={"flex": "1", "minHeight": "0", "display": "flex",
                   "flexDirection": "column"}),
     ], style=PANEL_STYLE)
+
+
+def _compare(rows: dict[str, dict], fx=DOLLARS):
+    """Financement et prime par plateforme, open interest additionné.
+
+    Le financement de Binance ne dit pas le marché à lui seul : un écart
+    entre plateformes est justement ce qui mérite d'être vu. La prime est
+    l'écart du prix marqué à l'indice, le carburant du financement à venir.
+    """
+    if not rows:
+        return ""
+    children = []
+    for name, row in rows.items():
+        rate = row["funding_rate"]
+        children += [
+            html.Span(f"{EXCHANGE_TAG.get(name, name)} ",
+                      style={"color": C["muted"]}),
+            html.Span(f"{rate * 100:+.4f} %",
+                      style={"color": C["green"] if rate >= 0 else C["red"]},
+                      title=f"financement {name}, sur huit heures"),
+        ]
+        if row.get("mark_price") and row.get("index_price"):
+            prime = (row["mark_price"] / row["index_price"] - 1) * 100
+            children.append(html.Span(
+                f" ({prime:+.3f})", style={"color": C["muted"]},
+                title=f"prime {name} : prix marqué contre indice, en %"))
+        children.append(html.Span(" · ", style={"color": C["muted"]}))
+    total = sum(row["oi_usd"] for row in rows.values() if row.get("oi_usd"))
+    children.append(html.Span(
+        f"{fx.warning}OI total {total * fx.rate / 1e9:.2f} Md{fx.unit}",
+        style={"color": C["cyan"]},
+        title=fx.title("open interest additionné des plateformes affichées")))
+    return children
 
 
 def _countdown(next_funding_ms: int) -> str:
@@ -145,6 +186,7 @@ def register(app, hub):
     """
     @app.callback(
         Output("perp-badges", "children"),
+        Output("perp-compare", "children"),
         Input("tick-rare", "n_intervals"),
         Input("maximized", "data"),
         Input("currency", "data"),
@@ -152,9 +194,10 @@ def register(app, hub):
     def _refresh(_tick, maximized, currency):
         # Le panneau partage la cellule « etf » : c'est donc sur ce nom
         # de zone que se lit l'agrandissement, pas sur le sien.
-        return _badges(hub.perp_snapshot(), hub.open_interest_extended(),
-                       verbose=maximized == "etf",
-                       fx=display(hub, currency))
+        fx = display(hub, currency)
+        return (_badges(hub.perp_snapshot(), hub.open_interest_extended(),
+                        verbose=maximized == "etf", fx=fx),
+                _compare(hub.perp_compare(), fx))
 
     app.clientside_callback(
         """
