@@ -351,7 +351,11 @@ connexion. Enfin, la boucle d'observation attend le réseau au démarrage —
 l'unité utilisateur part avant que la machine ne soit connectée — au lieu
 de déclarer cinq sources en panne deux secondes après le boot — et le
 réveil de la machine, qui rejouait la même salve sept fois par jour,
-est traité comme un boot. Le tableau des liquidations écrit ses prix
+est traité comme un boot. Il se lit désormais sur les horloges du noyau,
+qui voient aussi les sommeils de quelques secondes ; dans la minute qui le
+suit, un échec n'est plus une panne — il comptait le sommeil dans la durée
+de la panne d'avant et retenait le graphique une minute après le retour du
+réseau. Le tableau des liquidations écrit ses prix
 selon leur taille — un bitcoin à 79 090 $ s'y lisait `7.909e+04`. Et un onglet ouvert
 coûtait un sixième de cœur au serveur — la moitié en figures de
 profondeur rebâties dix fois par seconde ; la profondeur part désormais

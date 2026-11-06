@@ -5,7 +5,7 @@ Le cache du hub : dernière valeur de secours, fraîcheur, pannes dites.
 Le journal de séance a montré six heures et demie d'instantanés sans
 financement ni open interest — Binance Futures muet après un réveil,
 CoinGecko répondant à côté — sans une ligne dans le journal du service.
-Trois choses sont vérifiées ici, sans réseau :
+Ce qui est vérifié ici, sans réseau :
 
 - le cache sert sa dernière valeur quand la source tombe, mais sait
   qu'elle est de secours (`stale`) ;
@@ -17,7 +17,10 @@ Trois choses sont vérifiées ici, sans réseau :
 - un collecteur qui n'a rien obtenu lève, au lieu de rendre un vide
   qui se ferait mettre en cache comme une lecture réussie ;
 - le taux €/$ en panne sert le dernier taux lu — ou un repli dit de
-  secours — sans réinterroger la source à chaque lecture.
+  secours — sans réinterroger la source à chaque lecture ;
+- un réveil de la machine, lu sur ses horloges, fait rattendre le
+  réseau à la boucle d'observation, et les échecs de la minute qui suit
+  ne comptent pas comme pannes.
 
 Lancement :
     python tests/test_cache.py
@@ -34,7 +37,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd  # noqa: E402
 
 from btcterm import hub as hub_module, sources  # noqa: E402
-from btcterm.hub import MarketHub, TTLCache  # noqa: E402
+from btcterm.hub import (FAILING_WINDOW, MarketHub, SleepWatch,  # noqa: E402
+                         TTLCache)
 from btcterm.journal import Journal  # noqa: E402
 
 
@@ -390,10 +394,15 @@ def test_la_boucle_attend_le_reseau():
 
 
 def test_le_reveil_rattend_le_reseau():
-    """Un tour dont l'heure murale a sauté est un réveil de la machine :
-    la boucle rattend le réseau, comme au démarrage, et le dit avec la
-    durée du sommeil ; un tour ordinaire ne sonde rien."""
+    """Un sommeil lu sur les horloges est un réveil de la machine : la
+    boucle rattend le réseau, comme au démarrage, et le dit avec la durée
+    du sommeil — onze secondes comprises, que l'heure murale ne trahissait
+    pas ; un tour ordinaire ne sonde rien, un réveil ne se traite qu'une
+    fois, même vu d'abord par une autre lecture."""
+    endormi = [0.0]
     hub = MarketHub(collect_news=False, keep_journal=False)
+    hub._sleep = SleepWatch(lambda: endormi[0])
+    hub._cache = TTLCache(hub._sleep, hub.WAKE_GRACE)
     hub.NETWORK_PROBE_EVERY = 0.01
     sondes = []
 
@@ -405,25 +414,156 @@ def test_le_reveil_rattend_le_reseau():
     capture = Capture()
     hub_module.log.addHandler(capture)
     try:
-        # Un tour ordinaire, une seconde après le précédent : rien.
-        avant = time.time()
-        assert hub._after_sleep(avant - 1.0) >= avant
+        # Un tour ordinaire : rien.
+        hub._after_sleep()
         assert sondes == [] and capture.lignes == []
 
-        # Trente-deux minutes sans tour : la machine dormait.
-        assert hub._after_sleep(time.time() - 32 * 60) >= avant
+        # Trente-deux minutes de sommeil.
+        endormi[0] += 32 * 60
+        hub._after_sleep()
         assert len(sondes) == 2
         assert [l for l in capture.lignes
                 if "au réveil, après 32 min de sommeil" in l], capture.lignes
         assert [l for l in capture.lignes if l.startswith("réseau présent après")]
 
+        # Le tour suivant ne rejoue pas le même réveil.
+        capture.lignes.clear(); sondes.clear()
+        hub._after_sleep()
+        assert sondes == [] and capture.lignes == []
+
+        # Onze secondes, vues d'abord par une lecture du cache.
+        endormi[0] += 11
+        assert hub._cache.waking()
+        hub._after_sleep()
+        assert [l for l in capture.lignes
+                if "au réveil, après 11 s de sommeil" in l], capture.lignes
+
         # Réveil avec le réseau déjà là : la boucle reprend sans un mot.
         capture.lignes.clear(); sondes.clear(); sondes.extend([1, 1])
-        hub._after_sleep(time.time() - 3600)
-        assert capture.lignes == []
+        endormi[0] += 3600
+        hub._after_sleep()
+        assert len(sondes) == 3 and capture.lignes == []
     finally:
         hub_module.log.removeHandler(capture)
     print("  ✓ le réveil de la machine rattend le réseau, et dit combien elle a dormi")
+
+
+def test_un_echec_au_reveil_n_est_pas_une_panne():
+    """Dans la minute d'un réveil, le réseau manque encore : l'échec est
+    servi de secours, mais il ne se journalise pas, ne compte pas au
+    bandeau, et ne relie pas la panne d'avant le sommeil à son retour.
+
+    Le journal du service, le 6 novembre : « klines:1h:400 de nouveau
+    servie après 95 min », dont quatre-vingt-quatre de sommeil — une
+    lecture ratée à la troisième seconde du réveil avait confirmé la
+    panne de la veille.
+    """
+    endormi = [0.0]
+    montre = SleepWatch(lambda: endormi[0])
+    cache = TTLCache(montre, grace=60.0)
+
+    def panne():
+        raise ConnectionError("réseau absent")
+
+    capture = Capture()
+    hub_module.log.addHandler(capture)
+    try:
+        cache.get("k", 0, lambda: 1)
+        cache.get("k", 0, panne)
+        assert len(capture.lignes) == 1 and "k en panne" in capture.lignes[0]
+        # Dix minutes de panne, puis quatre-vingt-quatre de sommeil.
+        cache._failing["k"] -= 94 * 60
+        cache._failed_at["k"] -= 84 * 60
+        endormi[0] += 84 * 60
+
+        # Au réveil : secours servi, dit tel, mais rien au journal ni au
+        # bandeau, pour cette clé comme pour une autre.
+        assert cache.get("k", 0, panne) == 1 and cache.stale("k")
+        assert cache.get("autre", 0, lambda: 2) == 2
+        assert cache.get("autre", 0, panne) == 2 and cache.stale("autre")
+        assert len(capture.lignes) == 1, capture.lignes
+        assert cache.failing(FAILING_WINDOW) == {}
+
+        # Le réseau revient : la panne d'avant le sommeil garde sa durée.
+        cache.get("k", 0, lambda: 3)
+        assert capture.lignes[-1] == (
+            "source k de nouveau servie à sa première lecture depuis 84 min "
+            "(panne constatée : 10 min)"), capture.lignes[-1]
+        cache.get("autre", 0, lambda: 4)
+        assert len(capture.lignes) == 2, capture.lignes
+
+        # La minute passée, un échec redevient une panne.
+        montre.woke_at -= 61
+        cache.get("autre", 0, panne)
+        assert capture.lignes[-1].startswith("source autre en panne"), capture.lignes
+        assert set(cache.failing(FAILING_WINDOW)) == {"autre"}
+    finally:
+        hub_module.log.removeHandler(capture)
+    print("  ✓ un échec du réveil est servi de secours, sans panne dite")
+
+
+def test_l_echec_apres_un_silence_ouvre_une_panne():
+    """Un échec qui suit un long silence ne prolonge pas la panne d'avant :
+    on ignore ce qu'elle est devenue pendant que personne ne lisait. C'est
+    le pendant, à l'échec, de ce que le retour fait déjà."""
+    def panne():
+        raise ConnectionError("injoignable")
+
+    cache = TTLCache()
+    capture = Capture()
+    hub_module.log.addHandler(capture)
+    try:
+        cache.get("k", 0, lambda: 1)
+        cache.get("k", 0, panne)
+        # Cinq minutes d'échecs, puis trois heures sans lecture.
+        cache._failing["k"] -= 185 * 60
+        cache._failed_at["k"] -= 180 * 60
+        cache._entries["k"] = (cache._entries["k"][0] - 186 * 60, 1)
+        cache.get("k", 0, panne)
+        assert capture.lignes[-1] == (
+            "source k en panne à sa première lecture depuis 180 min : "
+            "injoignable — dernière valeur : 11160 s (panne précédente "
+            "constatée : 5 min)"), capture.lignes[-1]
+        # Le retour, deux minutes plus tard, compte la nouvelle panne.
+        cache._failing["k"] -= 120
+        cache._failed_at["k"] -= 60
+        cache.get("k", 0, lambda: 2)
+        assert capture.lignes[-1] == "source k de nouveau servie après 2 min"
+
+        # Des échecs rapprochés restent une seule panne.
+        capture.lignes.clear()
+        for _ in range(3):
+            cache.get("k", 0, panne)
+        assert len(capture.lignes) == 1, capture.lignes
+    finally:
+        hub_module.log.removeHandler(capture)
+    print("  ✓ après un silence, un échec ouvre une panne au lieu d'allonger l'ancienne")
+
+
+def test_binance_retente_vite_au_reveil():
+    """Un échec de Binance arme une attente d'une minute — sauf dans la
+    minute d'un réveil, où c'est le réseau qui manque : le graphique
+    repartait soixante et une secondes après son retour."""
+    endormi = [0.0]
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    hub._sleep = SleepWatch(lambda: endormi[0])
+    hub._cache = TTLCache(hub._sleep, hub.WAKE_GRACE)
+    hub.history = object()  # présent : la lecture passe par l'attente
+
+    def panne():
+        raise ConnectionError("injoignable")
+
+    for dormir, attente in ((0, hub.KLINES_RETRY), (600, hub.WAKE_KLINES_RETRY)):
+        endormi[0] += dormir
+        hub._klines_retry_at = 0.0
+        avant = time.time()
+        try:
+            hub._through_history(panne, panne)
+        except ConnectionError:
+            pass
+        assert abs(hub._klines_retry_at - avant - attente) < 1, (
+            dormir, hub._klines_retry_at - avant)
+    print("  ✓ au réveil, Binance retenté en secondes plutôt qu'en minute")
 
 
 if __name__ == "__main__":
