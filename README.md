@@ -321,10 +321,11 @@ depuis la veille, et le clic l'y ouvre le panneau.
 du FOMC (avec ou sans projections), inflation CPI et PCE, rapport sur l'emploi
 (NFP), chacune avec son compte à rebours et son heure locale. Aucune API
 publique satisfaisante n'existe pour ces dates ; elles sont transcrites à la
-main dans `btcterm/macrocal.py` depuis les calendriers officiels (la Fed publie
-les siennes deux ans à l'avance, l'OMB celles des statistiques fédérales un an).
-Le pied du panneau dit jusqu'où court la liste, et prévient quand elle
-s'épuise — un calendrier qui se tait parce qu'il est périmé doit se voir.
+main dans `btcterm/macrocal.py` depuis les calendriers officiels — la Fed, le
+BLS et le BEA publient leurs dates un à deux ans à l'avance ; la liste court
+jusqu'en décembre 2027. Le pied du panneau dit jusqu'où elle est complète,
+famille par famille, et nomme celle qui s'épuise dans le mois — un calendrier
+qui se tait parce qu'il est périmé doit se voir.
 
 ## Architecture
 

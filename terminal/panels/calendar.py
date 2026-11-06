@@ -97,18 +97,29 @@ def _badges(today: dt.date):
 
 
 def _footer(today: dt.date):
-    """Jusqu'où court la liste tenue à la main — et quand la compléter."""
-    horizon = macrocal.last_date()
-    if (horizon - today).days < 30:
+    """Jusqu'où court la liste tenue à la main — et quand la compléter.
+
+    Chaque famille s'épuise à son rythme : le pied nomme celles qui
+    s'arrêtent dans le mois. Il disait le dernier FOMC quand le CPI, le
+    NFP et le PCE s'arrêtaient un an plus tôt.
+    """
+    ends = macrocal.last_dates()
+    soon = [kind for kind, end in ends.items() if (end - today).days < 30]
+    if soon:
         return html.Div(
-            "liste de dates presque épuisée — compléter btcterm/macrocal.py",
+            f"dates bientôt épuisées : {', '.join(soon)} — compléter "
+            "btcterm/macrocal.py",
             style={"color": C["red"], "fontFamily": MONO, "fontSize": "10px",
                    "padding": "6px 4px"})
+    horizon = macrocal.last_date()
+    first = next(kind for kind, end in ends.items() if end == horizon)
     return html.Div(
-        f"dates officielles transcrites à la main · "
-        f"jusqu'au {horizon.day} {_MOIS[horizon.month - 1]} {horizon.year}",
+        f"dates officielles transcrites à la main · complètes jusqu'au "
+        f"{horizon.day} {_MOIS[horizon.month - 1]} {horizon.year} ({first})",
         style={"color": C["muted"], "fontFamily": MONO, "fontSize": "10px",
-               "padding": "6px 4px"})
+               "padding": "6px 4px"},
+        title=" · ".join(f"{kind} jusqu'au {end:%d/%m/%Y}"
+                         for kind, end in ends.items()))
 
 
 def register(app, hub):

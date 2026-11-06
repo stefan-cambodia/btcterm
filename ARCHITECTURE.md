@@ -413,13 +413,25 @@ les émetteurs publient eux-mêmes leurs dates longtemps à l'avance — la
 Fed donne ses réunions deux ans avant, l'OMB publie chaque automne le
 calendrier de l'année suivante pour toutes les statistiques fédérales.
 `macrocal` est la transcription de ces calendriers officiels, vérifiée à
-la source : décisions du FOMC 2026–2027 (avec le marqueur SEP des
-réunions à projections), CPI, rapport emploi (NFP) et inflation PCE 2026.
+la source : décisions du FOMC (avec le marqueur SEP des réunions à
+projections), CPI, rapport emploi (NFP) et inflation PCE, 2026 et 2027.
+
+L'année 2027 des statistiques a été ajoutée le 6 novembre 2026, cinq
+semaines avant que la liste ne s'épuise : CPI et NFP depuis les pages de
+calendrier du BLS, qui refuse les clients en ligne de commande (403) et se
+lit au navigateur — deux lectures du CPI concordantes, les deux dates de
+2026 déjà connues retrouvées, et les douze NFP le vendredi ; PCE depuis le
+fichier JSON des dates du BEA (`apps.bea.gov/API/signup/release_dates.json`),
+qu'on pourrait lire au démarrage le jour où la transcription coûterait plus
+qu'une fois l'an. Le même fichier montre que le BEA a avancé ses publications
+de janvier à avril 2026 pour rattraper 2025 ; passées, elles sont laissées
+comme le calendrier initial les donnait.
 
 Le module expose `EVENTS` (la liste triée), `upcoming` (l'à-venir,
 événement du jour compris — « aujourd'hui » est précisément ce qu'on
-vient lire), `next_of` (le prochain d'une famille, pour les badges) et
-`last_date` (jusqu'où court la liste).
+vient lire), `next_of` (le prochain d'une famille, pour les badges),
+`last_dates` (jusqu'où court chaque famille) et `last_date` (jusqu'où la
+liste est complète : la plus proche des quatre).
 
 Deux pièges justifient que ce soit du code et non un simple tableau :
 
@@ -432,7 +444,12 @@ Deux pièges justifient que ce soit du code et non un simple tableau :
 - **L'épuisement.** Une liste tenue à la main finit par se périmer ;
   plutôt que de se taire, le panneau affiche l'horizon de la liste et
   prévient quand il approche — le pendant du fil de news qui affiche
-  l'âge de sa collecte.
+  l'âge de sa collecte. Chaque famille s'épuise à son rythme, et le pied
+  nomme celle qui s'arrête la première. `last_date` rendait le dernier
+  FOMC, décembre 2027, quand le CPI, le NFP et le PCE s'arrêtaient en
+  décembre 2026 : l'avertissement ne pouvait pas sonner, et l'alerte
+  d'échéance se serait tue sur trois des quatre familles sans que rien
+  ne le dise.
 
 ### 2.7 `journal` — la séance se relit
 
@@ -2394,6 +2411,11 @@ constaté à l'usage, ou des points restés ouverts.
   sans clé — DVOL contre réalisée, courbe des échéances et ailes 25 delta,
   base des futures à échéance, open interest par strike et max pain —, avec
   DVOL au bandeau.
+- ~~**Un calendrier qui s'épuise en silence**~~ — le CPI, le NFP et le PCE
+  s'arrêtaient en décembre 2026, et le panneau annonçait une liste valable
+  jusqu'en décembre 2027 : il lisait le dernier FOMC. Fait : 2027 transcrite
+  depuis le BLS et le BEA, et l'horizon est celui de la famille qui s'épuise
+  la première (§2.6).
 - ~~**Des niveaux à tracer à la main**~~ — les plus hauts et plus bas de
   la veille, de la semaine et du mois, que tout trader repère avant d'ouvrir
   une position, demandaient une ligne posée à la main pour chacun. Fait :

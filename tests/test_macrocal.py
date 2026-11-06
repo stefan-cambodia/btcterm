@@ -24,7 +24,7 @@ from btcterm import macrocal  # noqa: E402
 
 
 def test_familles_et_volumes():
-    """Huit FOMC par an ; douze publications 2026 pour chaque statistique."""
+    """Huit FOMC par an ; douze publications par an pour chaque statistique."""
     par_famille = {}
     for event in macrocal.EVENTS:
         assert event.kind in macrocal.KINDS, f"famille inconnue : {event.kind}"
@@ -35,8 +35,9 @@ def test_familles_et_volumes():
             f"le FOMC tient huit réunions par an, pas " \
             f"{len(par_famille[('FOMC', year)])} en {year}"
     for kind in ("CPI", "NFP", "PCE"):
-        assert len(par_famille[(kind, 2026)]) == 12, \
-            f"{kind} : douze publications attendues en 2026"
+        for year in (2026, 2027):
+            assert len(par_famille[(kind, year)]) == 12, \
+                f"{kind} : douze publications attendues en {year}"
     print(f"  ✓ {len(macrocal.EVENTS)} événements, volumes conformes")
 
 
@@ -99,9 +100,28 @@ def test_next_of():
 
 
 def test_horizon():
-    """La liste court jusqu'au dernier FOMC publié par la Fed."""
-    assert macrocal.last_date() == dt.date(2027, 12, 8)
-    print("  ✓ horizon : 8 décembre 2027")
+    """La liste est complète jusqu'à la famille qui s'épuise la première.
+
+    `last_date` rendait le dernier FOMC, décembre 2027, quand le CPI, le
+    NFP et le PCE s'arrêtaient en décembre 2026 : le panneau ne pouvait pas
+    prévenir de l'épuisement qui venait.
+    """
+    fins = macrocal.last_dates()
+    assert fins == {"FOMC": dt.date(2027, 12, 8), "CPI": dt.date(2027, 12, 10),
+                    "NFP": dt.date(2027, 12, 3), "PCE": dt.date(2027, 12, 22)}, fins
+    assert macrocal.last_date() == dt.date(2027, 12, 3)
+    print("  ✓ horizon : complet jusqu'au 3 décembre 2027 (NFP)")
+
+
+def test_le_mois_de_reference_passe_l_annee():
+    """Le CPI de janvier 2027 porte sur décembre 2026 ; les NFP tombent un
+    vendredi — le filet contre une date recopiée de travers."""
+    janvier = macrocal.next_of("CPI", dt.date(2027, 1, 1))
+    assert janvier.date == dt.date(2027, 1, 13)
+    assert janvier.note == "données de décembre"
+    assert all(e.date.weekday() == 4 for e in macrocal.EVENTS
+               if e.kind == "NFP" and e.date.year == 2027)
+    print("  ✓ CPI de janvier 2027 sur décembre ; NFP 2027 le vendredi")
 
 
 if __name__ == "__main__":
