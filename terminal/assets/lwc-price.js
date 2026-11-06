@@ -256,6 +256,11 @@
         if (extras.indexOf("levels") !== -1) {
             buildLevels();
         }
+        // Carte des liquidations — la case LIQ : où, en prix, le levier a
+        // sauté sur la plage visible.
+        if (extras.indexOf("liq") !== -1) {
+            buildLiqMap();
+        }
 
         // L'historique se charge au pan, comme sur tradingview.com :
         // approcher du début des données déclenche la page antérieure.
@@ -962,6 +967,122 @@
         });
     }
 
+    // ── Carte des liquidations ──────────────────────────────
+    //
+    // Le notionnel liquidé par tranche de prix sur la plage visible, lu
+    // dans le journal (/api/liqmap) : des barres à gauche du pane — le
+    // profil de volume tient la droite —, rouge pour les longs fermés de
+    // force (des ventes), vert pour les shorts (des achats). Redemandée
+    // quand la plage bouge, et chaque minute pour les liquidations neuves.
+    // La légende du bas dit le total et les plateformes présentes : la
+    // couverture se voit.
+    var LIQ_EVERY = 60000;
+
+    function buildLiqMap() {
+        var canvas = document.createElement("canvas");
+        canvas.className = "lwc-profile";
+        state.el.appendChild(canvas);
+        state.liqCanvas = canvas;
+        state.liqData = null;
+        state.liqTimer = null;
+        state.chart.timeScale().subscribeVisibleTimeRangeChange(
+            function () {
+                drawLiqMap();
+                scheduleLiqMap();
+            });
+        state.liqPoll = setInterval(fetchLiqMap, LIQ_EVERY);
+    }
+
+    function scheduleLiqMap() {
+        if (!state.liqCanvas) { return; }
+        if (state.liqTimer) { clearTimeout(state.liqTimer); }
+        state.liqTimer = setTimeout(fetchLiqMap, 300);
+    }
+
+    function fetchLiqMap() {
+        if (!state.chart || !state.packet || !state.liqCanvas) { return; }
+        var range = state.chart.timeScale().getVisibleRange();
+        if (!range) { return; }
+        // La plage visible s'arrête à l'ouverture de la dernière bougie ;
+        // ses liquidations courent jusqu'à sa clôture — jusqu'à maintenant
+        // pour la bougie en cours.
+        var bars = state.packet.bars;
+        var n = bars.length;
+        var step = n > 1 ? bars[n - 1].time - bars[n - 2].time : 0;
+        var to = Math.ceil(range.to) + step;
+        if (n && range.to >= bars[n - 1].time) {
+            to = Math.max(to, Math.ceil(Date.now() / 1000));
+        }
+        var seq = state.seq;
+        fetch("/api/liqmap?from=" + Math.floor(range.from) + "&to=" + to)
+            .then(function (r) { return r.json(); })
+            .then(function (carte) {
+                if (seq !== state.seq || !state.liqCanvas) { return; }
+                state.liqData = carte;
+                drawLiqMap();
+            })
+            .catch(function () { /* le prochain mouvement retentera */ });
+    }
+
+    function drawLiqMap() {
+        var canvas = state.liqCanvas;
+        if (!canvas || !state.chart || !state.series) { return; }
+        var paneHeight = state.chart.panes()[0].getHeight();
+        var scaleWidth = state.chart.priceScale("right").width();
+        var paneWidth = state.el.clientWidth - scaleWidth;
+        canvas.width = paneWidth;
+        canvas.height = paneHeight;
+        var ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, paneWidth, paneHeight);
+        var carte = state.liqData;
+        if (!carte) { return; }
+        ctx.font = "9px " + state.conf.mono;
+        if (carte.empty) {
+            liqCaption(ctx, "liquidations : " + (carte.reason || "aucune"));
+            return;
+        }
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var max = 0;
+        for (var k = 0; k < carte.centers.length; k += 1) {
+            max = Math.max(max, carte.longs[k] + carte.shorts[k]);
+        }
+        if (!(max > 0)) { return; }
+        var maxLen = Math.round(paneWidth * 0.18);
+        var candles = state.series.candles;
+        for (var i = 0; i < carte.centers.length; i += 1) {
+            var total = carte.longs[i] + carte.shorts[i];
+            if (!(total > 0)) { continue; }
+            var top = candles.priceToCoordinate(
+                (carte.centers[i] + carte.width / 2) * rate);
+            var bottom = candles.priceToCoordinate(
+                (carte.centers[i] - carte.width / 2) * rate);
+            if (top === null || bottom === null) { continue; }
+            var y = Math.min(top, bottom);
+            var h = Math.max(2, Math.abs(bottom - top) - 1);
+            if (y + h < 0 || y > paneHeight) { continue; }
+            var len = Math.max(1, Math.round(total / max * maxLen));
+            var longLen = Math.round(len * carte.longs[i] / total);
+            ctx.fillStyle = "rgba(255,61,107,0.55)";
+            ctx.fillRect(0, y, longLen, h);
+            ctx.fillStyle = "rgba(0,212,170,0.55)";
+            ctx.fillRect(longLen, y, len - longLen, h);
+        }
+        liqCaption(ctx, "liquidations " + (carte.notional / 1e6).toFixed(1)
+                   + " M$ · " + carte.count + " · "
+                   + carte.exchanges.join(", ")
+                   + " · rouge : longs, vert : shorts");
+    }
+
+    // La légende de la carte, sous celle des moyennes : en bas du pane, le
+    // volume la recouvrait. Un fond la garde lisible sur les chandeliers.
+    function liqCaption(ctx, text) {
+        var width = ctx.measureText(text).width;
+        ctx.fillStyle = "rgba(14,17,23,0.8)";
+        ctx.fillRect(4, 34, width + 6, 13);
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillText(text, 7, 44);
+    }
+
     // ── Seuils d'alerte ─────────────────────────────────────
 
     // Les seuils de cours posés depuis le panneau ALERTES, tracés sur
@@ -1082,6 +1203,16 @@
         }
         state.levels = null;
         state.levelLines = [];
+        if (state.liqPoll) {
+            clearInterval(state.liqPoll);
+            state.liqPoll = null;
+        }
+        if (state.liqTimer) {
+            clearTimeout(state.liqTimer);
+            state.liqTimer = null;
+        }
+        state.liqCanvas = null;
+        state.liqData = null;
         if (state.profileTimer) {
             clearTimeout(state.profileTimer);
             state.profileTimer = null;
@@ -1149,6 +1280,10 @@
             updateProfileLines();
             drawProfile();
             scheduleProfile();
+        }
+        if (state.liqCanvas) {
+            drawLiqMap();
+            scheduleLiqMap();
         }
         // Les lignes portent des prix en unités de série : la bascule
         // de devise les reprend au taux.
@@ -1615,6 +1750,11 @@
                 signals: (state.packet.signals || []).length,
                 signalsShown: !state.signalsHidden,
                 alerts: (state.alertLevels || []).length,
+                liqmap: state.liqData
+                    ? (state.liqData.empty ? state.liqData.reason
+                       : {count: state.liqData.count,
+                          exchanges: state.liqData.exchanges})
+                    : null,
                 levels: (state.levelLines || []).map(function (line) {
                     return line.options().title;
                 }),

@@ -256,6 +256,41 @@ def test_api_perp_series_et_unites():
     print("  ✓ financement en %, OI en dollars, contrat de série tenu")
 
 
+def test_carte_des_liquidations():
+    """`/api/liqmap` lit le journal sur la plage demandée ; sans journal, ou
+    sur une plage vide, la carte dit pourquoi au lieu de lever."""
+    import tempfile
+    import time as horloge
+    from btcterm.journal import Journal
+    from btcterm.liquidations import Liquidation
+
+    web = client()
+    assert web.get("/api/liqmap?from=9&to=3").status_code == 400
+    assert web.get("/api/liqmap").status_code == 400
+    sans = web.get("/api/liqmap?from=1&to=2").get_json()
+    assert sans["empty"] and sans["reason"] == "journal désactivé"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        sources.fetch_klines = faux_fetch_klines
+        hub = MarketHub(collect_news=False, keep_journal=False)
+        hub.journal = Journal(Path(tmp) / "journal.db")
+        maintenant = horloge.time()
+        for prix, cote in ((70_000.0, "long"), (71_000.0, "short")):
+            hub.journal.record_liquidation(Liquidation(
+                time=maintenant - 60, symbol="BTCUSDT", side=cote, price=prix,
+                quantity=1.0, exchange="Bybit"))
+        web = create_app(hub).server.test_client()
+        carte = web.get("/api/liqmap", query_string={
+            "from": int(maintenant - 3600), "to": int(maintenant)}).get_json()
+        assert carte["count"] == 2 and carte["exchanges"] == ["Bybit"]
+        assert sum(carte["longs"]) == 70_000 and sum(carte["shorts"]) == 71_000
+        vide = web.get("/api/liqmap", query_string={
+            "from": 1, "to": 1000}).get_json()
+        assert vide["empty"] and "aucune" in vide["reason"]
+        hub.journal.close()
+    print("  ✓ carte lue au journal, plage vide et journal absent dits")
+
+
 def test_api_perp_hors_ligne():
     """Sources en panne : deux listes vides, statut 200 — le panneau
     l'écrit, le terminal vit."""

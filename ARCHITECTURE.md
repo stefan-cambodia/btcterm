@@ -1648,6 +1648,18 @@ fait déborder de 36 px la barre de titre du prix, que `ui_smoke.py` surveille :
 le titre y est passé de « BTC/USDT » à « BTC », la paire étant au bandeau, et
 l'écart entre libellés de 4 à 3 px.
 
+La **carte des liquidations** (case `LIQ`, touche `M`, `/carte`) est un
+canvas à gauche du pane du cours, le profil de volume tenant la droite :
+`liquidations.price_map` répartit le notionnel liquidé de la plage visible en
+soixante tranches de prix, longs et shorts à part, et `/api/liqmap` le lit
+dans le journal, qui garde trente jours. Redemandée quand la plage bouge et
+chaque minute. Sa légende, posée sous celle des moyennes — en bas du pane, le
+volume la recouvrait —, dit le total et les plateformes présentes : depuis le
+Cambodge, Bybit seul, Binance taisant son flux, et rien pendant le sommeil de
+la machine. Elle a été construite pour la cible d'un serveur allumé en
+permanence. La case a fait déborder la barre de titre de 29 px : ses libellés
+y passent à 0,06 em d'espacement. `/liq` reste à l'onglet des liquidations.
+
 ### 3.14 Le panneau ANALYSE : mettre les signaux à l'épreuve
 
 Le graphique pose des flèches d'achat et de vente depuis l'origine, sans que rien
@@ -2366,10 +2378,19 @@ des manques constatés à la clôture et depuis — chacun à ouvrir quand l'usa
 fera sentir, aucun ne conditionnant les autres. Celui qui reste ouvert est
 en fin de section, et ne presse pas.
 
-**Point de reprise** (pause du 5 novembre 2026) : `main` porte tout le travail
-de la séance, le service tourne sur ce code et les contrôles passent — tests
-Python et `ui_smoke.py`. Rien n'est entamé : la séance suivante part d'un manque
-constaté à l'usage, ou des points restés ouverts.
+**Point de reprise** (pause du 6 novembre 2026, batterie à plat) : `main`
+porte tout le travail de la séance — réveil et attente de Binance, cache
+borné, panneaux OPTIONS et MARCHÉS, niveaux clés, calendrier 2027, historique
+du skew, portage et carte des liquidations. Les tests Python passent. **À
+refaire en premier** : `ui_smoke.py` contre une instance d'essai. Ses deux
+derniers passages, machine chargée et Binance en délais dépassés, ont échoué
+sur des panneaux différents d'un passage à l'autre (marchés, puis perpétuel,
+on-chain, macro, options) — le panneau marchés, rejoué seul, passait. À
+démêler : lenteur de la machine ou vrai défaut. Le service n'a pas été
+redémarré sur les deux derniers ajouts (portage, carte). Restent à ouvrir :
+un panneau SOURCES (l'état de chaque source, aujourd'hui au seul journal
+système) et une alerte sur le skew, une fois quelques semaines d'historique
+pour en étalonner le seuil.
 
 **Pour l'analyse :**
 
@@ -2429,6 +2450,11 @@ constaté à l'usage, ou des points restés ouverts.
   sans clé — DVOL contre réalisée, courbe des échéances et ailes 25 delta,
   base des futures à échéance, open interest par strike et max pain —, avec
   DVOL au bandeau.
+- ~~**Le portage en deux unités**~~ — le financement des perpétuels se lisait
+  par huit heures dans un panneau, la base des futures par an dans un autre.
+  Fait : une ligne « portage /an » au panneau perpétuel, plateformes et
+  future à trois mois dans la même unité.
+- ~~**Où le levier a sauté**~~ — fait : la carte des liquidations (§3.13).
 - ~~**Le skew sans mémoire**~~ — le panneau OPTIONS disait le skew du
   moment sans pouvoir dire s'il était extrême : Deribit ne garde pas son
   historique gratuitement. Fait : l'instantané de marché le note toutes les

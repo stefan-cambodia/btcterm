@@ -347,6 +347,37 @@ def test_sans_journal_le_demarrage_ne_rend_rien():
     print("  ✓ pas de journal, pas de relecture, pas d'erreur")
 
 
+
+def test_la_carte_des_liquidations():
+    """Le notionnel liquidé par tranche de prix, longs et shorts à part, la
+    seule paire demandée, et les plateformes présentes dites."""
+    from btcterm.liquidations import price_map
+
+    def evenement(prix, notionnel, cote, plateforme="Bybit", paire="BTCUSDT"):
+        return {"symbol": paire, "side": cote, "price": prix,
+                "notional": notionnel, "exchange": plateforme, "ts": prix / 1000}
+
+    evenements = [evenement(70_000, 1e6, "long"),
+                  evenement(70_050, 2e6, "long", "Binance"),
+                  evenement(80_000, 5e5, "short"),
+                  evenement(3_000, 9e9, "long", paire="ETHUSDT"),
+                  # Une base antérieure à la colonne `exchange` : Binance.
+                  evenement(75_000, 1e5, "short", None)]
+    carte = price_map(evenements, bins=10)
+    assert carte["count"] == 4 and carte["notional"] == 1e6 + 2e6 + 5e5 + 1e5
+    assert carte["exchanges"] == ["Binance", "Bybit"]
+    assert abs(carte["width"] - 1_000) < 1e-9
+    assert carte["longs"][0] == 3e6 and carte["shorts"][0] == 0
+    assert carte["shorts"][-1] == 5e5, "le prix le plus haut tombe dans la dernière tranche"
+    assert carte["shorts"][5] == 1e5
+    assert len(carte["centers"]) == 10 and carte["centers"][0] == 70_500
+    assert price_map([evenement(3_000, 1, "long", paire="ETHUSDT")]) is None
+    assert price_map([]) is None
+    # Un seul prix : une tranche, pas une division par zéro.
+    seul = price_map([evenement(70_000, 1e6, "long")], bins=4)
+    assert sum(seul["longs"]) == 1e6
+    print("  ✓ carte par tranche, côtés séparés, paire filtrée, plateformes dites")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nFil des liquidations — {len(tests)} vérifications\n" + "─" * 60)

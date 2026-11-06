@@ -24,6 +24,7 @@ from flask import Response, jsonify, request
 
 from btcterm import indicators as ind
 from btcterm.analysis import key_levels
+from btcterm.liquidations import price_map
 from btcterm import sources
 
 from .charts import VOL_BINS, prepare_price_frame
@@ -443,3 +444,25 @@ def register_api(app, hub) -> None:
             "demo": demo,
             "stale": bool(daily.attrs.get("stale", False)),
         })
+
+    @app.server.get("/api/liqmap")
+    def _liqmap():
+        """Carte des liquidations de la plage visible (`liquidations.price_map`).
+
+        `from` et `to` en secondes epoch. Lue dans le journal, qui garde
+        trente jours de liquidations : une plage plus ancienne, ou un
+        terminal lancé sans journal, rend une carte vide qui dit pourquoi.
+        Les prix sont en dollars ; le navigateur convertit.
+        """
+        t_from = request.args.get("from", type=int)
+        t_to = request.args.get("to", type=int)
+        if t_from is None or t_to is None or t_to <= t_from:
+            return jsonify({"error": "bornes from/to requises"}), 400
+        if hub.journal is None:
+            return jsonify({"empty": True, "reason": "journal désactivé"})
+        carte = price_map(hub.journal.liquidations_between(t_from, t_to))
+        if carte is None:
+            return jsonify({"empty": True,
+                            "reason": "aucune liquidation journalisée sur "
+                                      "cette plage"})
+        return jsonify(carte)

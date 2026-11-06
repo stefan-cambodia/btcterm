@@ -248,6 +248,29 @@ def test_le_vide_vaut_panne():
     print("  ✓ une chaîne ou un DVOL vides lèvent")
 
 
+
+def test_le_portage_dans_la_meme_unite():
+    """Financement des perpétuels et base des futures, tout en %/an : ce que
+    rapporte une position longue couverte, d'une plateforme à l'autre."""
+    from terminal.panels.perp import carry
+
+    futures = opt.futures_curve([{"instrument_name": "BTC-29JAN27",
+                                  "mark_price": 76_300,
+                                  "estimated_delivery_price": 75_000}])
+    lignes = {"Binance": {"funding_rate": 0.0002},
+              "Bybit": {"funding_rate": -0.00004},
+              "OKX": {"funding_rate": None}}
+    texte = " ".join(str(span.children) for span in carry(lignes, futures))
+    assert "BIN" in texte and "+21.9 %" in texte, texte      # 0,02 % × 3 × 365
+    assert "BYB" in texte and "-4.4 %" in texte, texte
+    assert "OKX" not in texte, "une plateforme sans taux n'a pas de ligne"
+    assert "future 29/01/27" in texte
+    # Sans futures, la ligne s'arrête au dernier perpétuel ; sans rien, vide.
+    seul = " ".join(str(s.children) for s in carry(lignes, opt.futures_curve([])))
+    assert "future" not in seul and not seul.rstrip().endswith("·")
+    assert carry({}, opt.futures_curve([])) == []
+    print("  ✓ portage : financement annualisé et base, une plateforme muette absente")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nOptions — {len(tests)} vérifications\n" + "─" * 60)

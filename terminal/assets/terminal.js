@@ -67,6 +67,7 @@ const KEYS_HELP = [
     "P        capture du graphique en image",
     "T        tracer une ligne de tendance",
     "N        niveaux clés : veille, semaine, mois",
+    "M        carte des liquidations",
     "F        plein écran du panneau sous la souris",
     "/        ligne de commande",
     "?        cette aide",
@@ -81,7 +82,7 @@ const KEYS_HELP = [
     "Ligne de commande",
     "un panneau       etf, perp, analyse, alertes…",
     "un intervalle    15m, 4h, 1d, 1M…",
-    "eur, usd, log, cvd, rsi, crsi, vol, profil, niv, signaux, capture",
+    "eur, usd, log, cvd, rsi, crsi, vol, profil, niv, carte, signaux, capture",
     "ligne, effacer   tracer une ligne, retirer toutes les lignes",
     "alerte 80000     seuil de cours, en dollars",
 ].join("\n");
@@ -136,6 +137,9 @@ function shortcut(key) {
     case "n":
         return labels("#price-extras label")
             .find((label) => label.textContent.trim() === "NIV");
+    case "m":
+        return labels("#price-extras label")
+            .find((label) => label.textContent.trim() === "LIQ");
     default:
         return null;
     }
@@ -252,6 +256,10 @@ function runCommand(text) {
     if (word === "capture") {
         return !!window.lwcPrice && window.lwcPrice.capture();
     }
+    if (word === "carte") {
+        return clicked(labels("#price-extras label")
+            .find((label) => label.textContent.trim() === "LIQ"));
+    }
     if (word === "niveaux") {
         return clicked(labels("#price-extras label")
             .find((label) => label.textContent.trim() === "NIV"));
@@ -267,7 +275,9 @@ function runCommand(text) {
     if (exact) {
         return clicked(exact);
     }
-    const extra = labels("#price-extras label")
+    // `liq` reste à l'onglet des liquidations, qu'il ouvrait avant que la
+    // case LIQ n'existe : la carte répond à `carte`.
+    const extra = word !== "liq" && labels("#price-extras label")
         .find((label) => simplify(label.textContent) === word);
     if (extra) {
         return clicked(extra);
