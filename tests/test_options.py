@@ -192,6 +192,10 @@ def test_le_resume():
     assert resume["basis90"][0].month == 1, resume["basis90"]
     vide = opt.summary(opt.option_chain([]), opt.futures_curve([]), NOW)
     assert vide["atm30"] is None and vide["pc_oi"] is None and vide["oi_btc"] == 0
+    # La chaîne d'options en panne n'efface pas la base des futures, qui
+    # n'en dépend pas.
+    sans_chaine = opt.summary(opt.option_chain([]), futures, NOW)
+    assert sans_chaine["basis90"] == resume["basis90"]
     print("  ✓ résumé : un mois, trois mois, max pain ; vide sans Deribit")
 
 
