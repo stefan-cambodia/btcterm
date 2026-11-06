@@ -1135,10 +1135,15 @@
                 // Une réponse dépassée — l'intervalle a rechangé entre
                 // temps — est simplement écartée.
                 if (seq !== state.seq || !state.chart) { return; }
+                // Recalage silencieux : le passé remonté au pan reste,
+                // et avec lui ce qu'on savait de son début.
+                var kept = !fit && keepOlder(packet, state.packet);
                 state.packet = packet;
                 state.loading = false;
-                state.exhausted = false;
-                stopBackfillRetry();
+                if (!kept) {
+                    state.exhausted = false;
+                    stopBackfillRetry();
+                }
                 fillSeries();
                 if (fit) { state.chart.timeScale().fitContent(); }
             })
@@ -1166,15 +1171,26 @@
         var interval = state.cfg.interval;
         var limit = (state.conf.intervals || {})[interval] || 365;
         var seq = state.seq;
+        var before = bars[0].time;
         state.loading = true;
         fetch("/api/klines?interval=" + encodeURIComponent(interval)
-              + "&limit=" + limit + "&before=" + bars[0].time)
+              + "&limit=" + limit + "&before=" + before)
             .then(function (r) { return r.json(); })
             .then(function (page) {
                 state.loading = false;
-                // Un refetch est passé entre temps : le tampon a changé
-                // de série, cette page ne le concerne plus.
-                if (seq !== state.seq || !state.chart) { return; }
+                // La page ne se colle que si le tampon commence toujours
+                // là où elle s'arrête. Le jeton seul ne suffisait pas : au
+                // changement d'intervalle, le graphique encore à l'ancien
+                // demandait une page du nouveau, sous le jeton du refetch
+                // déjà parti, et la collait devant la nouvelle série — à
+                // des dates qui la chevauchaient. Le recalage complet
+                // effaçait le dégât ; celui qui garde le passé l'aurait
+                // gardé aussi.
+                if (seq !== state.seq || !state.chart
+                        || !state.packet.bars.length
+                        || state.packet.bars[0].time !== before) {
+                    return;
+                }
                 // La série de démonstration n'a pas de passé à attendre :
                 // de vraies bougies n'ont rien à faire devant elle.
                 if (!page.bars.length) {
@@ -1185,7 +1201,7 @@
                     }
                     return;
                 }
-                prepend(page);
+                prepend(state.packet, page);
                 // setData du concaténé : la bibliothèque préserve la
                 // fenêtre visible, le pan continue sans à-coup.
                 fillSeries();
@@ -1212,8 +1228,57 @@
         }
     }
 
-    function prepend(page) {
-        var packet = state.packet;
+    // Recalage silencieux : la page fraîche remplace la fin du tampon, et
+    // ce que le pan a remonté reste devant elle. Remplacer tout le tampon,
+    // comme au changement d'intervalle, faisait sauter la vue : le
+    // graphique garde sa plage par rang de bougie, pas par date, et un
+    // retour d'onglet en journalier ramenait de 2023 à 2025 — en repli
+    // poll, toutes les deux secondes. Rien n'est gardé si les deux ne se
+    // recouvrent pas (la machine a dormi plus longtemps que la page n'en
+    // couvre) : mieux vaut perdre le passé remonté qu'y laisser un trou.
+    function keepOlder(packet, old) {
+        if (!old || old.demo || packet.demo || old.interval !== packet.interval
+                || !old.bars.length || !packet.bars.length
+                || old.bars[old.bars.length - 1].time < packet.bars[0].time) {
+            return false;
+        }
+        // Chaque série garde l'ancien jusqu'à son propre premier point :
+        // la MA 200 d'une page fraîche ne commence que deux cents bougies
+        // après elle, et l'ancien tampon a de quoi combler.
+        function older(points, fresh) {
+            var cut = fresh && fresh.length ? fresh[0].time : Infinity;
+            return (points || []).filter(function (p) { return p.time < cut; });
+        }
+        var page = {bars: older(old.bars, packet.bars),
+                    volume: older(old.volume, packet.volume),
+                    volume_ma: older(old.volume_ma, packet.volume_ma),
+                    overlays: {}, panes: {}};
+        var name;
+        for (name in old.overlays) {
+            page.overlays[name] = older(old.overlays[name],
+                                        packet.overlays[name]);
+        }
+        for (name in old.panes) {
+            page.panes[name] = older(old.panes[name], packet.panes[name]);
+        }
+        prepend(packet, page);
+        return page.bars.length > 0;
+    }
+
+    // Le plus court et le plus long écart entre deux bougies affichées :
+    // un doublon met le premier à zéro, un trou allonge le second — ce
+    // que le smoke test compare autour d'un recalage.
+    function steps(points) {
+        var min = null, max = null;
+        for (var i = 1; i < points.length; i++) {
+            var gap = points[i].time - points[i - 1].time;
+            if (min === null || gap < min) { min = gap; }
+            if (max === null || gap > max) { max = gap; }
+        }
+        return [min, max];
+    }
+
+    function prepend(packet, page) {
         var name;
         packet.bars = page.bars.concat(packet.bars);
         packet.volume = page.volume.concat(packet.volume);
@@ -1461,6 +1526,9 @@
             return {
                 range: state.chart.timeScale().getVisibleLogicalRange(),
                 interval: state.cfg.interval,
+                // L'intervalle de la série affichée : `interval` dit celui
+                // demandé, la série ne suit qu'un aller-retour plus tard.
+                loaded: state.packet.interval || null,
                 bars: n,
                 demo: !!state.packet.demo,
                 eur_rate: state.packet.eur_rate,
@@ -1479,6 +1547,7 @@
                 firstTime: n ? state.packet.bars[0].time : null,
                 exhausted: state.exhausted,
                 backfillRetry: !!state.backfillTimer,
+                steps: steps(data),
                 panes: state.chart.panes().length,
                 signals: (state.packet.signals || []).length,
                 signalsShown: !state.signalsHidden,

@@ -966,7 +966,10 @@ L'historique se charge à la volée : un pan vers le passé demande la page
 antérieure de `/api/klines`, jusqu'à ce que la source avoue ne plus rien
 avoir. Une page vide faute de source — Binance muet, `stale` dans la
 réponse — n'est pas un aveu : elle est redemandée trente secondes plus
-tard, sans attendre un nouveau pan.
+tard, sans attendre un nouveau pan. Une page ne se colle que si le tampon
+commence toujours là où elle s'arrête. Et un recalage silencieux — retour
+d'onglet, reconnexion du canal, repli poll — ne remplace que la fin du
+tampon : le passé remonté reste, et la vue posée dedans avec lui.
 
 C'est le cours qu'on vient lire en séance d'analyse ; les oscillateurs
 l'accompagnent, ils ne le concurrencent pas. Son pane porte un facteur
@@ -2341,6 +2344,27 @@ constaté à l'usage, ou des points restés ouverts.
   le dit (`stale`), et le client la redemande trente secondes plus tard au
   lieu de clore l'historique — sauf sur la série de démonstration, qui n'a
   pas de passé à attendre.
+- ~~**Un recalage fait sauter la vue**~~ — remarqué en relisant le pan,
+  mesuré ensuite : retour d'onglet, reconnexion du canal et repli poll
+  rechargeaient la dernière page à la place de tout le tampon. Le graphique
+  gardant sa plage par rang de bougie et non par date, une vue posée en
+  2023 sautait en 2025 ; en repli poll, toutes les deux secondes, et
+  remonter le passé y devenait impossible. Fait : le recalage remplace la
+  fin du tampon et garde devant elle le passé remonté, s'ils se recouvrent
+  — une machine qui a dormi plus longtemps que la page n'en couvre perd ce
+  passé plutôt que d'y laisser un trou.
+- ~~**Une page égarée au changement d'intervalle**~~ — sortie du contrôle
+  écrit pour le point précédent. Un pan pendant le chargement d'un nouvel
+  intervalle demandait une page de ce dernier avant la première bougie de
+  l'ancienne série, sous le jeton du refetch déjà parti, et la collait
+  devant la nouvelle série : rejoué sur le code d'avant, de l'horaire au
+  4 h, 1 050 bougies au lieu de 700, et une série qui reculait de 174
+  bougies en son milieu. Le recalage complet effaçait le dégât au retour
+  d'onglet suivant. Fait : une page ne se colle que si le tampon commence
+  toujours là où elle s'arrête. `ui_smoke.py` attendait l'intervalle
+  demandé et non celui de la série affichée : il provoquait cette course,
+  et passait grâce à elle. La sonde dit désormais les deux (`loaded`), et
+  l'écart le plus court et le plus long entre deux bougies (`steps`).
 
 **Constaté, pas encore ouvert :**
 

@@ -336,7 +336,9 @@ données préformatées, et il repart dix fois par seconde, plein écran compris
 là où il faisait geler la page jusqu'à neuf secondes à deux fois par seconde.
 Et un pan vers le passé qui tombe pendant une pause de Binance ne ferme plus
 l'historique pour la séance : la page manquée se dit, et le graphique la
-redemande.
+redemande. Un retour d'onglet ne fait plus sauter la vue de deux ans quand
+on a remonté le passé, et une page égarée au changement d'intervalle ne se
+colle plus au milieu de la série.
 Ce même journal a ensuite compté cinquante-quatre resynchronisations
 Kraken en une matinée, et nommé la cause qu'on croyait fortuite : le flux
 décrit une fenêtre de vingt-cinq niveaux, le carnet en gardait cent, et

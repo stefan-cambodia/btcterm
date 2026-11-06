@@ -390,7 +390,10 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
               capture and capture[1] == "data:image/png;base64,"
               and capture[2] > 10_000, capture and capture[0])
         browser.press("4")
-        browser.wait_for("window.lwcPrice.debug().interval === '4h'"
+        # La série affichée, pas l'intervalle demandé : pan sur l'ancienne
+        # série, ce contrôle provoquait la course qu'il croyait vérifier —
+        # une page du nouvel intervalle collée devant la série du précédent.
+        browser.wait_for("window.lwcPrice.debug().loaded === '4h'"
                          " && window.lwcPrice.debug().bars > 200", timeout=10)
 
         # Historique infini : un pan appuyé vers la gauche déclenche
@@ -418,6 +421,31 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             check("historique épuisé retenu (source sans passé)",
                   recharge and apres["exhausted"],
                   f"{apres['bars']} bougies, exhausted={apres['exhausted']}")
+
+        # Recalage silencieux — reconnexion, retour d'onglet, repli poll :
+        # la page fraîche remplace la fin du tampon, le passé remonté
+        # reste, et la vue posée dedans ne bouge pas. Il remplaçait tout,
+        # et la vue sautait de la longueur du passé remonté.
+        if apres["bars"] > avant["bars"]:
+            browser.js("window.lwcPrice.pan(100, 200);")
+            time.sleep(0.5)
+            pose = browser.js("return window.lwcPrice.debug();")
+            serie = ("performance.getEntriesByType('resource').filter(e =>"
+                     " e.name.includes('/api/klines?')"
+                     " && !e.name.includes('before=')).length")
+            browser.js("performance.clearResourceTimings();")
+            browser.js("window.lwcPrice.resync();")
+            browser.wait_for(f"{serie} > 0", timeout=10)
+            time.sleep(0.3)
+            recale = browser.js("return window.lwcPrice.debug();")
+            check("un recalage garde le passé remonté, et la vue",
+                  recale["firstTime"] == pose["firstTime"]
+                  and recale["bars"] >= pose["bars"]
+                  and abs(recale["range"]["from"] - pose["range"]["from"]) < 1
+                  and recale["steps"] == pose["steps"],
+                  f"{pose['bars']} → {recale['bars']} bougies, plage "
+                  f"{pose['range']['from']:.0f} → {recale['range']['from']:.0f},"
+                  f" écarts {pose['steps']} → {recale['steps']}")
 
         # Signaux et profil de volume fenêtré (case PROFIL cochée
         # par défaut) : le profil suit la plage visible.
