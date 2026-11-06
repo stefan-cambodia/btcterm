@@ -73,6 +73,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 |---|---|---|
 | **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
+| **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ (onglet du carnet) | 2 s |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Liquidations** | positions fermées de force — Binance, toutes paires, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
@@ -287,6 +288,22 @@ demandée d'un clic) retentissent même panneau replié ; chaque sonnerie part
 au journal et se relit avec la séance. Les seuils survivent au rechargement
 et réarment le moteur au chargement de la page.
 
+**Sur le téléphone** — un terminal qui tourne sur un serveur sonne pour
+personne : chaque alerte peut aussi partir vers [ntfy](https://ntfy.sh), qui
+la livre en notification push à l'application Android ou iOS abonnée au même
+sujet. Rien ne part tant que le sujet n'est pas posé :
+
+```bash
+export BTCTERM_NTFY=https://ntfy.sh/un-sujet-long-et-imprevisible
+python -m btcterm.notify "bonjour"     # essai
+btcterm                                # ou Environment= dans l'unité systemd
+```
+
+Sur ntfy.sh, le sujet fait office de mot de passe : un nom long et
+imprévisible. Un serveur ntfy auto-hébergé convient aussi
+(`BTCTERM_NTFY_TOKEN` s'il est protégé). Le panneau ALERTES dit si le
+téléphone est servi.
+
 **Macro** — le panneau du bas confronte le cours à la masse monétaire M2 des
 États-Unis (série H.6 de la Fed, mensuelle). Le sélecteur `+1M` … `+3M` décale
 M2 vers l'avant pour éprouver l'idée d'un cours qui suivrait la liquidité avec
@@ -294,6 +311,15 @@ un trimestre de retard ; les deux corrélations affichées disent ce qu'il en es
 Celle des **niveaux** est toujours forte et n'apprend rien — deux séries qui
 montent depuis dix ans vont ensemble ; celle des **variations sur trois mois**
 est la seule qui informe.
+
+**Ruban** — le carnet montre des intentions, le ruban ce qui s'exécute : chaque
+gros échange de Binance, Coinbase et Bybit au comptant, et surtout qui l'a
+voulu — un achat au prix vendeur est un acheteur pressé. Le titre donne la
+part des achats agressifs sur cinq minutes (toutes tailles, détail par place
+au survol), la ligne dessous les montants et le seuil. Le sens du preneur ne
+se lit pas pareil d'une place à l'autre : il a été mesuré contre le carnet
+plutôt que supposé, et Coinbase, qui marque le côté du teneur, se lit à
+l'envers des deux autres.
 
 **Sources** — le terminal lit une vingtaine de sources, et quand l'une tombe,
 le bandeau en dit le nombre. Le panneau SOURCES — ouvert d'un clic sur cet
@@ -409,7 +435,8 @@ panneau, OPTIONS — volatilité implicite contre réalisée, courbe des échéa
 et skew, open interest par strike et max pain, base des futures à échéance —,
 DVOL au bandeau et une alerte quand la volatilité implicite bondit ; puis un
 dix-huitième, MARCHÉS, qui dit si le bitcoin bouge avec les actions, l'or ou
-le dollar.
+le dollar. Depuis, le terminal en compte vingt avec le RUBAN des gros ordres,
+et les alertes partent jusqu'au téléphone par ntfy.
 Ce même journal a ensuite compté cinquante-quatre resynchronisations
 Kraken en une matinée, et nommé la cause qu'on croyait fortuite : le flux
 décrit une fenêtre de vingt-cinq niveaux, le carnet en gardait cent, et
@@ -549,6 +576,8 @@ python tests/test_fear_greed.py          # Fear & Greed : lecture, dérivation, 
 python tests/test_etf_flows.py           # flux ETF : fenêtres, cumul, classement
 python tests/test_options.py             # options : sourire, max pain, base, panneau
 python tests/test_markets.py             # marchés : séances, corrélations, tableau
+python tests/test_notify.py              # alertes vers ntfy, sans réseau
+python tests/test_tape.py                # ruban : sens du preneur, flux, panneau
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox

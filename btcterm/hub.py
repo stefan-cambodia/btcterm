@@ -33,6 +33,8 @@ from .analysis import monthly_returns, rule_stats, signal_stats
 from .history import KlineHistory
 from .journal import SNAPSHOT_FIELDS, Journal
 from .newsdb import NewsCollector
+from .tape import (BinanceTradeConnector, BybitTradeConnector,
+                   CoinbaseTradeConnector, TradeTape)
 from .liquidations import (BybitLiquidationConnector, Liquidation,
                            LiquidationFeed)
 from . import resolver
@@ -479,6 +481,9 @@ class MarketHub:
         #: glissante en mémoire — relue du journal au démarrage
         #: (`_warm_liquidations`).
         self.liquidations = LiquidationFeed()
+        #: Le ruban des échanges (§ tape) : gros ordres et flux agressif
+        #: de Binance, Coinbase et Bybit au comptant.
+        self.tape = TradeTape()
         self.started_at = time.time()
 
         #: Journal des données éphémères (liquidations, épisodes
@@ -558,6 +563,9 @@ class MarketHub:
             # Seconde source du même fil : Binance tait ses flux futures
             # depuis certains pays, Bybit non.
             BybitLiquidationConnector(self.liquidations),
+            BinanceTradeConnector(self.tape),
+            CoinbaseTradeConnector(self.tape),
+            BybitTradeConnector(self.tape),
         ]
         self._thread = run_connectors_in_thread(self._connectors)
 
@@ -732,6 +740,8 @@ class MarketHub:
         for connector in self._connectors:
             connector.stop()
         self.news.stop()
+        if self.alerts.notifier is not None:
+            self.alerts.notifier.stop()
         self._observe_stop.set()
         if self._observe_thread is not None:
             self._observe_thread.join(timeout=3)
@@ -1027,6 +1037,16 @@ class MarketHub:
             else:
                 state, detail = "ok", "fil de liquidations"
             streams.append({"name": f"Liquidations {name}", "state": state,
+                            "age": age, "detail": detail})
+        for name, (up, error) in self.tape.links.items():
+            age = self.tape.last_event_age(name)
+            if not up:
+                state, detail = "coupé", error or "déconnecté"
+            elif age is not None and age > self.BOOK_SILENT:
+                state, detail = "muet", "connecté, sans échange reçu"
+            else:
+                state, detail = "ok", "ruban des échanges"
+            streams.append({"name": f"Ruban {name}", "state": state,
                             "age": age, "detail": detail})
 
         families: dict[str, dict] = {}

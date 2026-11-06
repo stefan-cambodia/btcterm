@@ -24,7 +24,7 @@ from dash import ALL, Input, Output, State, dcc, html
 
 from .panels import (alerts, analysis, arbitrage, calendar, dominance, etf, journal,
                      liquidations, macro, markets, news, onchain, options,
-                     orderbook, perp, position, price, sources)
+                     orderbook, perp, position, price, sources, tape)
 from .theme import C
 
 # Disposition des panneaux. Le graphique prix occupe toute la colonne de
@@ -75,7 +75,8 @@ _GRID = {
 CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
     "price": (("price", "PRIX", price.layout),),
     "book": (("book", "CARNET", orderbook.layout),
-             ("depth", "PROFONDEUR", orderbook.depth_layout)),
+             ("depth", "PROFONDEUR", orderbook.depth_layout),
+             ("tape", "RUBAN", tape.layout)),
     "arb": (("arb", "ARBITRAGE", arbitrage.layout),
             ("liq", "LIQUIDATIONS", liquidations.layout),
             ("journal", "JOURNAL", journal.layout),

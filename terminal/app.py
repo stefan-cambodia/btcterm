@@ -34,6 +34,7 @@ import os
 import dash
 from dash import dcc, html
 
+from btcterm import notify
 from btcterm.hub import MarketHub
 
 from . import grid, header, lwc, placement, push
@@ -143,6 +144,12 @@ def main() -> None:
         help="clé CryptoPanic pour la collecte de news (défaut : variable "
              "d'environnement CRYPTOPANIC_API_KEY)",
     )
+    parser.add_argument(
+        "--ntfy", default=os.environ.get("BTCTERM_NTFY", ""),
+        help="sujet ntfy où envoyer les alertes, ex. https://ntfy.sh/un-sujet"
+             "-secret (défaut : variable d'environnement BTCTERM_NTFY ; "
+             "BTCTERM_NTFY_TOKEN pour un serveur protégé)",
+    )
     args = parser.parse_args()
 
     hub = MarketHub(
@@ -150,6 +157,8 @@ def main() -> None:
         cryptopanic_key=args.cryptopanic_key,
         keep_journal=not args.no_journal,
     )
+    hub.alerts.notifier = notify.from_environment(
+        {**os.environ, "BTCTERM_NTFY": args.ntfy})
     hub.start()
 
     app = create_app(hub)

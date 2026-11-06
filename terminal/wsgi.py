@@ -32,6 +32,8 @@ ligne de commande (`btcterm --help`) :
     BTCTERM_NO_JOURNAL=1    ne pas tenir le journal de séance ni
                             l'historique du cours
     CRYPTOPANIC_API_KEY=…   clé CryptoPanic pour la collecte de news
+    BTCTERM_NTFY=URL        sujet ntfy où envoyer les alertes (§ notify)
+    BTCTERM_NTFY_TOKEN=…    jeton d'un serveur ntfy protégé
 
 `terminal/systemd_service.conf` contient le gabarit d'unité `--user`
 qui va avec.
@@ -44,6 +46,7 @@ import os
 import signal
 import threading
 
+from btcterm import notify
 from btcterm.hub import MarketHub
 
 from .app import create_app
@@ -77,6 +80,7 @@ def build(hub_factory=MarketHub):
         cryptopanic_key=os.environ.get("CRYPTOPANIC_API_KEY", ""),
         keep_journal=not _flag("BTCTERM_NO_JOURNAL"),
     )
+    hub.alerts.notifier = notify.from_environment()
     hub.start()
     atexit.register(hub.stop)
     _stop_on_signal(hub)

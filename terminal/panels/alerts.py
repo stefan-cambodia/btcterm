@@ -63,6 +63,22 @@ def _field(label, component):
                      style={"whiteSpace": "nowrap"})
 
 
+def _phone_status():
+    """Les notifications du téléphone (§ notify) : le serveur ntfy si elles
+    partent, la variable à poser sinon. Jamais le sujet, qui fait office de
+    mot de passe."""
+    notifier = getattr(getattr(_hub, "alerts", None), "notifier", None)
+    if notifier is None:
+        return html.Span("téléphone : non configuré", title=(
+            "poser BTCTERM_NTFY=https://ntfy.sh/un-sujet-secret (ou "
+            "btcterm --ntfy …) et s'abonner au même sujet dans "
+            "l'application ntfy"),
+            style={"fontSize": "9px", "color": C["muted"]})
+    return html.Span(f"téléphone : ntfy · {notifier.describe()}",
+                     title="chaque sonnerie part aussi vers ntfy",
+                     style={"fontSize": "9px", "color": C["green"]})
+
+
 def layout(title=None):
     config = (normalize_config(None) if _hub is None
               else dict(_hub.alerts.config))
@@ -154,6 +170,7 @@ def layout(title=None):
                 html.Button("notifications navigateur", id="alert-notify",
                             className="layout-button",
                             style={"padding": "1px 8px", "fontSize": "9px"}),
+                _phone_status(),
             ], style={"display": "flex", "gap": "10px", "alignItems": "center",
                       "flexWrap": "wrap"}),
         ], style={"borderBottom": f"1px solid {C['border']}",
