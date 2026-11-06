@@ -114,6 +114,23 @@ def sources_text(failing: dict[str, float], now: float) -> tuple[str, str]:
     return f"⚠ {count} source{'s' if count > 1 else ''}", title
 
 
+def dvol_text(dvol) -> tuple[str, str]:
+    """DVOL et sa variation depuis la clôture de la veille, avec l'infobulle.
+
+    Vide tant que le cache n'a rien : le bandeau ne dit pas « DVOL — »
+    d'une source qu'il n'a jamais lue.
+    """
+    if dvol is None or dvol.empty:
+        return "", ""
+    last = float(dvol["close"].iloc[-1])
+    text = f"DVOL {last:.1f}"
+    if len(dvol) >= 2:
+        text += f" {last - float(dvol['close'].iloc[-2]):+.1f}"
+    return text, ("volatilité implicite à 30 jours (Deribit), et sa variation "
+                  "depuis la clôture d'hier — cliquer pour ouvrir le panneau "
+                  "options")
+
+
 def change_text(ticker: dict) -> tuple[str, dict]:
     """La variation sur 24 h et son style.
 
@@ -139,6 +156,10 @@ def layout():
         html.Span(id="hdr-range", style={**STAT, "color": C["muted"]},
                   title="plus haut, plus bas et volume échangé sur 24 h"),
         html.Span(id="hdr-spread", style=STAT),
+        # La volatilité implicite à trente jours, toujours sous les yeux ;
+        # le clic ouvre le panneau options, comme la cloche les alertes.
+        html.Span(id="hdr-dvol", className="hdr-bell", n_clicks=0,
+                  style={**STAT, "color": C["yellow"]}),
         html.Span(id="hdr-position", style=STAT,
                   title="résultat de la position suivie au panneau POSITION"),
         html.Span(id="hdr-sources", style={**STAT, "color": C["orange"]}),
@@ -183,6 +204,8 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         Output("hdr-change", "style"),
         Output("hdr-range", "children"),
         Output("hdr-spread", "children"),
+        Output("hdr-dvol", "children"),
+        Output("hdr-dvol", "title"),
         Output("hdr-status", "children"),
         Output("hdr-sources", "children"),
         Output("hdr-sources", "title"),
@@ -216,19 +239,29 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
                   f"{uptime // 3600:02d}:{uptime % 3600 // 60:02d}:{uptime % 60:02d}")
 
         return (price_txt, price_tip, change_txt, change_style, range_txt,
-                spread_txt, status,
+                spread_txt, *dvol_text(hub.dvol_cached()), status,
                 *sources_text(hub.failing_sources(), time.time()),
                 *position_text(position, live, display(hub, currency)))
 
 
+#: Ce que le bandeau sait ouvrir : élément cliquable → panneau.
+REVEALS = {"hdr-alerts": "alerts", "hdr-dvol": "options"}
+
+
 def _register_reveal(app: dash.Dash) -> None:
-    """Le clic sur la cloche amène le panneau alertes à l'écran.
+    for trigger, panel_id in REVEALS.items():
+        _register_reveal_one(app, trigger, panel_id)
+
+
+def _register_reveal_one(app: dash.Dash, trigger: str, panel_id: str) -> None:
+    """Le clic sur un élément du bandeau amène son panneau à l'écran — la
+    cloche les alertes, DVOL les options.
 
     Deux gestes, parce qu'ils ne se décident pas au même endroit :
 
-    - **choisir l'onglet**, côté serveur : le panneau alertes n'a pas de
-      cellule fixe depuis que le rangement est configurable, et seule la
-      grille (`reveal`) sait où il a atterri ;
+    - **choisir l'onglet**, côté serveur : un panneau n'a pas de cellule
+      fixe depuis que le rangement est configurable, et seule la grille
+      (`reveal`) sait où il a atterri ;
     - **quitter le plein écran**, côté navigateur : si une *autre*
       cellule est agrandie, elle masque la grille et changer d'onglet
       dessous ne se verrait pas. Le geste est le même que celui du
@@ -237,17 +270,17 @@ def _register_reveal(app: dash.Dash) -> None:
     """
     @app.callback(
         Output("tabs", "data", allow_duplicate=True),
-        Input("hdr-alerts", "n_clicks"),
+        Input(trigger, "n_clicks"),
         State("tabs", "data"),
         State("placement", "data"),
         prevent_initial_call=True,
     )
     def _open(clicks, tabs, placement):
-        # Le montage de la cloche déclenche aussi ce callback, n_clicks à
+        # Le montage de l'élément déclenche aussi ce callback, n_clicks à
         # zéro : même garde que pour les onglets.
         if not clicks:
             return dash.no_update
-        choix = reveal("alerts", tabs, placement)
+        choix = reveal(panel_id, tabs, placement)
         return dash.no_update if choix is None else choix
 
     app.clientside_callback(
@@ -269,6 +302,6 @@ def _register_reveal(app: dash.Dash) -> None:
         [Output("maximized", "data", allow_duplicate=True)]
         + [Output(f"cell-{area}", "className", allow_duplicate=True)
            for area in AREAS],
-        Input("hdr-alerts", "n_clicks"),
+        Input(trigger, "n_clicks"),
         prevent_initial_call=True,
     )

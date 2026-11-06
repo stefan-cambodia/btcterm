@@ -22,7 +22,9 @@ from typing import Any, Callable, Optional
 
 import pandas as pd
 
+from . import options as opt
 from . import sources
+from .indicators import volatility
 from .alerts import Alert, AlertEngine
 from .arbitrage import ArbitrageEngine
 from .analysis import monthly_returns, rule_stats, signal_stats
@@ -347,6 +349,14 @@ class MarketHub:
     #: comme tel à l'écran, jamais une donnée.
     EUR_FALLBACK = 0.88
     TTL_ETF = 1800
+    #: Options et futures à échéance : une photographie de la chaîne par
+    #: minute suffit à un tableau de positionnement, et ménage Deribit — la
+    #: requête rend près d'un millier d'instruments. DVOL est journalier.
+    TTL_OPTIONS = 60
+    TTL_DVOL = 600
+    #: Fenêtre de la volatilité réalisée comparée à DVOL : trente jours,
+    #: l'horizon de l'indice.
+    REALIZED_WINDOW = 30
     TTL_FEAR_GREED = 900
     #: La masse monétaire est mensuelle et publiée avec deux mois de
     #: retard : la rafraîchir plus souvent qu'une fois par demi-journée
@@ -963,6 +973,61 @@ class MarketHub:
         return min(live, key=lambda b: b.age_ms).mid
 
     # ── Contexte ────────────────────────────────────────────
+
+    def option_chain(self) -> pd.DataFrame:
+        """La chaîne d'options Deribit (§ options) ; vide si la source se tait
+        et que le cache n'a rien."""
+        try:
+            return self._cache.get(
+                "options", self.TTL_OPTIONS,
+                lambda: opt.option_chain(sources.fetch_deribit_summary("option")))
+        except Exception:
+            return opt.option_chain([])
+
+    def futures_curve(self) -> pd.DataFrame:
+        """La base des futures Deribit à échéance, annualisée (§ options)."""
+        try:
+            return self._cache.get(
+                "futures", self.TTL_OPTIONS,
+                lambda: opt.futures_curve(sources.fetch_deribit_summary("future")))
+        except Exception:
+            return opt.futures_curve([])
+
+    def dvol(self) -> pd.DataFrame:
+        """DVOL sur un an, en bougies journalières ; vide si la source se tait."""
+        try:
+            return self._cache.get("dvol", self.TTL_DVOL, sources.fetch_dvol)
+        except Exception:
+            return pd.DataFrame(columns=["time", "open", "high", "low", "close"])
+
+    def dvol_cached(self) -> pd.DataFrame:
+        """DVOL tel que le cache le tient, sans jamais toucher au réseau.
+
+        Pour le bandeau, qui lit toutes les deux secondes : une panne de
+        Deribit y bloquerait le cours le temps du délai d'attente. Le cache
+        est tenu chaud par la règle d'alerte de volatilité, à la minute, et
+        par le panneau options quand il est affiché.
+        """
+        cached = self._cache.peek("dvol")
+        if cached is None:
+            return pd.DataFrame(columns=["time", "open", "high", "low", "close"])
+        return cached
+
+    def realized_volatility(self) -> pd.DataFrame:
+        """Volatilité réalisée à trente jours, annualisée, en points.
+
+        Sur les clôtures journalières — la série que l'alerte de la MA 200
+        lit déjà, d'où aucun appel de plus. Rien sur la série de
+        démonstration : comparer DVOL à une marche aléatoire n'aurait aucun
+        sens.
+        """
+        daily = self.klines("1d", 365)
+        if daily.attrs.get("demo", False) or len(daily) <= self.REALIZED_WINDOW:
+            return pd.DataFrame(columns=["time", "value"])
+        values = volatility(daily["close"], window=self.REALIZED_WINDOW,
+                            periods_per_year=365)
+        return (pd.DataFrame({"time": daily["time"], "value": values})
+                .dropna().reset_index(drop=True))
 
     def etf_flows(self) -> pd.DataFrame:
         return self._cache.get("etf", self.TTL_ETF, sources.fetch_etf_flows)

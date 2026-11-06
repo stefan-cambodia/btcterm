@@ -8,7 +8,7 @@ d'observation du hub, 1 s) et publie des alertes — affichées par le
 panneau ALERTES, comptées dans le bandeau, notifiées par le navigateur,
 et journalisées (§ journal) pour être relues avec la séance.
 
-Onze règles, toutes nourries par ce que le hub tient déjà — aucune
+Douze règles, toutes nourries par ce que le hub tient déjà — aucune
 connexion nouvelle :
 
 - **seuils de prix**, posés par l'utilisateur : le sens (au-dessus,
@@ -58,6 +58,16 @@ on-chain tirent déjà :
   news de la première lecture ;
 - **réseau chargé** : le mempool dépasse le seuil (Mo), ou le rythme
   moyen des blocs s'étire au-delà du seuil (minutes) — chacun son front.
+
+Une dernière lit le marché des options, que le panneau du même nom tire de
+Deribit :
+
+- **volatilité implicite en hausse** : DVOL, la volatilité que les options
+  attendent pour les trente jours qui viennent, monte de plus du seuil (en
+  points) au-dessus de sa clôture de la veille. C'est le signal de stress
+  du marché des options : sur l'année écoulée, une hausse de six points
+  n'est arrivée que dix jours, dont deux dans la semaine qui a mené au
+  krach du 5 février 2026, et ce jour-là.
 
 Les règles d'état (tout sauf les news, le signal et le flux ETF) sonnent sur le
 **front montant** et pas avant un délai de garde : une condition qui
@@ -118,6 +128,8 @@ DEFAULT_CONFIG: dict = {
     #: réseau chargé : mempool en Mo, minutes moyennes entre blocs.
     "mempool_mb": 150.0,
     "block_minutes": 12.0,
+    #: DVOL au-dessus de sa clôture de la veille, en points de volatilité.
+    "dvol_jump_pts": 6.0,
     #: bip sonore côté navigateur — le moteur l'ignore, le client le lit.
     "sound": True,
 }
@@ -155,6 +167,7 @@ class Alert:
     time: float
     kind: str      #: price | liq | funding | news | arb
                    #:   | trend | rsi | signal | dominance | etf | chain
+                   #:   | vol
     message: str
 
 
@@ -175,7 +188,7 @@ def normalize_config(data) -> dict:
     for key in ("liq_burst_musd", "funding_pct", "news_score", "arb_net_pct",
                 "ma200_gap_pct", "rsi_overbought", "rsi_oversold",
                 "dominance_shift_pts", "etf_flow_musd", "mempool_mb",
-                "block_minutes"):
+                "block_minutes", "dvol_jump_pts"):
         value = data.get(key)
         if isinstance(value, (int, float)) and value > 0:
             config[key] = float(value)
@@ -288,7 +301,8 @@ class AlertEngine:
             for rule in (self._check_funding, self._check_news,
                          self._check_technical, self._check_trend,
                          self._check_event, self._check_dominance,
-                         self._check_etf, self._check_chain):
+                         self._check_etf, self._check_chain,
+                         self._check_volatility):
                 try:
                     rule(hub, opportunities, config, now)
                 except Exception:
@@ -559,6 +573,24 @@ class AlertEngine:
             self._fire("chain",
                        f"blocs lents : {minutes:.1f} min en moyenne "
                        "(cible 10)", now)
+
+    def _check_volatility(self, hub, _opps, config, now) -> None:
+        """Volatilité implicite en hausse : DVOL au-dessus de la veille.
+
+        La bougie journalière en cours porte la dernière valeur de l'indice,
+        la précédente la clôture de la veille. Une sonnerie par montée : la
+        condition tient le reste de la journée, le front ne sonne qu'une
+        fois, et une nouvelle journée la réévalue contre sa propre veille.
+        """
+        dvol = hub.dvol()
+        if dvol is None or len(dvol) < 2:
+            return
+        last = float(dvol["close"].iloc[-1])
+        jump = last - float(dvol["close"].iloc[-2])
+        if self._edge("dvol", jump >= config["dvol_jump_pts"], now):
+            self._fire("vol",
+                       f"volatilité implicite en hausse : DVOL {last:.1f}, "
+                       f"{jump:+.1f} points depuis la clôture d'hier", now)
 
     def _check_news(self, hub, _opps, config, now) -> None:
         rows = self._fetch_news()
