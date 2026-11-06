@@ -366,6 +366,20 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "window.lwcPrice.debug() && window.lwcPrice.debug().levels.length === 0",
             timeout=15))
 
+        # M : la carte des liquidations, lue au journal — un terminal lancé
+        # sans journal le dit sur le graphique au lieu de rester muet.
+        browser.press("m")
+        carte = browser.wait_for(
+            "window.lwcPrice.debug() && window.lwcPrice.debug().liqmap !== null",
+            timeout=15)
+        lue = browser.js("return window.lwcPrice.debug().liqmap;")
+        check("M pose la carte des liquidations, ou dit pourquoi elle est vide",
+              carte, str(lue)[:60])
+        browser.press("m")
+        check("M la retire", browser.wait_for(
+            "window.lwcPrice.debug() && window.lwcPrice.debug().liqmap === null",
+            timeout=15))
+
         browser.press("/")
         check("/ ouvre la ligne de commande", browser.wait_for(
             "document.activeElement === document.querySelector('.command-bar input')",

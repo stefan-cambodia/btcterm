@@ -56,6 +56,10 @@ def layout(title=None):
                  style={"fontFamily": MONO, "fontSize": "9px",
                         "padding": "0 10px 3px", "whiteSpace": "nowrap",
                         "overflow": "hidden"}),
+        html.Div(id="perp-carry",
+                 style={"fontFamily": MONO, "fontSize": "9px",
+                        "padding": "0 10px 3px", "whiteSpace": "nowrap",
+                        "overflow": "hidden"}),
         # Le graphique est créé dans ce div par assets/lwc-perp.js ; le
         # Store porte la configuration que le serveur transmet au client
         # (le thème — une seule définition, ici), les puits sont ceux
@@ -103,6 +107,54 @@ def _compare(rows: dict[str, dict], fx=DOLLARS):
         style={"color": C["cyan"]},
         title=fx.title("open interest additionné des plateformes affichées")))
     return children
+
+
+def carry(rows: dict[str, dict], futures) -> list:
+    """Le portage, partout dans la même unité : ce que rapporte par an une
+    position longue couverte — acheter comptant, vendre le dérivé.
+
+    Le financement des perpétuels se paie par tranches de huit heures, la
+    base des futures à échéance se lit à l'échéance : sans la même unité,
+    la question d'un trader — où le portage paie-t-il le plus ? — ne se
+    lisait pas. Le financement est annualisé au taux du moment
+    (× 3 × 365), la base du future le plus proche de trois mois l'est déjà
+    (§ options) ; le premier bouge toutes les huit heures, la seconde est
+    fixée jusqu'à l'échéance.
+    """
+    from btcterm import options as opt
+
+    def rate(value: float, title: str):
+        return html.Span(f"{value:+.1f} %",
+                         style={"color": C["green"] if value >= 0 else C["red"]},
+                         title=title)
+
+    children = []
+    for name, row in rows.items():
+        if row.get("funding_rate") is None:
+            continue
+        children += [
+            html.Span(f"{EXCHANGE_TAG.get(name, name)} ",
+                      style={"color": C["muted"]}),
+            rate(row["funding_rate"] * PERIODS_PER_YEAR * 100,
+                 f"financement {name} annualisé au taux du moment"),
+            html.Span(" · ", style={"color": C["muted"]}),
+        ]
+    basis = opt.summary(opt.option_chain([]), futures)["basis90"]
+    if basis is not None:
+        expiry, value = basis
+        children += [
+            html.Span(f"future {expiry:%d/%m/%y} ", style={"color": C["muted"]}),
+            rate(value * 100, "base annualisée du future Deribit le plus "
+                              "proche de trois mois, fixée jusqu'à l'échéance"),
+        ]
+    elif children:
+        children.pop()
+    if not children:
+        return []
+    return [html.Span("portage /an  ", style={"color": C["muted"]},
+                      title="ce que rapporte par an une position longue "
+                            "couverte : acheter comptant, vendre le dérivé"),
+            *children]
 
 
 def _countdown(next_funding_ms: int) -> str:
@@ -187,6 +239,7 @@ def register(app, hub):
     @app.callback(
         Output("perp-badges", "children"),
         Output("perp-compare", "children"),
+        Output("perp-carry", "children"),
         Input("tick-rare", "n_intervals"),
         Input("maximized", "data"),
         Input("currency", "data"),
@@ -195,9 +248,10 @@ def register(app, hub):
         # Le panneau partage la cellule « etf » : c'est donc sur ce nom
         # de zone que se lit l'agrandissement, pas sur le sien.
         fx = display(hub, currency)
+        rows = hub.perp_compare()
         return (_badges(hub.perp_snapshot(), hub.open_interest_extended(),
                         verbose=maximized == "etf", fx=fx),
-                _compare(hub.perp_compare(), fx))
+                _compare(rows, fx), carry(rows, hub.futures_curve()))
 
     app.clientside_callback(
         """

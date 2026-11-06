@@ -39,7 +39,7 @@ from typing import Callable, Iterable, Optional
 from .exchanges import ExchangeConnector
 
 __all__ = ["Liquidation", "LiquidationFeed", "BybitLiquidationConnector",
-           "BYBIT_SYMBOLS"]
+           "BYBIT_SYMBOLS", "MAP_BINS", "price_map"]
 
 BINANCE_FUTURES_WS = "wss://fstream.binance.com/ws/!forceOrder@arr"
 BYBIT_LINEAR_WS = "wss://stream.bybit.com/v5/public/linear"
@@ -373,3 +373,55 @@ class BybitLiquidationConnector(ExchangeConnector):
             except (TypeError, ValueError, AttributeError):
                 continue
             self.feed.record(event)
+
+
+# ─────────────────────────────────────────────────────────────
+# La carte des liquidations : où, en prix, le levier a sauté
+# ─────────────────────────────────────────────────────────────
+
+#: Tranches de prix de la carte, comme le profil de volume.
+MAP_BINS = 60
+
+
+def price_map(events: Iterable, symbol: str = "BTCUSDT",
+              bins: int = MAP_BINS) -> Optional[dict]:
+    """Le notionnel liquidé par tranche de prix, longs et shorts à part.
+
+    Les événements sont des lignes du journal (`symbol`, `side`, `price`,
+    `notional`, `exchange`, `ts`). Les tranches couvrent la plage des prix
+    liquidés, en `bins` parts égales. Une tranche chargée dit où des
+    positions à levier ont été fermées de force — des ventes forcées pour
+    les longs, des achats forcés pour les shorts : les zones où le marché a
+    déjà purgé son levier, et celles où il l'a fait d'un seul côté.
+
+    Rend `None` sans aucun événement de la paire ; sinon `centers`, `width`
+    (largeur d'une tranche), `longs`, `shorts` (notionnel en dollars),
+    `count`, `notional`, `exchanges` (les plateformes présentes — la
+    couverture se dit) et `first`, `last` (bornes des événements, epoch).
+    """
+    rows = [(float(e["price"]), float(e["notional"]), e["side"],
+             e["exchange"] or "Binance", float(e["ts"]))
+            for e in events if e["symbol"] == symbol]
+    if not rows:
+        return None
+    prices = [row[0] for row in rows]
+    low, high = min(prices), max(prices)
+    if high <= low:
+        high = low * 1.001 or 1.0
+    width = (high - low) / bins
+    longs = [0.0] * bins
+    shorts = [0.0] * bins
+    for price, notional, side, _, _ in rows:
+        index = min(bins - 1, int((price - low) / width))
+        (longs if side == "long" else shorts)[index] += notional
+    return {
+        "centers": [low + (i + 0.5) * width for i in range(bins)],
+        "width": width,
+        "longs": longs,
+        "shorts": shorts,
+        "count": len(rows),
+        "notional": sum(row[1] for row in rows),
+        "exchanges": sorted({row[3] for row in rows}),
+        "first": min(row[4] for row in rows),
+        "last": max(row[4] for row in rows),
+    }

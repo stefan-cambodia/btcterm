@@ -117,7 +117,7 @@ body {
     text-transform: none;
 }
 
-/* La barre du panneau prix porte dix-huit sélecteurs : c'est la seule qui
+/* La barre du panneau prix porte dix-neuf sélecteurs : c'est la seule qui
    manque de place. La case CVD la faisait déborder de 37 px, NIV de 36 —
    le titre réduit à « BTC » et trois pixels entre les libellés y pourvoient. */
 #price-interval label,
@@ -125,6 +125,9 @@ body {
 #price-scale label,
 #price-extras label {
     margin-left: 3px;
+    /* La case LIQ l'a fait déborder de 29 px de plus : les lettres de
+       cette seule barre se resserrent, plutôt que d'y retirer un libellé. */
+    letter-spacing: 0.06em;
 }
 
 .tf-radio .dash-options-list-option-wrapper,

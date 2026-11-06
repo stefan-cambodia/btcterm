@@ -79,7 +79,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
 | **Flux ETF** | entrées/sorties nettes des ETF spot ; en plein écran, cumul depuis le lancement, classement des émetteurs et fenêtre réglable (30 j / 90 j / 1 an / tout) | 5 min |
 | **Position** | la position tenue, saisie à la main : résultat, distance au stop, multiple du risque ; taille qu'autorise un risque choisi, stop à quelques ATR ; résultat au bandeau. Rien ne quitte le navigateur (onglet des flux ETF) | 2 s |
-| **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; financement, prime et open interest comparés sur Binance, Bybit et OKX (onglet des flux ETF) | 5 min |
+| **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; financement, prime et open interest comparés sur Binance, Bybit et OKX , et le portage annualisé — financement de chaque plateforme et base du future Deribit à trois mois, dans la même unité (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
 | **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite (onglet des news) | 2 s |
@@ -154,6 +154,14 @@ progression de 4 000 à 80 000 dollars écrase tout le début du graphique.
 la barre de titre du panneau prix décident de ce qui accompagne les chandeliers.
 Tout ce qu'on décoche rend sa hauteur au cours. Par défaut : RSI, volume et
 profil de volume ; le CRSI est disponible mais masqué.
+
+**Carte des liquidations** — la case `LIQ` (touche `M`, commande `/carte` ;
+`/liq` ouvre toujours l'onglet) pose à gauche du graphique le notionnel liquidé
+par tranche de prix sur la plage visible, lu dans le journal : rouge pour les
+longs fermés de force, vert pour les shorts. La légende dit le total et les
+plateformes présentes — depuis le Cambodge, Bybit seul, et rien pendant le
+sommeil de la machine : la carte prendra tout son sens sur un serveur allumé
+en permanence.
 
 **Niveaux clés** — la case `NIV` (touche `N`) trace les repères que les traders
 regardent : plus haut et plus bas de la veille (`H J-1`, `B J-1`), de la semaine
@@ -655,6 +663,7 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 | `P` | enregistrer le graphique en image |
 | `T` | tracer une ligne de tendance : armer, puis glisser d'un point à l'autre |
 | `N` | niveaux clés : veille, semaine et mois passés, ouvertures en cours |
+| `M` | carte des liquidations sur le graphique (`/carte`) |
 | `F` | plein écran du panneau sous la souris |
 | `/` | ligne de commande |
 | `?` | aide |
