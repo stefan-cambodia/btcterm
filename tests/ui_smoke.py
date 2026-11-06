@@ -1106,6 +1106,35 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         """)
         time.sleep(1.5)
 
+        print("\nPanneau ruban")
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-book .cell-tab'))
+                 .find(t => t.textContent === 'RUBAN').click();
+        """)
+        check("la part des achats au titre, ou l'attente dite", browser.wait_for(
+            "(t => t.includes('achats') || t.includes('aucun échange'))"
+            "(document.getElementById('tape-badges')?.textContent || '')",
+            timeout=20),
+            browser.js("return (document.getElementById('tape-badges') || "
+                       "{textContent: ''}).textContent;")[:48])
+        largeur = browser.js("""
+            const ligne = document.getElementById('tape-threshold').parentElement;
+            const titre = document.getElementById('tape-badges').parentElement;
+            return [ligne.scrollWidth - ligne.clientWidth,
+                    titre.scrollWidth - titre.clientWidth];""")
+        check("titre et ligne du seuil tiennent dans la cellule",
+              max(largeur) <= 1, f"{largeur} px de trop")
+        check("le ruban liste les gros ordres, ou dit qu'il n'y en a pas",
+              browser.wait_for(
+                  "(document.getElementById('tape-table') || {textContent: ''})"
+                  ".textContent.length > 0", timeout=10))
+        # Le carnet reprend sa cellule : la persistance y choisit Kraken.
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-book .cell-tab'))
+                 .find(t => t.textContent === 'CARNET').click();
+        """)
+        time.sleep(1.5)
+
         print("\nDouble-clic")
         browser.js("document.querySelector('#cell-arb')"
                    ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));")

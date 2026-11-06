@@ -16,13 +16,13 @@ exactement l'erreur qui a laissé le panneau ETF muet à sa création.
 
 from . import (alerts, analysis, arbitrage, calendar, dominance, etf, journal,
                liquidations, macro, markets, news, onchain, options, orderbook,
-               perp, position, price, sources)
+               perp, position, price, sources, tape)
 
 PANELS = (price, orderbook, arbitrage, liquidations, journal, etf, perp, news,
           calendar, alerts, macro, markets, dominance, onchain, analysis,
-          position, options, sources)
+          position, options, sources, tape)
 
 __all__ = ["PANELS", "price", "orderbook", "arbitrage", "liquidations",
            "journal", "etf", "perp", "news", "calendar", "alerts", "macro",
            "dominance", "onchain", "analysis", "position", "options",
-           "markets", "sources"]
+           "markets", "sources", "tape"]

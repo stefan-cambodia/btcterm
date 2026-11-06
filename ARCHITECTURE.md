@@ -25,7 +25,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant dix-neuf panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant vingt panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement doublés d'un canal push pour les panneaux rapides, un hub
   qui n'ouvre qu'une connexion par plateforme et un collecteur de news en
@@ -69,6 +69,9 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   │                              max pain, base des futures (§2.11)
 │   ├── markets.py                 le bitcoin face aux actions, à l'or, au
 │   │                              dollar et aux taux (§2.12)
+│   ├── tape.py                    ruban des échanges : gros ordres, flux
+│   │                              agressif, sens du preneur (§2.13)
+│   ├── notify.py                  les alertes vers ntfy, jusqu'au téléphone
 │   ├── history.py                 bougies closes sur disque
 │   │                              (~/.btcterm/klines.db)
 │   ├── journal.py                 journal des liquidations + épisodes
@@ -104,7 +107,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │                                   liquidations · journal · etf · perp ·
 │                                   position · news · calendar · alerts ·
 │                                   macro · markets · dominance · onchain ·
-│                                   analysis · options · sources
+│                                   analysis · options · sources · tape
 │
 ├── tests/
 │   ├── test_indicators_parity.py  non-régression des indicateurs
@@ -115,6 +118,8 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_etf_flows.py          flux ETF : fenêtres, cumul, classement
 │   ├── test_options.py            options : sourire, max pain, base, panneau
 │   ├── test_markets.py            marchés : séances, corrélations, tableau
+│   ├── test_notify.py             alertes vers ntfy, sans réseau
+│   ├── test_tape.py               ruban : sens du preneur, flux, panneau
 │   ├── test_terminal_wiring.py    panneaux posés et branchés
 │   ├── test_grid_layout.py        rangement configurable des panneaux
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
@@ -710,6 +715,21 @@ réellement rencontré : une copie superficielle des défauts partageait
 la liste des seuils, et le premier seuil posé mutait les réglages par
 défaut de tout le processus.
 
+**Jusqu'au téléphone** (`btcterm/notify.py`). Le bip et la notification du
+navigateur ne sonnent que dans un onglet ouvert ; sur un serveur, personne ne
+le regarde. Chaque sonnerie part aussi, si un sujet est configuré
+(`BTCTERM_NTFY`, ou `btcterm --ntfy`), vers ntfy, qui la livre en
+notification push : un POST JSON à la racine du serveur, le sujet dans le
+corps — un en-tête HTTP ne porte pas proprement l'UTF-8 d'un titre accentué —,
+avec un titre lisible, une priorité relevée pour ce qui demande d'agir (seuil
+de cours, rafale de liquidations, bond de la volatilité, bascule de tendance)
+et une étiquette par règle. L'envoi part d'un thread à lui, par une file
+bornée : la boucle d'observation n'attend jamais ntfy, et une panne d'envoi se
+dit une fois au journal, comme une source. Les sonneries relues du journal au
+démarrage ne repartent pas. Le panneau ALERTES dit le serveur servi, jamais
+le sujet, qui fait office de mot de passe ; `python -m btcterm.notify`
+envoie un essai.
+
 Côté interface, le panneau ALERTES (onglet de la cellule news) affiche
 les sonneries et les réglages, qui vivent dans un Store persisté et
 réarment le moteur au chargement ; la cloche du bandeau compte la
@@ -879,7 +899,29 @@ parallèle, chacun son cache de cinq minutes : lus l'un après l'autre, des
 ratés de Yahoo — délai dépassé, connexion coupée, vus dès le premier essai —
 faisaient attendre le panneau cinq délais au lieu d'un.
 
-### 2.13 Non-régression
+### 2.13 `tape` — ce qui s'exécute, et qui l'a voulu
+
+Le carnet montre des intentions, le ruban (le « time & sales » des terminaux)
+ce qui s'est exécuté, et surtout le côté de celui qui a **agressé**. Trois
+places au comptant, chacune son WebSocket public : Binance (`aggTrade`),
+Coinbase (`market_trades`, BTC-USD) et Bybit (`publicTrade`). `TradeTape`
+garde une heure de gros ordres (50 000 $ et plus) et, toutes tailles, la
+somme achetée et vendue par minute et par place ; il tient l'état de chaque
+lien, que le panneau SOURCES montre.
+
+Le sens du preneur ne se lit pas pareil d'une place à l'autre, et il a été
+**mesuré** le 6 novembre 2026 contre le meilleur bid/ask du même flux plutôt
+que supposé — un achat agresseur s'exécute à l'ask. Binance (`m` vrai :
+l'acheteur était teneur, donc vente agressive : 158 échanges au bid contre 30
+à l'ask) et Bybit (`S`, côté du preneur : 530 achats à l'ask contre 9 au bid)
+confirment leur documentation. Coinbase Advanced, dont la documentation ne
+tranche pas, marque le côté du **teneur** : ses « BUY » tombent au bid (180
+contre 23 à l'ask) — le preneur est de l'autre côté. Supposée, l'inversion
+aurait retourné tout le ruban de Coinbase, la place des acheteurs américains.
+L'instantané qu'envoie Coinbase à l'abonnement, qui rejoue ses derniers
+échanges, est écarté : le ruban ne dit que ce qui arrive.
+
+### 2.14 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
@@ -1817,6 +1859,19 @@ CoinGecko »), met les pannes en tête, et écrit l'état en toutes lettres à
 côté de sa pastille. Il a sa propre minuterie de dix secondes, qui n'existe
 que s'il est affiché.
 
+### 3.19 Le panneau RUBAN : les gros ordres
+
+Le vingtième panneau, en onglet du carnet dont il est le pendant, montre le
+module `tape` (§2.13) : les gros ordres de l'heure au-dessus d'un seuil
+réglable (100 k$, 250 k$, 1 M$), du plus récent au plus ancien, ceux d'un
+million et plus en gras. Le titre ne garde que la part des achats agressifs
+sur cinq minutes, toutes tailles — le détail par place au survol — et les
+liens absents ; les montants et le seuil vont sur une ligne à eux. Le premier
+rendu les mettait tous au titre, qui débordait de 180 px dans la cellule
+étroite du carnet et cachait le seuil ; `ui_smoke.py` surveille désormais la
+largeur des deux lignes. Montants et prix suivent la devise du panneau prix :
+c'est le marché du moment (§4.3).
+
 ## 4. Patrons transverses
 
 ### 4.1 Deux modèles d'acquisition de données
@@ -2245,7 +2300,7 @@ Le numéro de version, lui, est resté à 1.1.0.
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.13) :
+scripts y sont ramenés, sans changement de comportement (§2.14) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -2475,6 +2530,12 @@ d'historique pour en étalonner le seuil.
   sans clé — DVOL contre réalisée, courbe des échéances et ailes 25 delta,
   base des futures à échéance, open interest par strike et max pain —, avec
   DVOL au bandeau.
+- ~~**Des alertes qui ne sonnent que devant l'écran**~~ — sur le serveur
+  allumé en permanence qu'on vise, personne ne regarde l'onglet. Fait :
+  chaque sonnerie part aussi vers ntfy, jusqu'au téléphone (§2.8).
+- ~~**Ce qui s'exécute, et qui l'a voulu**~~ — le carnet ne montrait que des
+  intentions. Fait : le panneau RUBAN (§3.19), sur trois places, le sens du
+  preneur mesuré plutôt que supposé (§2.13).
 - ~~**L'état des sources au seul journal système**~~ — chaque incident de la
   séance s'est lu dans `journalctl`, le bandeau ne disant qu'un nombre.
   Fait : le panneau SOURCES (§3.18), ouvert d'un clic sur l'avertissement

@@ -238,6 +238,9 @@ class AlertEngine:
         #: Dernier jour de flux ETF sonné — ou tenu pour vu au démarrage.
         self._etf_last_date = None
         self._next_slow = 0.0
+        #: Où envoyer chaque sonnerie hors du navigateur (§ notify) ;
+        #: `None` tant qu'aucun sujet ntfy n'est configuré.
+        self.notifier = None
 
     # ── Réglages et lecture ─────────────────────────────────
 
@@ -312,6 +315,10 @@ class AlertEngine:
         alert = Alert(time=now, kind=kind, message=message)
         with self._lock:
             self.alerts.append(alert)
+        if self.notifier is not None:
+            # File d'attente, jamais d'appel réseau ici : la boucle
+            # d'observation n'attend pas ntfy.
+            self.notifier.send(alert)
         if self.journal is not None:
             try:
                 self.journal.record_alert(alert)
