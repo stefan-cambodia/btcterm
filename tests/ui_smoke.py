@@ -1081,6 +1081,31 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         time.sleep(1)
         macro_tab()
 
+        print("\nPanneau sources")
+        # Ouvert par l'avertissement du bandeau, comme la cloche ouvre les
+        # alertes ; puis la cellule rend l'onglet des liquidations, que la
+        # persistance au rechargement attend plus bas.
+        browser.js("document.getElementById('hdr-sources').click();")
+        check("l'avertissement du bandeau ouvre le panneau", browser.wait_for(
+            "(document.getElementById('sources-table') || {textContent: ''})"
+            ".textContent.includes('Flux temps réel')", timeout=20))
+        etat = browser.js("""
+            return {lignes: document.querySelectorAll(
+                        '#sources-table tr').length,
+                    badges: document.getElementById('sources-badges')
+                        .textContent};
+        """)
+        check("trois sections, chaque source sur sa ligne",
+              etat["lignes"] >= 3 + 5 + 3, f"{etat['lignes']} lignes")
+        check("le titre compte ce qui ne répond pas",
+              "sources" in etat["badges"] or "défaut" in etat["badges"]
+              or "secours" in etat["badges"], etat["badges"][:48])
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-arb .cell-tab'))
+                 .find(t => t.textContent === 'LIQUIDATIONS').click();
+        """)
+        time.sleep(1.5)
+
         print("\nDouble-clic")
         browser.js("document.querySelector('#cell-arb')"
                    ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));")

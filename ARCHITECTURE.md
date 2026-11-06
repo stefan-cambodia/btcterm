@@ -25,7 +25,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant dix-huit panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant dix-neuf panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement doublés d'un canal push pour les panneaux rapides, un hub
   qui n'ouvre qu'une connexion par plateforme et un collecteur de news en
@@ -104,7 +104,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │                                   liquidations · journal · etf · perp ·
 │                                   position · news · calendar · alerts ·
 │                                   macro · markets · dominance · onchain ·
-│                                   analysis · options
+│                                   analysis · options · sources
 │
 ├── tests/
 │   ├── test_indicators_parity.py  non-régression des indicateurs
@@ -1792,6 +1792,31 @@ suffit. Le titre donne la corrélation à 30 séances au S&P 500, à l'or et au
 dollar — écrite « corr. » et non ρ, que la barre de titre en majuscules
 changeait en P.
 
+### 3.18 Le panneau SOURCES : ce qui répond, et ce qui se tait
+
+Le terminal lit une vingtaine de sources ; le bandeau dit combien sont en
+panne (`failing_sources`), mais le détail — laquelle, depuis quand, pourquoi —
+n'était qu'au journal du service, que cette séance a dû relire à chaque
+incident. Le dix-neuvième panneau, en onglet de la cellule d'arbitrage à côté
+du journal, le pose à l'écran ; le clic sur « ⚠ N sources » au bandeau
+l'ouvre (`REVEALS`, comme la cloche et DVOL).
+
+`hub.sources_status` compose trois sections. Les **flux temps réel** : chaque
+carnet (coupé, muet sans mise à jour depuis trente secondes, ou ok) et chaque
+lien de liquidations (muet au même seuil d'un quart d'heure que son panneau).
+Les **sources REST** : `TTLCache.status` rend par clé la dernière valeur
+fraîche, le secours, la panne vue dans `FAILING_WINDOW` et la dernière
+erreur — que le cache garde désormais en une ligne (`brief_error`), le
+journal ne disant que la première ; les clés se regroupent par famille, une
+par intervalle de chandeliers ou page d'historique ne faisant qu'une source,
+la plus mal en point donnant l'état et la plus fraîche l'âge. Les calculs
+mis en cache (bilans de l'ANALYSE) n'y figurent pas. Les **tâches de fond** :
+collecte des news, instantané de marché, résolution DNS de secours. Le
+panneau nomme les familles pour un lecteur (« Agrégats de marché ·
+CoinGecko »), met les pannes en tête, et écrit l'état en toutes lettres à
+côté de sa pastille. Il a sa propre minuterie de dix secondes, qui n'existe
+que s'il est affiché.
+
 ## 4. Patrons transverses
 
 ### 4.1 Deux modèles d'acquisition de données
@@ -2388,10 +2413,9 @@ d'avant la pause venaient du contrôle et non de l'interface : des délais fixes
 qui lisaient sous charge la figure précédente (vues des options, macro), une
 attente de 12 s trop courte pour un perpétuel dont Binance dépasse les délais,
 et un on-chain refusé alors qu'il annonçait honnêtement sa série manquante.
-Chaque contrôle attend désormais sa condition. Restent à ouvrir : un panneau
-SOURCES (l'état de chaque source, aujourd'hui au seul journal système) et une
-alerte sur le skew, une fois quelques semaines d'historique pour en étalonner
-le seuil.
+Chaque contrôle attend désormais sa condition. Le panneau SOURCES a suivi
+(§3.18). Reste à ouvrir : une alerte sur le skew, une fois quelques semaines
+d'historique pour en étalonner le seuil.
 
 **Pour l'analyse :**
 
@@ -2451,6 +2475,10 @@ le seuil.
   sans clé — DVOL contre réalisée, courbe des échéances et ailes 25 delta,
   base des futures à échéance, open interest par strike et max pain —, avec
   DVOL au bandeau.
+- ~~**L'état des sources au seul journal système**~~ — chaque incident de la
+  séance s'est lu dans `journalctl`, le bandeau ne disant qu'un nombre.
+  Fait : le panneau SOURCES (§3.18), ouvert d'un clic sur l'avertissement
+  du bandeau.
 - ~~**Le portage en deux unités**~~ — le financement des perpétuels se lisait
   par huit heures dans un panneau, la base des futures par an dans un autre.
   Fait : une ligne « portage /an » au panneau perpétuel, plateformes et

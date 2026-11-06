@@ -170,6 +170,9 @@ class TTLCache:
         #: ce qui permet d'oublier ce que personne ne lit plus (`sweep`).
         self._read_at: dict[str, float] = {}
         self._ttl: dict[str, float] = {}
+        #: Clé → la dernière erreur, en une ligne : le panneau SOURCES la
+        #: montre, le journal du service ne disant que la première.
+        self._errors: dict[str, str] = {}
         self._lock = threading.Lock()
 
     def get(self, key: str, ttl: float, producer: Callable[[], Any]) -> Any:
@@ -224,6 +227,7 @@ class TTLCache:
         """
         now = time.time()
         with self._lock:
+            self._errors[key] = sources.brief_error(exc)
             since = self._failing.get(key)
             last = self._failed_at.get(key, since)
             lapsed = since is not None and now - last > FAILING_WINDOW
@@ -300,6 +304,23 @@ class TTLCache:
     def __len__(self) -> int:
         with self._lock:
             return len(self._entries)
+
+    def status(self, within: float = FAILING_WINDOW) -> dict[str, dict]:
+        """L'état de chaque clé lue : dernière valeur fraîche, secours,
+        panne en cours (vue il y a moins de `within`) et dernière erreur."""
+        horizon = time.time() - within
+        with self._lock:
+            keys = set(self._read_at) | set(self._entries) | set(self._failing)
+            return {key: {
+                "fresh_at": (self._entries[key][0]
+                             if key in self._entries else None),
+                "stale": self._stale.get(key, False),
+                "failing_since": (self._failing[key]
+                                  if key in self._failing
+                                  and self._failed_at.get(key, 0.0) >= horizon
+                                  else None),
+                "error": self._errors.get(key),
+            } for key in keys}
 
 
 class MarketHub:
@@ -961,6 +982,109 @@ class MarketHub:
         if cached is None:
             return self.EUR_FALLBACK, True
         return cached, self._cache.stale("eur")
+
+    #: Ce que l'état des sources ne montre pas : des calculs tirés des
+    #: sources, pas des sources.
+    STATUS_IGNORED = ("signal_stats", "rule_stats")
+    #: Un carnet connecté sans mise à jour depuis ce délai est muet : en
+    #: marché ouvert, un carnet BTC bouge à la seconde.
+    BOOK_SILENT = 30.0
+    #: Le silence d'un lien de liquidations — celui du panneau du même nom.
+    LIQ_SILENT = 15 * 60.0
+
+    def sources_status(self, now: Optional[float] = None) -> dict[str, list[dict]]:
+        """L'état de chaque source, par famille : de quoi dire, sans lire le
+        journal système, ce qui répond, ce qui sert de secours et ce qui se
+        tait — et depuis quand.
+
+        Chaque ligne : `name`, `state` (`ok`, `secours`, `panne`, `muet`,
+        `coupé`, `inactif`), `age` (secondes depuis la dernière donnée
+        fraîche, ou `None`) et `detail` (l'erreur, ou ce qu'il faut savoir).
+        Le cache compte par clé — une par intervalle de chandeliers, une par
+        page d'historique — : les clés se regroupent par famille, la plus
+        mal en point donnant l'état, la plus fraîche l'âge.
+        """
+        now = time.time() if now is None else now
+        streams = []
+        for name, book in self.books.items():
+            age = now - book.timestamp
+            if not book.connected:
+                state, detail = "coupé", book.error or "déconnecté"
+            elif age > self.BOOK_SILENT:
+                state, detail = "muet", "connecté, sans mise à jour"
+            else:
+                state, detail = "ok", "carnet WebSocket"
+            streams.append({"name": f"Carnet {name}", "state": state,
+                            "age": age, "detail": detail})
+        feed = self.liquidations
+        silent = dict(feed.silent(self.LIQ_SILENT))
+        for name, (up, error) in feed.links.items():
+            age = feed.last_event_age(name)
+            if not up:
+                state, detail = "coupé", error or "déconnecté"
+            elif name in silent:
+                state, detail = "muet", "connecté, sans liquidation livrée"
+            else:
+                state, detail = "ok", "fil de liquidations"
+            streams.append({"name": f"Liquidations {name}", "state": state,
+                            "age": age, "detail": detail})
+
+        families: dict[str, dict] = {}
+        rank = {"ok": 0, "secours": 1, "panne": 2}
+        for key, info in self._cache.status().items():
+            family = key.split(":", 1)[0]
+            if family in self.STATUS_IGNORED:
+                continue
+            state = ("panne" if info["failing_since"] is not None
+                     else "secours" if info["stale"] else "ok")
+            row = families.setdefault(family, {"name": family, "state": "ok",
+                                               "age": None, "detail": "",
+                                               "keys": 0})
+            row["keys"] += 1
+            if info["fresh_at"] is not None:
+                age = now - info["fresh_at"]
+                row["age"] = age if row["age"] is None else min(row["age"], age)
+            if rank[state] > rank[row["state"]]:
+                row["state"] = state
+                row["detail"] = info["error"] or ""
+                if info["failing_since"] is not None:
+                    row["since"] = info["failing_since"]
+        rest = sorted(families.values(),
+                      key=lambda row: (-rank[row["state"]], row["name"]))
+
+        tasks = []
+        if self.collect_news:
+            news = self.news.status
+            tasks.append({
+                "name": "Collecte des news",
+                "state": "panne" if news.get("error") else "ok",
+                "age": (now - news["last_run"]) if news.get("last_run") else None,
+                "detail": news.get("error") or f"{news.get('new', 0)} nouvelles "
+                                                "au dernier passage"})
+        else:
+            tasks.append({"name": "Collecte des news", "state": "inactif",
+                          "age": None, "detail": "lancée sans --news"})
+        if self.journal is not None:
+            rows = self.journal.snapshots_between(now - 3600, now)
+            last = rows[-1]["ts"] if rows else None
+            tasks.append({
+                "name": "Instantané de marché",
+                "state": "ok" if last and now - last < 2 * self.SNAPSHOT_EVERY
+                else "muet",
+                "age": (now - last) if last else None,
+                "detail": f"journal {self.journal.path.name}, toutes les "
+                          f"{self.SNAPSHOT_EVERY / 60:.0f} min"})
+        else:
+            tasks.append({"name": "Instantané de marché", "state": "inactif",
+                          "age": None, "detail": "lancé sans journal"})
+        tasks.append({
+            "name": "Résolution DNS de secours",
+            "state": "ok" if resolver.is_installed() else "inactif",
+            "age": None,
+            "detail": (f"{len(resolver._cache)} noms résolus par DoH"
+                       if resolver.is_installed() else "non installée")})
+        return {"Flux temps réel": streams, "Sources REST": rest,
+                "Tâches de fond": tasks}
 
     def failing_sources(self) -> dict[str, float]:
         """Les sources en panne, par famille, avec le début de la panne.
