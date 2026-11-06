@@ -1698,7 +1698,14 @@ des heures. Le cache tient donc, par clé, si la dernière lecture a été
 servie de secours (`stale`) — il ne disqualifie que ce qu'il a vu
 tomber —, et `record_market_snapshot` n'écrit pas le secours : NULL,
 qui dit vrai. `tests/test_cache.py` couvre
-les trois.
+les trois. **Le secours n'est gardé que pour qui le lit.** Une page
+d'historique est une clé à usage unique, que le cache gardait jusqu'au
+redémarrage ; toutes les dix minutes, `TTLCache.sweep` oublie ce que
+personne n'a lu depuis une heure (`CACHE_IDLE`) et dont la durée de vie
+est passée. Une lecture par `peek` compte : le taux € que le pousseur lit
+sans réseau reste. Une source qu'on relit, même en panne, garde sa
+dernière valeur ; celle d'un panneau replié depuis plus d'une heure, et
+périmée, est relue à la source à sa réouverture, comme au démarrage.
 
 Le repli sur données de démonstration mérite une précaution : un graphique
 synthétique qu'on ne distingue pas d'un vrai est pire que pas de graphique du
@@ -2156,8 +2163,8 @@ Reste, hors étape :
 La feuille de route est soldée et les chantiers d'hygiène aussi : plus rien
 n'est *en cours*. Ce qui suit n'est donc pas un chemin ordonné mais l'état
 des manques constatés à la clôture et depuis — chacun à ouvrir quand l'usage le
-fera sentir, aucun ne conditionnant les autres. Les deux qui restent ouverts
-sont en fin de section, et ni l'un ni l'autre ne presse.
+fera sentir, aucun ne conditionnant les autres. Celui qui reste ouvert est
+en fin de section, et ne presse pas.
 
 **Point de reprise** (pause du 5 novembre 2026) : `main` porte tout le travail
 de la séance, le service tourne sur ce code et les contrôles passent — tests
@@ -2433,14 +2440,20 @@ constaté à l'usage, ou des points restés ouverts.
   demandé et non celui de la série affichée : il provoquait cette course,
   et passait grâce à elle. La sonde dit désormais les deux (`loaded`), et
   l'écart le plus court et le plus long entre deux bougies (`steps`).
+- ~~**Le cache mémoire garde chaque page d'historique**~~ — une page de pan
+  est une clé à usage unique (`klines:15m:500:<fin>`) que `TTLCache` ne
+  libérait jamais : le journal du service y a montré une « dernière valeur »
+  de dix-neuf heures. La durée de vie d'une heure, censée borner la mémoire,
+  ne la bornait pas ; une page pèse 33 à 47 Ko, mesurée sur l'historique du
+  disque. Fait : toutes les dix minutes, la boucle d'observation oublie ce
+  que personne n'a lu depuis une heure et dont la durée de vie est passée
+  (`TTLCache.sweep`). Ce qu'on lit encore reste, même périmé — c'est le
+  secours d'une source en panne —, et l'état de panne reste aussi, pour
+  que le retour de la source se dise au journal. Le disque tient de toute
+  façon ces pages.
 
 **Constaté, pas encore ouvert :**
 
-- **Le cache mémoire garde chaque page d'historique** — une page de pan est
-  une clé à usage unique (`klines:15m:500:<fin>`) que `TTLCache` ne libère
-  jamais : le même journal y a montré une « dernière valeur » de dix-neuf
-  heures. Une page pèse 26 Ko, il faudrait des milliers de pans pour que ça
-  compte, et le disque tient de toute façon ces pages.
 - **Le quart d'heure et la demi-heure se remplissent à l'usage** — le reste est
   complété en tâche de fond (§3.14) ; ces deux-là coûteraient quatre cent
   soixante-dix appels de plus, pour des bougies qui vieillissent vite.

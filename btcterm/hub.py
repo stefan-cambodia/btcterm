@@ -162,11 +162,17 @@ class TTLCache:
         #: Clé → instant du dernier échec : une clé qu'on ne relit plus,
         #: une page d'historique par exemple, resterait sinon en panne.
         self._failed_at: dict[str, float] = {}
+        #: Clé → instant de la dernière lecture, et durée de vie demandée :
+        #: ce qui permet d'oublier ce que personne ne lit plus (`sweep`).
+        self._read_at: dict[str, float] = {}
+        self._ttl: dict[str, float] = {}
         self._lock = threading.Lock()
 
     def get(self, key: str, ttl: float, producer: Callable[[], Any]) -> Any:
         with self._lock:
             entry = self._entries.get(key)
+            self._read_at[key] = time.time()
+            self._ttl[key] = ttl
         if entry and time.time() - entry[0] < ttl:
             return entry[1]
 
@@ -259,7 +265,37 @@ class TTLCache:
     def peek(self, key: str) -> Optional[Any]:
         with self._lock:
             entry = self._entries.get(key)
+            if entry:
+                self._read_at[key] = time.time()
         return entry[1] if entry else None
+
+    def sweep(self, idle: float) -> int:
+        """Oublie ce que personne n'a lu depuis `idle` secondes et dont la
+        durée de vie est passée ; rend le nombre de clés oubliées.
+
+        Une page d'historique est une clé à usage unique
+        (`klines:15m:500:<fin>`) : sans ce ménage, chaque pan restait en
+        mémoire jusqu'au redémarrage — le journal du service en a montré
+        une « dernière valeur » de dix-neuf heures. Ce qu'on lit encore
+        reste, même périmé : c'est le secours d'une source en panne. L'état
+        de panne, lui, reste aussi, pour que le retour de la source se dise
+        au journal.
+        """
+        now = time.time()
+        with self._lock:
+            gone = [key for key, read in self._read_at.items()
+                    if now - read > idle
+                    and now - self._entries.get(key, (0.0,))[0]
+                    > self._ttl.get(key, 0.0)]
+            for key in gone:
+                for table in (self._entries, self._stale, self._read_at,
+                              self._ttl):
+                    table.pop(key, None)
+        return len(gone)
+
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._entries)
 
 
 class MarketHub:
@@ -268,8 +304,9 @@ class MarketHub:
     #: Durées de vie des caches, en secondes.
     TTL_KLINES = 5
     #: Une page d'historique antérieur est close : ses bougies ne
-    #: changeront plus jamais. Une heure de cache borne juste la mémoire
-    #: quand on remonte loin, sans coût de fraîcheur.
+    #: changeront plus jamais. Une heure de cache, sans coût de fraîcheur ;
+    #: passé ce délai sans relecture, le ménage l'oublie (`CACHE_IDLE`) —
+    #: le disque la tient de toute façon.
     TTL_KLINES_HISTORY = 3600
     #: Binance injoignable, l'historique sauvegardé répond à sa place, et la
     #: source n'est retentée qu'après un délai : le pousseur, qui lit les
@@ -372,6 +409,13 @@ class MarketHub:
     #: réveil laissait le graphique une minute en retard sur un réseau
     #: déjà revenu.
     WAKE_GRACE = 60.0
+    #: Ménage du cache mémoire (`TTLCache.sweep`) : ce que personne n'a lu
+    #: depuis une heure, et dont la durée de vie est passée, est oublié —
+    #: une heure, la durée de vie d'une page d'historique, qui devait
+    #: justement borner la mémoire et ne la bornait pas. Le ménage passe
+    #: toutes les dix minutes, dans la boucle d'observation.
+    CACHE_IDLE = 3600.0
+    CACHE_SWEEP_EVERY = 600.0
     #: Profondeur des sonneries relues au démarrage : la journée, celle
     #: que le panneau journal relit — la cloche, elle, compte l'heure.
     ALERTS_WARM_UP_SECONDS = 24 * 3600.0
@@ -592,8 +636,12 @@ class MarketHub:
             self.journal.purge()
         self._wait_for_network()
         next_snapshot = time.monotonic() + self.SNAPSHOT_WARMUP
+        next_sweep = time.monotonic() + self.CACHE_SWEEP_EVERY
         while not self._observe_stop.wait(1.0):
             self._after_sleep()
+            if time.monotonic() >= next_sweep:
+                next_sweep = time.monotonic() + self.CACHE_SWEEP_EVERY
+                self._cache.sweep(self.CACHE_IDLE)
             # Un tour raté — balayage, base verrouillée, disque — ne
             # doit pas arrêter d'observer : le suivant retentera.
             try:
