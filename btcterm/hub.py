@@ -52,6 +52,64 @@ log = logging.getLogger("btcterm.hub")
 FAILING_WINDOW = 900
 
 
+def _asleep_seconds() -> float:
+    """Le temps que la machine a passé endormie depuis son boot.
+
+    Sous Linux, `CLOCK_BOOTTIME` court pendant le sommeil et l'horloge
+    monotone non : leur écart est le sommeil cumulé, exact et sourd aux
+    réglages de l'heure. Ailleurs, l'heure murale contre l'horloge
+    monotone en tient lieu, à un réglage NTP près.
+    """
+    if hasattr(time, "CLOCK_BOOTTIME"):
+        return time.clock_gettime(time.CLOCK_BOOTTIME) - time.monotonic()
+    return time.time() - time.monotonic()
+
+
+def _span(seconds: float) -> str:
+    """Une durée de panne, à la minute."""
+    return "moins d'une minute" if seconds < 60 else f"{seconds / 60:.0f} min"
+
+
+class SleepWatch:
+    """Les réveils de la machine, lus sur ses horloges.
+
+    Le sommeil se voyait à l'heure murale qui saute entre deux tours de
+    la boucle d'observation, au-delà de trente secondes. Mais le journal
+    du service a montré un sommeil de onze secondes suivi de trois
+    sources en panne — l'instantané de marché parti avant le réseau — et
+    les lectures des autres threads, onglet qui se réveille ou pousseur,
+    échouaient avant même que la boucle n'ait vu le réveil. Toute lecture
+    peut donc échantillonner la montre, et le premier qui voit le sommeil
+    en date le réveil.
+    """
+
+    #: En deçà, l'écart des horloges est du bruit de lecture.
+    THRESHOLD = 1.0
+
+    def __init__(self, asleep: Callable[[], float] = _asleep_seconds):
+        self._asleep = asleep
+        self._lock = threading.Lock()
+        self._seen = asleep()
+        #: Instant, en temps monotone, du dernier réveil vu.
+        self.woke_at: Optional[float] = None
+        #: Durée du dernier sommeil, en secondes.
+        self.slept = 0.0
+
+    def sample(self) -> None:
+        with self._lock:
+            asleep = self._asleep()
+            if asleep - self._seen >= self.THRESHOLD:
+                self.woke_at = time.monotonic()
+                self.slept = asleep - self._seen
+            self._seen = asleep
+
+    def woke_within(self, seconds: float) -> bool:
+        """Vrai si la machine s'est réveillée il y a moins de `seconds`."""
+        self.sample()
+        return (self.woke_at is not None
+                and time.monotonic() - self.woke_at < seconds)
+
+
 class TTLCache:
     """Cache mémoire à durée de vie, sûr entre threads.
 
@@ -69,9 +127,19 @@ class TTLCache:
     la dernière lecture a été servie de secours (`stale`) — l'instantané
     journalisé n'écrit pas le secours —, et il journalise la première
     panne d'une source comme son rétablissement, avec la durée.
+
+    Un échec dans les `grace` secondes d'un réveil de la machine ne dit
+    rien de sa source : le réseau n'est pas encore revenu. Il est servi
+    de secours, mais ne se journalise pas et ne compte pas comme panne —
+    il reliait sinon la panne d'avant le sommeil à son retour, et le
+    journal disait « après 95 min » de quatre-vingt-quatre minutes de
+    sommeil.
     """
 
-    def __init__(self):
+    def __init__(self, watch: Optional[SleepWatch] = None,
+                 grace: float = 60.0):
+        self._watch = watch
+        self._grace = grace
         self._entries: dict[str, tuple[float, Any]] = {}
         #: Clé → vrai si la dernière lecture a été servie de secours
         #: (source en panne), ou a échoué sans rien à servir. Une clé
@@ -94,7 +162,8 @@ class TTLCache:
         try:
             value = producer()
         except Exception as exc:
-            self._note_failure(key, exc, entry)
+            if not self.waking():
+                self._note_failure(key, exc, entry)
             with self._lock:
                 self._stale[key] = True
             if entry:
@@ -120,16 +189,38 @@ class TTLCache:
             return {key: since for key, since in self._failing.items()
                     if self._failed_at.get(key, 0.0) >= horizon}
 
+    def waking(self) -> bool:
+        """Vrai dans les `grace` secondes d'un réveil de la machine."""
+        return self._watch is not None and self._watch.woke_within(self._grace)
+
     def _note_failure(self, key: str, exc: Exception, entry) -> None:
+        """La première panne d'une source, dite une fois.
+
+        Un échec qui suit un silence de plus de `FAILING_WINDOW` ne
+        prolonge pas la panne d'avant : on ignore ce qu'elle est devenue
+        pendant que personne ne lisait. Il en ouvre une nouvelle — le
+        pendant, à l'échec, de ce que `_note_recovery` fait au retour.
+        """
+        now = time.time()
         with self._lock:
-            first = key not in self._failing
+            since = self._failing.get(key)
+            last = self._failed_at.get(key, since)
+            lapsed = since is not None and now - last > FAILING_WINDOW
+            first = since is None or lapsed
             if first:
-                self._failing[key] = time.time()
-            self._failed_at[key] = time.time()
-        if first:
-            age = f"{time.time() - entry[0]:.0f} s" if entry else "aucune"
+                self._failing[key] = now
+            self._failed_at[key] = now
+        if not first:
+            return
+        age = f"{now - entry[0]:.0f} s" if entry else "aucune"
+        if not lapsed:
             log.warning("source %s en panne : %s — dernière valeur : %s",
                         key, sources.brief_error(exc), age)
+            return
+        log.warning("source %s en panne à sa première lecture depuis %.0f min : "
+                    "%s — dernière valeur : %s (panne précédente constatée : "
+                    "%s)", key, (now - last) / 60, sources.brief_error(exc),
+                    age, _span(last - since))
 
     def _note_recovery(self, key: str) -> None:
         """Le retour d'une source, avec la durée de panne qu'on a vue.
@@ -150,10 +241,9 @@ class TTLCache:
             log.warning("source %s de nouveau servie après %.0f min",
                         key, (now - since) / 60)
             return
-        seen = last - since
         log.warning("source %s de nouveau servie à sa première lecture depuis "
                     "%.0f min (panne constatée : %s)", key, (now - last) / 60,
-                    "moins d'une minute" if seen < 60 else f"{seen / 60:.0f} min")
+                    _span(last - since))
 
     def peek(self, key: str) -> Optional[Any]:
         with self._lock:
@@ -253,10 +343,16 @@ class MarketHub:
     #: Le réveil de la machine rejoue le boot : la boucle dort sur une
     #: horloge monotone, qui ne court pas pendant le sommeil, et son
     #: premier tour partait à la seconde même du réveil — sept salves de
-    #: « cinq sources en panne » en une journée, une par réveil. Un tour
-    #: dont l'heure murale a sauté de plus de `RESUME_GAP` est un réveil,
-    #: et la boucle rattend le réseau avant de reprendre.
-    RESUME_GAP = 30.0
+    #: « cinq sources en panne » en une journée, une par réveil. La boucle
+    #: lit donc le sommeil sur les horloges (`SleepWatch`) et rattend le
+    #: réseau avant de reprendre. Les autres lectures ne l'attendent pas :
+    #: dans la minute d'un réveil, leurs échecs ne comptent pas comme
+    #: pannes (le réseau est revenu en 4 à 28 s aux réveils mesurés), et
+    #: Binance est retenté toutes les cinq secondes au lieu de soixante —
+    #: l'attente armée par un échec du réveil laissait le graphique une
+    #: minute en retard sur un réseau déjà revenu.
+    WAKE_GRACE = 60.0
+    WAKE_KLINES_RETRY = 5.0
     #: Profondeur des sonneries relues au démarrage : la journée, celle
     #: que le panneau journal relit — la cloche, elle, compte l'heure.
     ALERTS_WARM_UP_SECONDS = 24 * 3600.0
@@ -320,7 +416,12 @@ class MarketHub:
             interval=self.NEWS_INTERVAL, api_key=cryptopanic_key
         )
 
-        self._cache = TTLCache()
+        #: Les réveils de la machine : la boucle d'observation y rattend
+        #: le réseau, le cache n'y compte pas les échecs comme des pannes.
+        self._sleep = SleepWatch()
+        #: Le réveil que la boucle a déjà traité (`SleepWatch.woke_at`).
+        self._wake_handled: Optional[float] = None
+        self._cache = TTLCache(self._sleep, self.WAKE_GRACE)
         #: Instant avant lequel la source de change, tombée, n'est pas
         #: réinterrogée (`eur_rate`).
         self._eur_retry_at = 0.0
@@ -470,9 +571,8 @@ class MarketHub:
             self.journal.purge()
         self._wait_for_network()
         next_snapshot = time.monotonic() + self.SNAPSHOT_WARMUP
-        last_tick = time.time()
         while not self._observe_stop.wait(1.0):
-            last_tick = self._after_sleep(last_tick)
+            self._after_sleep()
             # Un tour raté — balayage, base verrouillée, disque — ne
             # doit pas arrêter d'observer : le suivant retentera.
             try:
@@ -496,22 +596,27 @@ class MarketHub:
                 except Exception:
                     pass
 
-    def _after_sleep(self, last_tick: float) -> float:
-        """Rattend le réseau si la machine a dormi depuis `last_tick`.
+    def _after_sleep(self) -> None:
+        """Rattend le réseau si la machine s'est réveillée depuis le tour
+        précédent.
 
-        Rend l'heure murale du tour qui commence. `Event.wait` compte en
-        temps monotone, que le sommeil n'avance pas : le tour qui suit
-        un réveil part à la seconde même, avant que la machine ne soit
-        reconnectée — et déclarait toutes les sources en panne.
+        `Event.wait` compte en temps monotone, que le sommeil n'avance
+        pas : le tour qui suit un réveil part à la seconde même, avant que
+        la machine ne soit reconnectée — et déclarait toutes les sources
+        en panne. Le réveil a pu être vu d'abord par une autre lecture
+        (`SleepWatch`) : la boucle le reconnaît à sa date.
         """
-        now = time.time()
-        slept = now - last_tick
-        if slept > self.RESUME_GAP:
-            sources.reset_connections()
-            self._wait_for_network(
-                f"au réveil, après {slept / 60:.0f} min de sommeil")
-            now = time.time()
-        return now
+        self._sleep.sample()
+        woke_at = self._sleep.woke_at
+        if woke_at is None or woke_at == self._wake_handled:
+            return
+        self._wake_handled = woke_at
+        slept = self._sleep.slept
+        sources.reset_connections()
+        self._wait_for_network(
+            "au réveil, après "
+            + (f"{slept:.0f} s" if slept < 60 else f"{slept / 60:.0f} min")
+            + " de sommeil")
 
     def stop(self) -> None:
         self.stopping.set()
@@ -641,7 +746,9 @@ class MarketHub:
                          direct: Callable[[], pd.DataFrame]) -> pd.DataFrame:
         """Lit par l'historique sur disque, ou à la source sans lui.
 
-        Source injoignable : elle n'est retentée qu'après `KLINES_RETRY`.
+        Source injoignable : elle n'est retentée qu'après `KLINES_RETRY`,
+        ou `WAKE_KLINES_RETRY` dans la minute d'un réveil — c'est alors le
+        réseau qui manque, et il revient en quelques secondes.
         Base inutilisable — disque plein, fichier abîmé : ce n'est qu'un
         cache, le terminal continue sans lui.
         """
@@ -657,7 +764,9 @@ class MarketHub:
             self.history = None
             return direct()
         except Exception:
-            self._klines_retry_at = time.time() + self.KLINES_RETRY
+            self._klines_retry_at = time.time() + (
+                self.WAKE_KLINES_RETRY if self._cache.waking()
+                else self.KLINES_RETRY)
             raise
 
     def _stored_klines(self, interval: str, limit: int,

@@ -462,10 +462,18 @@ machine rejoue le boot : la boucle dort sur `Event.wait`, en temps
 monotone, que le sommeil n'avance pas, et son premier tour partait à la
 seconde même du réveil — sept salves de « sources en panne » en une
 journée, chacune à l'heure exacte où `systemd-sleep` dégelait
-`user.slice`. Un tour dont l'heure murale a sauté de plus de
-`RESUME_GAP` (trente secondes) est un réveil, et `_after_sleep` rattend
-le réseau de la même façon, la ligne de journal disant combien la
-machine a dormi.
+`user.slice`. `_after_sleep` rattend donc le réseau à chaque réveil, la
+ligne de journal disant combien la machine a dormi. Le réveil se lisait
+d'abord à l'heure murale qui saute de plus de trente secondes entre deux
+tours ; un sommeil de onze secondes, le 6 novembre 2026, est passé
+au-dessous, et l'instantané de marché est parti avant le réseau — deux
+sources « en panne » cinq minutes au bandeau, jusqu'à l'instantané
+suivant. Il se lit désormais sur les horloges du noyau (`SleepWatch`) :
+`CLOCK_BOOTTIME` court pendant le sommeil et l'horloge monotone non, et
+leur écart est le sommeil cumulé, exact à la microseconde et sourd aux
+réglages de l'heure. Toute lecture du cache peut échantillonner la
+montre — le premier qui voit le sommeil date le réveil, et la boucle le
+reconnaît à sa date si un autre thread l'a vu avant elle (§4.3).
 
 La base n'existe qu'à la première écriture : construire un `Journal` —
 ce que fait tout `MarketHub`, démarré ou non — ne crée aucun fichier,
@@ -1634,7 +1642,28 @@ pas été en panne tout ce temps. Sa ligne de retour dit alors
 depuis quand elle n'avait pas été lue et l'intervalle entre ses échecs
 (« à sa première lecture depuis 1915 min (panne constatée : moins d'une
 minute) »), là où le journal annonçait trente-deux heures de panne pour un
-seul échec. Un collecteur qui n'a rien obtenu
+seul échec. La règle vaut aussi à l'échec : celui qui suit un tel silence
+ne prolonge pas la panne d'avant, dont on ignore ce qu'elle est devenue,
+mais en ouvre une nouvelle, et sa ligne dit la précédente (« en panne à sa
+première lecture depuis 180 min : … (panne précédente constatée :
+5 min) »).
+
+Le réveil de la machine tordait ces durées autrement. Le réseau y revient
+en quelques secondes — quatre à vingt-huit aux réveils mesurés —, et les
+lectures qui n'attendent pas la boucle d'observation, onglet qui se
+réveille ou pousseur, échouaient dans l'intervalle : dix des soixante-six
+pannes journalisées en une journée tombaient dans la minute d'un réveil,
+rétablies « après 0 min ». Pire, un tel échec confirmait la panne d'avant
+le sommeil, et le journal disait « klines:1h:400 de nouveau servie après
+95 min » de quatre-vingt-quatre minutes de sommeil. Dans les
+`WAKE_GRACE` secondes d'un réveil (une minute, `SleepWatch` au §2.7), un
+échec est donc servi de secours mais ne se journalise pas et ne compte pas
+au bandeau. Il armait aussi l'attente de Binance (`KLINES_RETRY`, une
+minute) : le graphique repartait soixante et une secondes après le retour
+du réseau, à chacun des réveils relus. Pendant la même minute, Binance est
+retenté toutes les cinq secondes (`WAKE_KLINES_RETRY`).
+
+Un collecteur qui n'a rien obtenu
 lève au lieu de rendre un vide : `fetch_perp_snapshot` rendait `{}`
 quand ses deux endpoints tombaient, et le cache le stockait comme une
 lecture réussie, invisible au secours. L'erreur y tient en une ligne
@@ -2199,6 +2228,17 @@ constaté à l'usage, ou des points restés ouverts.
   ANALYSE étant replié ; la nuit de sommeil gonflait de même la durée des
   pannes d'avant le coucher. Fait : au-delà de `FAILING_WINDOW` sans
   lecture, le retour dit l'oubli et la panne constatée séparément (§4.3).
+- ~~**Le sommeil compté comme panne**~~ — constaté dans le journal du
+  service le lendemain du correctif précédent : « après 95 min », dont
+  quatre-vingt-quatre de sommeil, une lecture ratée à la troisième seconde
+  du réveil ayant confirmé la panne de la veille ; dix pannes sur
+  soixante-six dans la minute d'un réveil ; le graphique une minute en
+  retard sur le réseau revenu ; et un sommeil de onze secondes que la
+  boucle ne voyait pas. Fait : le sommeil se lit sur les horloges du noyau
+  (`SleepWatch`, §2.7), un échec dans la minute d'un réveil est servi de
+  secours sans compter comme panne, Binance y est retenté toutes les cinq
+  secondes, et un échec après un long silence ouvre une panne au lieu
+  d'allonger l'ancienne (§4.3).
 - ~~**Les alertes après un redémarrage**~~ — constaté au balayage des
   panneaux du service en marche : « aucune alerte — les seuils
   veillent » quand le journal en comptait onze sur la journée. Fait :
