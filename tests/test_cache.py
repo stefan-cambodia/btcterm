@@ -22,7 +22,9 @@ Ce qui est vérifié ici, sans réseau :
   réseau à la boucle d'observation, et les échecs de la minute qui suit
   ne comptent pas comme pannes ;
 - Binance en panne est retenté après un délai qui suit la panne, et les
-  lectures refusées pendant ce délai ne se disent pas en panne.
+  lectures refusées pendant ce délai ne se disent pas en panne ;
+- le cache oublie ce que personne ne lit plus — les pages d'historique,
+  clés à usage unique —, mais garde le secours de ce qu'on lit encore.
 
 Lancement :
     python tests/test_cache.py
@@ -645,6 +647,57 @@ def test_l_attente_ne_se_compte_pas_comme_panne():
     finally:
         hub_module.log.removeHandler(capture)
     print("  ✓ une panne réelle, une ligne : l'attente sert le secours sans bruit")
+
+
+def test_le_cache_oublie_ce_que_personne_ne_lit():
+    """Une page d'historique est une clé à usage unique : chaque pan restait
+    en mémoire jusqu'au redémarrage. Le ménage oublie ce que personne n'a
+    lu depuis `idle` et dont la durée de vie est passée — et garde ce qu'on
+    lit encore, même périmé, qui sert de secours."""
+    cache = TTLCache()
+    heure = 3600
+
+    def vieillit(cle, ecrit, lu):
+        date, valeur = cache._entries[cle]
+        cache._entries[cle] = (date - ecrit, valeur)
+        cache._read_at[cle] -= lu
+
+    def panne():
+        raise ConnectionError("injoignable")
+
+    # Une page lue une fois, il y a plus d'une heure : oubliée.
+    cache.get("klines:15m:500:1793938500000", heure, lambda: "page")
+    vieillit("klines:15m:500:1793938500000", 2 * heure, 2 * heure)
+    # Une source relue sans relâche, périmée parce qu'en panne : gardée.
+    cache.get("perp", 30, lambda: "financement")
+    vieillit("perp", 2 * heure, 2 * heure)
+    assert cache.get("perp", 30, panne) == "financement" and cache.stale("perp")
+    # Une valeur que personne ne lit, mais encore dans sa durée de vie
+    # (la masse monétaire, douze heures) : gardée.
+    cache.get("m2", 12 * heure, lambda: "M2")
+    vieillit("m2", 2 * heure, 2 * heure)
+    # Une valeur lue par `peek` seulement — le taux € du pousseur : gardée.
+    cache.get("eur", heure, lambda: 0.9)
+    vieillit("eur", 2 * heure, 2 * heure)
+    assert cache.peek("eur") == 0.9
+    # Une page en panne, sans rien à servir, jamais relue : son secours
+    # est oublié, mais son état de panne reste, pour que le retour se dise.
+    try:
+        cache.get("klines:1h:300:1793900000000", heure, panne)
+    except ConnectionError:
+        pass
+    cache._read_at["klines:1h:300:1793900000000"] -= 2 * heure
+
+    assert cache.sweep(heure) == 2
+    assert set(cache._entries) == {"perp", "m2", "eur"}
+    assert set(cache._read_at) == {"perp", "m2", "eur"}
+    assert not cache.stale("klines:1h:300:1793900000000")
+    assert "klines:1h:300:1793900000000" in cache._failing
+
+    # La page redemandée revient comme neuve : rien n'a disparu que la mémoire.
+    assert cache.get("klines:15m:500:1793938500000", heure, lambda: "page") == "page"
+    assert cache.sweep(heure) == 0
+    print("  ✓ le cache oublie ce que personne ne lit, garde le secours lu")
 
 
 if __name__ == "__main__":
