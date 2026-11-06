@@ -300,6 +300,11 @@ def summary(chain: pd.DataFrame, futures: pd.DataFrame,
                          if not chain.empty else None),
            "oi_btc": float(chain["oi"].sum()) if not chain.empty else 0.0,
            "front": None, "max_pain": None, "basis90": None}
+    # La base des futures ne dépend pas de la chaîne d'options : une panne
+    # de celle-ci ne doit pas l'effacer.
+    if not futures.empty:
+        row = futures.loc[(futures["days"] - 90).abs().idxmin()]
+        out["basis90"] = (row["expiry"], float(row["annualized"]))
     if chain.empty:
         return out
     curve = term_structure(chain, now)
@@ -312,7 +317,4 @@ def summary(chain: pd.DataFrame, futures: pd.DataFrame,
     if front is not None:
         out["front"] = front
         out["max_pain"] = max_pain(strike_table(chain, front))
-    if not futures.empty:
-        row = futures.loc[(futures["days"] - 90).abs().idxmin()]
-        out["basis90"] = (row["expiry"], float(row["annualized"]))
     return out

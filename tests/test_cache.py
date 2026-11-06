@@ -164,11 +164,21 @@ def test_l_instantane_n_ecrit_que_le_frais():
             raise ConnectionError("Binance")
         return {"funding_rate": 6e-5}
 
+    def faux_deribit(kind="option", currency="BTC"):
+        raise ConnectionError("Deribit")
+
+    def faux_dvol(days=365, currency="BTC"):
+        raise ConnectionError("Deribit")
+
     originaux = (sources.fetch_market_global, sources.fetch_open_interest,
-                 sources.fetch_perp_snapshot)
+                 sources.fetch_perp_snapshot, sources.fetch_deribit_summary,
+                 sources.fetch_dvol)
     sources.fetch_market_global = faux_global
     sources.fetch_open_interest = faux_oi
     sources.fetch_perp_snapshot = faux_perp
+    # Deribit muet de bout en bout : le test porte sur les trois autres.
+    sources.fetch_deribit_summary = faux_deribit
+    sources.fetch_dvol = faux_dvol
     try:
         with tempfile.TemporaryDirectory() as tmp:
             hub = MarketHub(collect_news=False, keep_journal=False)
@@ -192,7 +202,8 @@ def test_l_instantane_n_ecrit_que_le_frais():
             hub.journal.close()
     finally:
         (sources.fetch_market_global, sources.fetch_open_interest,
-         sources.fetch_perp_snapshot) = originaux
+         sources.fetch_perp_snapshot, sources.fetch_deribit_summary,
+         sources.fetch_dvol) = originaux
     print("  ✓ NULL pour la source en panne, même quand le cache la sert encore")
 
 

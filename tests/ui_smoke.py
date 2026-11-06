@@ -972,6 +972,15 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
               strikes["vide"] or (strikes["echeances"] >= 1
                                   and strikes["cochee"]),
               f"{strikes['echeances']} échéances")
+        histo = options_view("HISTO")
+        annotation = browser.js("""
+            const gd = document.querySelector('#options-chart .js-plotly-plot');
+            return ((gd.layout.annotations || [])[0] || {}).text || '';
+        """)
+        check("HISTO : DVOL, monnaie et skew, ou l'historique en constitution",
+              {"DVOL", "skew 25Δ"} <= set(histo["traces"])
+              or "en constitution" in annotation,
+              ", ".join(histo["traces"]) or annotation[:48])
         vol = options_view("VOL")
         check("VOL : DVOL contre réalisée, ou vide annoté",
               vol["vide"] or "DVOL (implicite 30 j)" in vol["traces"],

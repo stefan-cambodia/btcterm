@@ -37,7 +37,7 @@ __all__ = ["VOL_BINS", "prepare_price_frame",
            "OPTIONS_VIEWS", "OPTIONS_DEFAULT_VIEW", "build_vol_chart",
            "build_term_chart", "build_strikes_chart",
            "MARKETS_VIEWS", "MARKETS_WINDOWS", "MARKETS_DEFAULT_WINDOW",
-           "MARKET_COLORS", "build_markets_chart"]
+           "MARKET_COLORS", "build_markets_chart", "build_options_history"]
 
 VOL_BINS = 60
 
@@ -725,7 +725,8 @@ def _etf_empty(message: str) -> go.Figure:
 # ─────────────────────────────────────────────────────────────
 
 #: Les trois vues du panneau options, dans l'ordre du sélecteur.
-OPTIONS_VIEWS = {"VOL": "vol", "TERME": "term", "STRIKES": "strikes"}
+OPTIONS_VIEWS = {"VOL": "vol", "TERME": "term", "STRIKES": "strikes",
+                 "HISTO": "history"}
 OPTIONS_DEFAULT_VIEW = "VOL"
 
 #: Strikes montrés autour du forward, en fraction : au-delà, l'open interest
@@ -1013,4 +1014,61 @@ def build_markets_chart(view: str, btc: pd.DataFrame,
         fig.add_annotation(text="marchés indisponibles", xref="paper",
                            yref="paper", x=0.5, y=0.5, showarrow=False,
                            font=dict(family=MONO, size=11, color=C["muted"]))
+    return fig
+
+
+def build_options_history(snapshots: pd.DataFrame,
+                          uirevision: str = "options:history",
+                          maximized: bool = False) -> go.Figure:
+    """Ce que seul le journal garde : la volatilité et le skew dans le temps.
+
+    Deribit ne sert gratuitement l'historique que de DVOL ; la volatilité
+    à un mois et le skew 25 delta n'existent qu'au présent, et le journal
+    les note toutes les cinq minutes. En haut, DVOL et la volatilité à la
+    monnaie de l'échéance à un mois ; en bas, le skew, dans son propre
+    étage plutôt que sur un second axe. Les lignes de rupture du journal
+    — machine endormie, service arrêté — y coupent les courbes.
+    """
+    fig = go.Figure()
+    columns = ["dvol", "atm30_iv", "rr25"]
+    view, points, first = snapshots, 0, None
+    if not snapshots.empty:
+        # Les instantanés d'avant l'historique des options n'ont aucune de
+        # ces colonnes : écartés. Les lignes de rupture du journal, toutes
+        # vides mais marquées `gap`, restent : elles coupent les courbes.
+        has = snapshots[columns].notna().any(axis=1)
+        points = int(has.sum())
+        if points:
+            first = snapshots.loc[has, "time"].min()
+            view = snapshots[(snapshots["time"] >= first)
+                             & (has | snapshots["gap"].astype(bool))]
+    if points >= 2:
+        for column, name, color, width in (
+                ("dvol", "DVOL", C["yellow"], 1.6),
+                ("atm30_iv", "à la monnaie, 1 mois", C["text"], 1.2)):
+            fig.add_trace(go.Scatter(
+                x=view["time"], y=view[column], name=name, mode="lines",
+                connectgaps=False, line=dict(color=color, width=width),
+                hovertemplate=f"{name} %{{y:.1f}}<extra></extra>"))
+        fig.add_trace(go.Scatter(
+            x=view["time"], y=view["rr25"], name="skew 25Δ", yaxis="y2",
+            mode="lines", connectgaps=False,
+            line=dict(color=C["cyan"], width=1.3),
+            hovertemplate="skew %{y:+.1f}<extra></extra>"))
+    _options_layout(fig, uirevision, maximized)
+    axis = dict(gridcolor=C["grid"], zerolinecolor=C["border"])
+    fig.update_layout(
+        hovermode="x unified",
+        xaxis=dict(anchor="y2", gridcolor=C["grid"],
+                   tickfont=dict(size=9, color=C["muted"])),
+        yaxis=dict(domain=[0.36, 1.0], tickfont=dict(size=9, color=C["muted"]),
+                   title_text="vol. implicite" if maximized else None, **axis),
+        yaxis2=dict(domain=[0.0, 0.28], tickfont=dict(size=9, color=C["cyan"]),
+                    title_text="skew 25Δ" if maximized else None,
+                    zeroline=True, **axis),
+    )
+    if points < 2:
+        since = f" depuis le {first:%d/%m %H:%M}" if first is not None else ""
+        _options_empty(fig, "historique local en constitution" + since +
+                       " — un point toutes les cinq minutes")
     return fig

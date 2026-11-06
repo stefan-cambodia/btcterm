@@ -539,7 +539,21 @@ rééchantillonnés au pas de leur source (4 h ; 8 h sur la grille des
 règlements, étiquette à droite — le dernier relevé avant l'échéance
 reconstitue le taux réglé) pour une couture invisible. Une base
 antérieure à une colonne s'élargit par ALTER TABLE à l'ouverture :
-l'historique accumulé n'est jamais perdu.
+l'historique accumulé n'est jamais perdu. L'écriture nomme ses colonnes :
+une base élargie par une version intermédiaire les a dans l'ordre de ses
+ALTER TABLE, pas forcément dans celui du code, et l'insertion par position
+qui la précédait les aurait mêlées sans erreur.
+
+Depuis le 6 novembre 2026, l'instantané note aussi le **marché des
+options** (§2.11) : DVOL, volatilité à la monnaie de l'échéance à un mois,
+skew 25 delta, put/call et base à trois mois. Deribit ne sert gratuitement
+l'historique que de DVOL ; les quatre autres n'existent qu'au présent, et
+chaque jour sans les noter était perdu — c'est la vue HISTO du panneau
+options qui les relit (§3.16). La chaîne pèse 43 Ko compressée, soit une
+douzaine de mégaoctets par jour à ce rythme. Comme les autres colonnes, ne
+s'écrit que ce que la dernière lecture a rendu frais. L'essai a trouvé au
+passage que le résumé des options ne rendait pas la base des futures quand
+la chaîne d'options manquait, alors qu'elle n'en dépend pas.
 
 **La séance interrompue.** Sept jours de journal ont montré trente trous
 de plus de dix minutes entre deux instantanés, jusqu'à 447 minutes
@@ -1707,7 +1721,7 @@ champs, qui porte la position entre deux ouvertures de l'onglet.
 
 Le dix-septième panneau, en onglet de la rangée basse — la courbe des
 échéances et l'open interest par strike se lisent en longueur —, montre le
-module `options` (§2.11) en trois vues :
+module `options` (§2.11) en quatre vues :
 
 - **VOL** — DVOL contre la volatilité réalisée à trente jours, sur un an.
   L'écart est la prime des options, positive d'ordinaire ; elle se retourne
@@ -1717,6 +1731,10 @@ module `options` (§2.11) en trois vues :
   calendrier. Sous elle, la base annualisée des futures, en courbe : des
   barres, sur un axe de dates où deux échéances sont à un jour d'écart, se
   réduisaient à des traits ;
+- **HISTO** — ce que seul le journal garde (§2.7) : DVOL et la volatilité à
+  un mois en haut, le skew 25 delta en bas, sur trente jours, coupés aux
+  interruptions de séance ; tant qu'il y a moins de deux points, la vue dit
+  l'historique en constitution et depuis quand ;
 - **STRIKES** — l'open interest d'une échéance par strike, calls contre puts,
   le forward et le max pain en verticales, les strikes bornés à 0,6–1,5 fois
   le forward. Le choix de l'échéance n'apparaît que dans cette vue, limité
@@ -2411,6 +2429,11 @@ constaté à l'usage, ou des points restés ouverts.
   sans clé — DVOL contre réalisée, courbe des échéances et ailes 25 delta,
   base des futures à échéance, open interest par strike et max pain —, avec
   DVOL au bandeau.
+- ~~**Le skew sans mémoire**~~ — le panneau OPTIONS disait le skew du
+  moment sans pouvoir dire s'il était extrême : Deribit ne garde pas son
+  historique gratuitement. Fait : l'instantané de marché le note toutes les
+  cinq minutes avec la volatilité à un mois, le put/call et la base (§2.7),
+  et la vue HISTO les relit. L'historique commence le 6 novembre 2026.
 - ~~**Un calendrier qui s'épuise en silence**~~ — le CPI, le NFP et le PCE
   s'arrêtaient en décembre 2026, et le panneau annonçait une liste valable
   jusqu'en décembre 2027 : il lisait le dernier FOMC. Fait : 2027 transcrite

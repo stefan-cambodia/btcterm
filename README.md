@@ -88,7 +88,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Dominance** | parts de capitalisation et leur tendance journalisée, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
 | **Marchés** | le bitcoin face au S&P 500, au Nasdaq, à l'or, au dollar et au taux à 10 ans : performance comparée en base 100 ou corrélation glissante sur 30 séances, tableau des cours, variations et corrélations à 30 et 90 séances (onglet de la macro) | 5 min |
-| **Options** | marché des options Deribit en trois vues : DVOL contre volatilité réalisée ; volatilité par échéance avec ses ailes 25 delta, au-dessus de la base annualisée des futures ; open interest par strike d'une échéance, forward et max pain. Skew, put/call, open interest total au titre ; DVOL aussi au bandeau (onglet de la macro) | 1 min |
+| **Options** | marché des options Deribit en quatre vues : DVOL contre volatilité réalisée ; volatilité par échéance avec ses ailes 25 delta, au-dessus de la base annualisée des futures ; open interest par strike d'une échéance, forward et max pain ; historique du skew et de la volatilité, noté par le journal. Skew, put/call, open interest total au titre ; DVOL aussi au bandeau (onglet de la macro) | 1 min |
 
 Les **liquidations** sont le pendant du perpétuel : quand une position à levier
 ne couvre plus sa marge, la plateforme la ferme au marché, et ces fermetures
@@ -310,7 +310,10 @@ qui se paie —, au-dessus de la base annualisée des futures à échéance, le
 pendant à terme du financement du perpétuel. **STRIKES** montre l'open interest
 d'une échéance par strike, calls contre puts, avec le forward et le max pain :
 le prix où les acheteurs d'options perdraient le plus à l'échéance, une
-lecture du positionnement et non une prévision. Le titre donne le skew 25 delta
+lecture du positionnement et non une prévision. **HISTO** relit ce que seul le
+journal garde : Deribit ne sert gratuitement l'historique que de DVOL, et le
+terminal note toutes les cinq minutes la volatilité à un mois, le skew, le
+put/call et la base depuis le 6 novembre 2026 — la vue se remplit à l'usage. Le titre donne le skew 25 delta
 à un mois, le ratio put/call et, en plein écran, la prime, l'open interest
 total et la base à trois mois. Les deltas sont calculés en Black-76 depuis la
 volatilité de marque de Deribit (`btcterm/options.py`) ; les strikes restent en

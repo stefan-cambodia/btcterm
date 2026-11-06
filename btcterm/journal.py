@@ -116,7 +116,12 @@ CREATE TABLE IF NOT EXISTS market_snapshots (
     total_cap_usd    REAL,
     total_volume_usd REAL,
     oi_usd           REAL,           -- open interest du perpétuel, $
-    funding_rate     REAL            -- taux de la période en cours (fraction)
+    funding_rate     REAL,           -- taux de la période en cours (fraction)
+    dvol             REAL,           -- volatilité implicite 30 j (Deribit)
+    atm30_iv         REAL,           -- vol. à la monnaie de l'échéance à 1 mois
+    rr25             REAL,           -- skew 25 delta à 1 mois, points
+    pc_oi            REAL,           -- put/call en open interest
+    basis90          REAL            -- base annualisée du future à 3 mois, %/an
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON market_snapshots (ts);
 """
@@ -126,13 +131,15 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON market_snapshots (ts);
 #: CREATE TABLE IF NOT EXISTS n'élargit pas une table existante.
 SNAPSHOT_FIELDS = ("btc_dominance", "stable_share",
                    "total_cap_usd", "total_volume_usd", "oi_usd",
-                   "funding_rate")
+                   "funding_rate", "dvol", "atm30_iv", "rr25", "pc_oi",
+                   "basis90")
 
 #: Colonnes apparues après la création de `market_snapshots` : ajoutées
 #: par ALTER TABLE à l'ouverture d'une base antérieure, NULL sur les
 #: lignes déjà écrites — l'historique accumulé n'est jamais perdu.
 _MIGRATIONS = {
-    "market_snapshots": ("funding_rate REAL",),
+    "market_snapshots": ("funding_rate REAL", "dvol REAL", "atm30_iv REAL",
+                         "rr25 REAL", "pc_oi REAL", "basis90 REAL"),
     "liquidations": ("exchange TEXT",),
 }
 
@@ -213,9 +220,12 @@ class Journal:
         """
         values = [fields.get(name) for name in SNAPSHOT_FIELDS]
         marks = ", ".join("?" * (1 + len(SNAPSHOT_FIELDS)))
+        # Les colonnes nommées : une base élargie par migration les a dans
+        # l'ordre de ses ALTER TABLE, pas forcément dans celui du code.
+        names = ", ".join(("ts", *SNAPSHOT_FIELDS))
         with self._lock:
             self._connection().execute(
-                f"INSERT INTO market_snapshots VALUES ({marks})",
+                f"INSERT INTO market_snapshots ({names}) VALUES ({marks})",
                 (ts, *values),
             )
             self._db.commit()

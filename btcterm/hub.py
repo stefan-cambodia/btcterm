@@ -31,7 +31,7 @@ from .alerts import Alert, AlertEngine
 from .arbitrage import ArbitrageEngine
 from .analysis import monthly_returns, rule_stats, signal_stats
 from .history import KlineHistory
-from .journal import Journal
+from .journal import SNAPSHOT_FIELDS, Journal
 from .newsdb import NewsCollector
 from .liquidations import (BybitLiquidationConnector, Liquidation,
                            LiquidationFeed)
@@ -1116,6 +1116,19 @@ class MarketHub:
         perp = self.perp_snapshot()
         if self._cache.stale("perp"):
             perp = {}
+        # Le marché des options : Deribit ne sert gratuitement l'historique
+        # que de DVOL ; le skew, la volatilité à un mois, le put/call et la
+        # base n'existent qu'au présent, et seul ce journal les garde.
+        chain = self.option_chain()
+        if self._cache.stale("options"):
+            chain = opt.option_chain([])
+        futures = self.futures_curve()
+        if self._cache.stale("futures"):
+            futures = opt.futures_curve([])
+        dvol = self.dvol()
+        if self._cache.stale("dvol"):
+            dvol = dvol.iloc[0:0]
+        options = opt.summary(chain, futures)
 
         shares = agregats.get("shares") or {}
         fields = {
@@ -1131,6 +1144,13 @@ class MarketHub:
             #: il reconstitue l'historique des règlements (§ funding_
             #: history_extended).
             "funding_rate": perp.get("funding_rate"),
+            "dvol": float(dvol["close"].iloc[-1]) if not dvol.empty else None,
+            "atm30_iv": (options["atm30"] * 100
+                         if options["atm30"] is not None else None),
+            "rr25": options["rr25_30"],
+            "pc_oi": options["pc_oi"],
+            "basis90": (options["basis90"][1] * 100
+                        if options["basis90"] is not None else None),
         }
         if all(value is None for value in fields.values()):
             return
@@ -1151,9 +1171,7 @@ class MarketHub:
         `SNAPSHOT_GAP` : une courbe qui la traverse se rompt au lieu de
         tirer un trait sur sept heures de sommeil.
         """
-        columns = ["time", "btc_dominance", "stable_share",
-                   "total_cap_usd", "total_volume_usd", "oi_usd",
-                   "funding_rate", "gap"]
+        columns = ["time", *SNAPSHOT_FIELDS, "gap"]
         if self.journal is None:
             return pd.DataFrame(columns=columns)
         end = time.time()

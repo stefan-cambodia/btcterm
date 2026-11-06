@@ -9,7 +9,11 @@ Trois vues, de la plus synthétique à la plus fine :
 - **TERME** — la volatilité à la monnaie de chaque échéance et ses ailes
   25 delta, au-dessus de la base annualisée des futures à échéance ;
 - **STRIKES** — l'open interest d'une échéance par strike, calls contre
-  puts, avec le forward et le max pain.
+  puts, avec le forward et le max pain ;
+- **HISTO** — ce que seul le journal garde : la volatilité à un mois et le
+  skew 25 delta dans le temps, notés toutes les cinq minutes avec
+  l'instantané de marché (§2.7). Deribit ne sert gratuitement l'historique
+  que de DVOL.
 
 Les strikes restent en dollars, quelle que soit la devise choisie au panneau
 prix : ce sont les termes des contrats, pas un prix du moment (§4.3).
@@ -24,7 +28,8 @@ from dash import Input, Output, State, dcc, html, no_update
 
 from btcterm import options as opt
 
-from ..charts import (OPTIONS_DEFAULT_VIEW, OPTIONS_VIEWS, build_strikes_chart,
+from ..charts import (OPTIONS_DEFAULT_VIEW, OPTIONS_VIEWS,
+                      build_options_history, build_strikes_chart,
                       build_term_chart, build_vol_chart)
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
@@ -38,6 +43,9 @@ REFRESH_MS = 60_000
 #: quotidienne de quelques centaines de bitcoins n'a rien à montrer.
 EXPIRY_SHARE = 0.02
 EXPIRY_CHOICES = 6
+
+#: Profondeur de la vue HISTO : un mois de points à cinq minutes.
+HISTORY_DAYS = 30
 
 _PICKER_SHOWN = {"display": "inline-block", "marginLeft": "8px"}
 _PICKER_HIDDEN = {"display": "none"}
@@ -210,6 +218,10 @@ def register(app, hub):
         if view == "VOL":
             figure = build_vol_chart(dvol, realized, maximized=maximized,
                                      uirevision=f"options:vol:{maximized}")
+        elif view == "HISTO":
+            figure = build_options_history(
+                hub.market_snapshots(HISTORY_DAYS), maximized=maximized,
+                uirevision=f"options:history:{maximized}")
         elif view == "TERME":
             figure = build_term_chart(opt.term_structure(chain, now), futures,
                                       maximized=maximized,

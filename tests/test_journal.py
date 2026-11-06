@@ -259,11 +259,17 @@ def test_hub_ecrit_et_relit_les_instantanes():
         hub.journal = Journal(Path(tmp) / "journal.db")
 
         now = time.time()
-        # Hors ligne : les trois accès rendent leur valeur vide.
+        # Hors ligne : tous les accès rendent leur valeur vide — Deribit
+        # compris, que l'instantané lit aussi pour le marché des options.
+        from btcterm import options as opt
         hub.market_global = lambda: {}
         hub.open_interest = lambda **kw: pd.DataFrame(
             columns=["time", "oi", "oi_usd"])
         hub.perp_snapshot = lambda: {}
+        hub.option_chain = lambda: opt.option_chain([])
+        hub.futures_curve = lambda: opt.futures_curve([])
+        hub.dvol = lambda: pd.DataFrame(
+            columns=["time", "open", "high", "low", "close"])
         hub.record_market_snapshot(now=now)
         assert not hub.journal.path.exists(), "le vide a créé la base"
         assert hub.market_snapshots().empty
@@ -277,6 +283,15 @@ def test_hub_ecrit_et_relit_les_instantanes():
             {"time": [pd.Timestamp("2026-08-24")],
              "oi": [80_000.0], "oi_usd": [1.2e10]})
         hub.perp_snapshot = lambda: {"funding_rate": 0.0003}
+        hub.dvol = lambda: pd.DataFrame(
+            {"time": pd.to_datetime(["2026-11-05", "2026-11-06"]),
+             "open": [42.0, 40.0], "high": [43.0, 41.0],
+             "low": [40.0, 39.5], "close": [42.3, 40.7]})
+        courbe = opt.futures_curve(
+            [{"instrument_name": "BTC-29JAN27", "mark_price": 76_300,
+              "estimated_delivery_price": 75_000}],
+            pd.Timestamp("2026-11-06", tz="UTC"))
+        hub.futures_curve = lambda: courbe
         hub.record_market_snapshot(now=now)
 
         df = hub.market_snapshots()
@@ -285,7 +300,14 @@ def test_hub_ecrit_et_relit_les_instantanes():
         assert df["stable_share"].iloc[0] == 7.0, "USDT + USDC"
         assert df["oi_usd"].iloc[0] == 1.2e10
         assert df["funding_rate"].iloc[0] == 0.0003
-    print("  ✓ instantané composé des trois sources, muet hors ligne")
+        # Le marché des options : DVOL et la base à trois mois s'écrivent ;
+        # sans chaîne d'options, skew et put/call restent NULL.
+        assert df["dvol"].iloc[0] == 40.7
+        assert abs(df["basis90"].iloc[0]
+                   - courbe["annualized"].iloc[0] * 100) < 1e-9
+        assert pd.isna(df["rr25"].iloc[0]) and pd.isna(df["pc_oi"].iloc[0])
+    print("  ✓ instantané composé de ses sources, options comprises, "
+          "muet hors ligne")
 
 
 def test_open_interest_prolonge_par_le_journal():
@@ -348,13 +370,34 @@ def test_migration_d_une_base_anterieure():
 
         journal = Journal(path)
         journal.record_market_snapshot(2000.0, btc_dominance=59.0,
-                                       funding_rate=0.0001)
+                                       funding_rate=0.0001, rr25=-4.7)
         rows = journal.snapshots_between(0, 3000)
         assert len(rows) == 2
         assert rows[0]["btc_dominance"] == 58.0, "l'ancienne ligne a survécu"
         assert rows[0]["funding_rate"] is None, "colonne neuve à NULL"
-        assert rows[1]["funding_rate"] == 0.0001
-    print("  ✓ base antérieure élargie, anciennes lignes intactes")
+        assert rows[0]["rr25"] is None
+        assert rows[1]["funding_rate"] == 0.0001 and rows[1]["rr25"] == -4.7
+
+        # Une base dont les colonnes ne sont pas dans l'ordre du code — un
+        # ALTER TABLE d'une version intermédiaire : l'écriture nomme ses
+        # colonnes, chaque valeur va à la sienne.
+        path = Path(tmp) / "desordre.db"
+        autre = sqlite3.connect(path)
+        autre.execute("""
+            CREATE TABLE market_snapshots (
+                ts REAL NOT NULL, btc_dominance REAL, stable_share REAL,
+                total_cap_usd REAL, total_volume_usd REAL, oi_usd REAL,
+                rr25 REAL, funding_rate REAL)""")
+        autre.commit()
+        autre.close()
+        journal = Journal(path)
+        journal.record_market_snapshot(3000.0, funding_rate=0.0002, rr25=-5.1,
+                                       dvol=41.0)
+        rang = journal.snapshots_between(0, 4000)[0]
+        assert (rang["funding_rate"], rang["rr25"], rang["dvol"]) == (
+            0.0002, -5.1, 41.0), dict(rang)
+    print("  ✓ base antérieure élargie, anciennes lignes intactes, "
+          "colonnes nommées")
 
 
 def test_financement_prolonge_par_le_journal():
