@@ -395,18 +395,25 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
 
         # Historique infini : un pan appuyé vers la gauche déclenche
         # la page antérieure. Hors ligne, la source n'a rien avant :
-        # le tampon ne grandit pas mais le « plus ancien atteint »
-        # est retenu — les deux issues prouvent l'aller-retour.
+        # le tampon ne grandit pas, et selon la série, le « plus ancien
+        # atteint » est retenu (démonstration) ou un réessai est
+        # programmé (disque sans cette page) — les trois issues prouvent
+        # l'aller-retour.
         avant = browser.js("return window.lwcPrice.debug();")
         browser.js("window.lwcPrice.pan(-30, 120);")
         recharge = browser.wait_for(
             f"window.lwcPrice.debug().bars > {avant['bars']}"
-            " || window.lwcPrice.debug().exhausted === true", timeout=15)
+            " || window.lwcPrice.debug().exhausted === true"
+            " || window.lwcPrice.debug().backfillRetry === true", timeout=15)
         apres = browser.js("return window.lwcPrice.debug();")
         if apres["bars"] > avant["bars"]:
             check("le pan vers le passé charge des bougies antérieures",
                   apres["firstTime"] < avant["firstTime"],
                   f"{avant['bars']} → {apres['bars']} bougies")
+        elif apres["backfillRetry"]:
+            check("page manquée faute de source : réessai, passé non clos",
+                  recharge and not apres["exhausted"],
+                  f"{apres['bars']} bougies, exhausted={apres['exhausted']}")
         else:
             check("historique épuisé retenu (source sans passé)",
                   recharge and apres["exhausted"],

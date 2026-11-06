@@ -295,7 +295,8 @@ def register_api(app, hub) -> None:
     chargement à la volée au pan. Sans `before`, la série passe par
     `hub.klines()` et son repli de démonstration (champ `demo` du JSON) ;
     avec, par le cache d'historique du hub, et une page injoignable ou
-    épuisée revient simplement vide.
+    épuisée revient simplement vide — `stale` levé dans le premier cas
+    seulement : la source reviendra, pas le passé d'avant Binance.
     """
 
     @app.server.get("/api/klines")
@@ -328,6 +329,11 @@ def register_api(app, hub) -> None:
             payload = serialize_price_frame(prepared)
 
         payload["interval"] = interval
+        # Dit par le hub, pas par le cadre préparé : une page vide est
+        # rebâtie ci-dessus, et c'est elle qui doit le dire le plus —
+        # vide parce que la source se tait, le client redemandera ;
+        # vide parce que l'historique est épuisé, il cessera.
+        payload["stale"] = bool(df.attrs.get("stale", False))
         # Le taux voyage avec les données : basculer $/€ est une
         # multiplication côté client, jamais un refetch.
         payload["eur_rate"] = float(hub.eur_rate())

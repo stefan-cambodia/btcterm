@@ -964,7 +964,9 @@ se règlent sur place, le paquet étant gardé en USD et le taux € voyageant
 avec lui. Aucun aller-retour serveur pour un réglage d'affichage.
 L'historique se charge à la volée : un pan vers le passé demande la page
 antérieure de `/api/klines`, jusqu'à ce que la source avoue ne plus rien
-avoir.
+avoir. Une page vide faute de source — Binance muet, `stale` dans la
+réponse — n'est pas un aveu : elle est redemandée trente secondes plus
+tard, sans attendre un nouveau pan.
 
 C'est le cours qu'on vient lire en séance d'analyse ; les oscillateurs
 l'accompagnent, ils ne le concurrencent pas. Son pane porte un facteur
@@ -2104,13 +2106,13 @@ Reste, hors étape :
 La feuille de route est soldée et les chantiers d'hygiène aussi : plus rien
 n'est *en cours*. Ce qui suit n'est donc pas un chemin ordonné mais l'état
 des manques constatés à la clôture et depuis — chacun à ouvrir quand l'usage le
-fera sentir, aucun ne conditionnant les autres. Le seul qui reste ouvert est
-en fin de section.
+fera sentir, aucun ne conditionnant les autres. Les deux qui restent ouverts
+sont en fin de section, et ni l'un ni l'autre ne presse.
 
 **Point de reprise** (pause du 5 novembre 2026) : `main` porte tout le travail
 de la séance, le service tourne sur ce code et les contrôles passent — tests
 Python et `ui_smoke.py`. Rien n'est entamé : la séance suivante part d'un manque
-constaté à l'usage, ou du point resté ouvert.
+constaté à l'usage, ou des points restés ouverts.
 
 **Pour l'analyse :**
 
@@ -2331,9 +2333,22 @@ constaté à l'usage, ou du point resté ouvert.
   seul moteur de rendu pour les deux canaux — il remplace `render_book` au
   lieu de le doubler. À 100 ms, plein écran compris, la page tient autant de
   minuteries que sans carnet (§3.10).
+- ~~**Un pan manqué ferme le passé**~~ — constaté au journal du service, le
+  2 novembre 2026 : une page en quart d'heure demandée pendant la minute
+  d'attente de Binance, et que le disque ne tenait pas. Revenue vide, elle
+  valait « plus rien avant » pour le graphique, qui ne remontait plus le
+  passé jusqu'au changement d'intervalle. Fait : la page servie de secours
+  le dit (`stale`), et le client la redemande trente secondes plus tard au
+  lieu de clore l'historique — sauf sur la série de démonstration, qui n'a
+  pas de passé à attendre.
 
 **Constaté, pas encore ouvert :**
 
+- **Le cache mémoire garde chaque page d'historique** — une page de pan est
+  une clé à usage unique (`klines:15m:500:<fin>`) que `TTLCache` ne libère
+  jamais : le même journal y a montré une « dernière valeur » de dix-neuf
+  heures. Une page pèse 26 Ko, il faudrait des milliers de pans pour que ça
+  compte, et le disque tient de toute façon ces pages.
 - **Le quart d'heure et la demi-heure se remplissent à l'usage** — le reste est
   complété en tâche de fond (§3.14) ; ces deux-là coûteraient quatre cent
   soixante-dix appels de plus, pour des bougies qui vieillissent vite.

@@ -14,7 +14,8 @@ tenir :
   bougie d'une page, sans jamais être renvoyée ;
 - le repli hors ligne passe par le même endpoint, drapeau `demo` levé ;
 - historique épuisé ou source injoignable en pagination → page vide,
-  jamais une erreur.
+  jamais une erreur ; `stale` dans le second cas seulement, que le
+  client réessaie au lieu de clore le passé.
 
 Lancement :
     python tests/test_lwc_api.py
@@ -139,12 +140,16 @@ def test_historique_epuise_page_vide():
     page = get(web, interval="1h", limit=300, before=debut_db)
     assert page["bars"] == [], "avant le début de la base : page vide"
     assert page["demo"] is False
+    assert page["stale"] is False, "l'historique épuisé ne se réessaie pas"
 
-    #: Une panne en pagination aussi : vide, pas une erreur ni de la démo.
+    #: Une panne en pagination aussi : vide, pas une erreur ni de la démo
+    #: — mais dite, sans quoi le client clôt le passé pour la séance.
     sources.fetch_klines = panne_reseau
     en_panne = get(web, interval="1h", limit=300, before=debut_db + 3_600 * 50)
     assert en_panne["bars"] == []
-    print("  ✓ historique épuisé ou source en panne : page vide, statut 200")
+    assert en_panne["stale"] is True, "une source muette doit se dire"
+    print("  ✓ historique épuisé ou source en panne : page vide, statut 200,"
+          " et seule la panne se dit")
 
 
 def test_profil_fenetre_sur_la_plage():

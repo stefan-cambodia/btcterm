@@ -39,6 +39,7 @@
         seq: 0,        // jeton anti-course des fetchs
         loading: false,    // une page d'historique en vol, une seule
         exhausted: false,  // plus rien avant : la source l'a dit
+        backfillTimer: null,  // page manquée, source muette : le réessai
         banner: null,
         legend: null,
         readout: null,
@@ -66,6 +67,13 @@
     //: le passé — la mémoire reste bornée, et 5 000 bougies font déjà
     //: sept mois d'horaire ou treize ans de quotidien.
     var MAX_BARS = 5000;
+
+    //: Une page antérieure revenue vide parce que Binance se taisait
+    //: (`stale`) n'est pas la fin de l'historique : elle est redemandée
+    //: après ce délai, même sans nouveau pan. Le serveur, lui, ne
+    //: retente la source qu'une fois par minute ; entre-temps, un essai
+    //: lui coûte une lecture du disque.
+    var BACKFILL_RETRY = 30000;
 
     // ── Construction ────────────────────────────────────────
 
@@ -1008,6 +1016,7 @@
         state.banner = null;
         state.loading = false;
         state.exhausted = false;
+        stopBackfillRetry();
         state.profileCanvas = null;
         state.profileData = null;
         state.profileLines = [];
@@ -1129,6 +1138,7 @@
                 state.packet = packet;
                 state.loading = false;
                 state.exhausted = false;
+                stopBackfillRetry();
                 fillSeries();
                 if (fit) { state.chart.timeScale().fitContent(); }
             })
@@ -1138,10 +1148,12 @@
     // Le bord gauche visible approche du début du tampon : demander la
     // page antérieure. Verrou anti-rafale (une requête en vol à la
     // fois) et mémoire du « plus ancien atteint » — une page vide dit
-    // que la source n'a plus rien avant, inutile de la marteler.
+    // que la source n'a plus rien avant, inutile de la marteler. Sauf
+    // si elle est vide faute de source (`stale`) : le passé n'est pas
+    // fermé, un réessai est programmé.
     function maybeBackfill(range) {
         if (!state.chart || !state.packet || state.loading
-                || state.exhausted || !range
+                || state.exhausted || state.backfillTimer || !range
                 || range.from > BACKFILL_MARGIN) {
             return;
         }
@@ -1163,8 +1175,14 @@
                 // Un refetch est passé entre temps : le tampon a changé
                 // de série, cette page ne le concerne plus.
                 if (seq !== state.seq || !state.chart) { return; }
+                // La série de démonstration n'a pas de passé à attendre :
+                // de vraies bougies n'ont rien à faire devant elle.
                 if (!page.bars.length) {
-                    state.exhausted = true;
+                    if (page.stale && !state.packet.demo) {
+                        retryBackfill();
+                    } else {
+                        state.exhausted = true;
+                    }
                     return;
                 }
                 prepend(page);
@@ -1173,6 +1191,25 @@
                 fillSeries();
             })
             .catch(function () { state.loading = false; });
+    }
+
+    // Le réessai part de la fenêtre visible du moment : si l'on a
+    // quitté le bord gauche entre-temps, il ne demande rien.
+    function retryBackfill() {
+        stopBackfillRetry();
+        state.backfillTimer = setTimeout(function () {
+            state.backfillTimer = null;
+            if (state.chart) {
+                maybeBackfill(state.chart.timeScale().getVisibleLogicalRange());
+            }
+        }, BACKFILL_RETRY);
+    }
+
+    function stopBackfillRetry() {
+        if (state.backfillTimer) {
+            clearTimeout(state.backfillTimer);
+            state.backfillTimer = null;
+        }
     }
 
     function prepend(page) {
@@ -1441,6 +1478,7 @@
                 packetClose: n ? state.packet.bars[n - 1].close : null,
                 firstTime: n ? state.packet.bars[0].time : null,
                 exhausted: state.exhausted,
+                backfillRetry: !!state.backfillTimer,
                 panes: state.chart.panes().length,
                 signals: (state.packet.signals || []).length,
                 signalsShown: !state.signalsHidden,

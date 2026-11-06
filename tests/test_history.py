@@ -307,11 +307,14 @@ def test_page_d_historique_sans_reseau():
         hub._cache._entries.clear()
         fin = DEBUT + 1100 * HEURE
         #: Sur le disque : servie sans appel.
-        assert len(hub.klines_history("1h", fin, 200)) == 200
-        #: Hors du disque : ce qu'il tient, sans lever.
+        servie = hub.klines_history("1h", fin, 200)
+        assert len(servie) == 200 and not servie.attrs.get("stale")
+        #: Hors du disque : ce qu'il tient, sans lever — et dit de secours,
+        #: que le client sache la redemander.
         partielle = hub.klines_history("1h", DEBUT + 300 * HEURE, 200)
         assert partielle.empty or partielle["open_time"].iloc[-1] <= (
             DEBUT + 300 * HEURE)
+        assert partielle.attrs.get("stale") is True
         hub.history.close()
     print("  ✓ pan pendant la panne : le disque sert ce qu'il tient, sans lever")
 

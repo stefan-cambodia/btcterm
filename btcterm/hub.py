@@ -677,10 +677,18 @@ class MarketHub:
         plus tard à `end_ms` (millisecondes epoch).
 
         C'est le lazy-loading du panneau prix qui appelle ici, au pan
-        vers le passé. Pas de repli de démonstration : une page qui
-        manque parce que la source est injoignable — ou parce que
-        l'historique est épuisé — revient avec ce que le disque tient,
-        vide au besoin, et le client cesse alors de demander plus ancien.
+        vers le passé. Pas de repli de démonstration : une page que la
+        source ne peut pas servir revient avec ce que le disque tient,
+        vide au besoin.
+
+        Mais une page vide ne dit pas toujours la même chose. Historique
+        épuisé, le client cesse de demander plus ancien ; source muette,
+        il redemandera. Le journal du service a montré un pan en quart
+        d'heure tombé pendant les soixante secondes d'attente de Binance :
+        le disque, qui ne tient le quart d'heure que par l'usage, n'avait
+        rien, et le graphique ne remontait plus le passé jusqu'au
+        changement d'intervalle. La page servie de secours porte donc
+        `attrs["stale"]`, que `/api/klines` relaie.
         """
         try:
             return self._cache.get(
@@ -693,7 +701,9 @@ class MarketHub:
                 ),
             )
         except Exception:
-            return self._stored_klines(interval, limit, int(end_ms))
+            df = self._stored_klines(interval, limit, int(end_ms))
+            df.attrs["stale"] = True
+            return df
 
     def ticker(self) -> dict:
         return self._cache.get(

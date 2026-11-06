@@ -334,6 +334,9 @@ des rendements mensuels ; et une sonnerie trente minutes avant chaque échéance
 macro. Le carnet, enfin, n'est plus rendu par Dash : la page écrit en place des
 données préformatées, et il repart dix fois par seconde, plein écran compris,
 là où il faisait geler la page jusqu'à neuf secondes à deux fois par seconde.
+Et un pan vers le passé qui tombe pendant une pause de Binance ne ferme plus
+l'historique pour la séance : la page manquée se dit, et le graphique la
+redemande.
 Ce même journal a ensuite compté cinquante-quatre resynchronisations
 Kraken en une matinée, et nommé la cause qu'on croyait fortuite : le flux
 décrit une fenêtre de vingt-cinq niveaux, le carnet en gardait cent, et
@@ -357,8 +360,8 @@ double-clic rend la vue entière. Enfin, le graphique s'ouvre deux fois plus
 vite et survit à une panne de Binance : les bougies closes se gardent sur
 disque, et Binance ne fournit plus que ce qui manque. La bascule `$`/`€` couvre
 tout le marché du moment, et plus seulement le graphique. Le carnet, dont le
-rendu saturait la page à dix images par seconde, passe à quatre et n'attend
-plus le réseau. Et les noms des plateformes ne dépendent plus de ce que répond
+rendu saturait la page à dix images par seconde, est passé à quatre le temps
+de le sortir de Dash, et n'attend plus le réseau. Et les noms des plateformes ne dépendent plus de ce que répond
 le fournisseur d'accès, dont le dernier changement de mensonge n'avait été
 découvert qu'au redémarrage suivant. Le graphique se lit désormais au
 crosshair, bougie par bougie, trace le CVD à partir des volumes sauvegardés et
