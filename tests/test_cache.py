@@ -20,7 +20,9 @@ Ce qui est vérifié ici, sans réseau :
   secours — sans réinterroger la source à chaque lecture ;
 - un réveil de la machine, lu sur ses horloges, fait rattendre le
   réseau à la boucle d'observation, et les échecs de la minute qui suit
-  ne comptent pas comme pannes.
+  ne comptent pas comme pannes ;
+- Binance en panne est retenté après un délai qui suit la panne, et les
+  lectures refusées pendant ce délai ne se disent pas en panne.
 
 Lancement :
     python tests/test_cache.py
@@ -38,7 +40,7 @@ import pandas as pd  # noqa: E402
 
 from btcterm import hub as hub_module, sources  # noqa: E402
 from btcterm.hub import (FAILING_WINDOW, MarketHub, SleepWatch,  # noqa: E402
-                         TTLCache)
+                         SourceBackoff, TTLCache)
 from btcterm.journal import Journal  # noqa: E402
 
 
@@ -540,30 +542,109 @@ def test_l_echec_apres_un_silence_ouvre_une_panne():
     print("  ✓ après un silence, un échec ouvre une panne au lieu d'allonger l'ancienne")
 
 
-def test_binance_retente_vite_au_reveil():
-    """Un échec de Binance arme une attente d'une minute — sauf dans la
-    minute d'un réveil, où c'est le réseau qui manque : le graphique
-    repartait soixante et une secondes après son retour."""
+def test_le_delai_de_binance_suit_la_panne():
+    """Un accroc isolé ne fige plus le graphique une minute : le délai part
+    de cinq secondes et suit la durée de la panne vue, une minute au plus.
+    Dans la minute d'un réveil, il ne grandit pas — c'est le réseau qui
+    manque, et le graphique repartait soixante et une secondes après son
+    retour."""
     endormi = [0.0]
     hub = MarketHub(collect_news=False, keep_journal=False)
     hub._sleep = SleepWatch(lambda: endormi[0])
     hub._cache = TTLCache(hub._sleep, hub.WAKE_GRACE)
     hub.history = object()  # présent : la lecture passe par l'attente
+    lectures = []
 
     def panne():
+        lectures.append(1)
         raise ConnectionError("injoignable")
 
-    for dormir, attente in ((0, hub.KLINES_RETRY), (600, hub.WAKE_KLINES_RETRY)):
-        endormi[0] += dormir
+    def essai(depuis=None):
+        """Un essai qui échoue, la panne ayant commencé `depuis` s plus tôt ;
+        rend le délai armé."""
         hub._klines_retry_at = 0.0
+        if depuis is not None:
+            hub._klines_down_since = time.time() - depuis
         avant = time.time()
         try:
             hub._through_history(panne, panne)
         except ConnectionError:
             pass
-        assert abs(hub._klines_retry_at - avant - attente) < 1, (
-            dormir, hub._klines_retry_at - avant)
-    print("  ✓ au réveil, Binance retenté en secondes plutôt qu'en minute")
+        return round(hub._klines_retry_at - avant)
+
+    assert essai() == 5, "premier échec : cinq secondes"
+    assert essai(depuis=5) == 5
+    assert essai(depuis=20) == 20, "le délai suit la panne vue"
+    assert essai(depuis=600) == 60, "une minute au plus"
+
+    # Pendant le délai : la source n'est pas appelée, et le dit.
+    lectures.clear()
+    try:
+        hub._through_history(panne, panne)
+    except SourceBackoff:
+        pass
+    else:
+        raise AssertionError("une lecture pendant le délai doit lever SourceBackoff")
+    assert lectures == []
+
+    # Un succès clôt la panne : l'échec suivant repart de cinq secondes.
+    hub._klines_retry_at = 0.0
+    hub._through_history(lambda: "ok", panne)
+    assert hub._klines_down_since is None
+    assert essai() == 5
+
+    # Réveil : le délai reste à cinq secondes, même sur une longue panne.
+    endormi[0] += 600
+    assert essai(depuis=600) == 5
+    print("  ✓ Binance retenté en secondes après un accroc, en minute sur une panne")
+
+
+def test_l_attente_ne_se_compte_pas_comme_panne():
+    """Le 6 novembre à 12:30:01, un délai de connexion chez Binance a écrit
+    onze lignes au journal : la panne réelle du quart d'heure, puis chaque
+    intervalle lu pendant l'attente, « en panne : Binance en attente de
+    nouvel essai », chacun suivi de son retour. Une lecture qu'on refuse
+    n'a pas échoué : le secours est servi, sans panne dite."""
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    hub._cache = TTLCache()
+    hub.history = object()
+    binance = {"panne": False}
+
+    def lecture():
+        if binance["panne"]:
+            raise ConnectionError("api.binance.com : ConnectTimeoutError")
+        return pd.DataFrame({"close": [1.0]})
+
+    def lire(cle):
+        return hub._cache.get(cle, 0, lambda: hub._through_history(lecture, lecture))
+
+    cles = ["klines:15m:300", "klines:1h:350", "klines:4h:350", "klines:1d:365"]
+    capture = Capture()
+    hub_module.log.addHandler(capture)
+    try:
+        for cle in cles:
+            lire(cle)
+        binance["panne"] = True
+        for cle in cles:
+            lire(cle)
+            assert hub._cache.stale(cle), cle
+        assert len(capture.lignes) == 1, capture.lignes
+        assert capture.lignes[0].startswith("source klines:15m:300 en panne : "
+                                            "api.binance.com"), capture.lignes
+        assert set(hub.failing_sources()) == {"klines"}
+
+        # Retour : une ligne, celle de la panne réelle.
+        binance["panne"] = False
+        hub._klines_retry_at = 0.0
+        for cle in cles:
+            lire(cle)
+            assert not hub._cache.stale(cle), cle
+        assert len(capture.lignes) == 2, capture.lignes
+        assert capture.lignes[1].startswith("source klines:15m:300 de nouveau servie")
+        assert hub.failing_sources() == {}
+    finally:
+        hub_module.log.removeHandler(capture)
+    print("  ✓ une panne réelle, une ligne : l'attente sert le secours sans bruit")
 
 
 if __name__ == "__main__":

@@ -42,7 +42,7 @@ from .exchanges import (
     run_connectors_in_thread,
 )
 
-__all__ = ["MarketHub", "TTLCache"]
+__all__ = ["MarketHub", "SleepWatch", "SourceBackoff", "TTLCache"]
 
 
 log = logging.getLogger("btcterm.hub")
@@ -68,6 +68,17 @@ def _asleep_seconds() -> float:
 def _span(seconds: float) -> str:
     """Une durée de panne, à la minute."""
     return "moins d'une minute" if seconds < 60 else f"{seconds / 60:.0f} min"
+
+
+class SourceBackoff(ConnectionError):
+    """Une source qu'on ménage après un échec : elle n'a pas été appelée.
+
+    Le cache sert sa dernière valeur sans compter de panne : la lecture
+    qui a échoué l'a déjà dite. Une seule expiration de délai chez
+    Binance écrivait sinon onze lignes au journal du service — une par
+    intervalle lu pendant l'attente, chacune « en panne » puis « de
+    nouveau servie » — pour un seul échec réel.
+    """
 
 
 class SleepWatch:
@@ -162,7 +173,7 @@ class TTLCache:
         try:
             value = producer()
         except Exception as exc:
-            if not self.waking():
+            if not isinstance(exc, SourceBackoff) and not self.waking():
                 self._note_failure(key, exc, entry)
             with self._lock:
                 self._stale[key] = True
@@ -260,10 +271,18 @@ class MarketHub:
     #: changeront plus jamais. Une heure de cache borne juste la mémoire
     #: quand on remonte loin, sans coût de fraîcheur.
     TTL_KLINES_HISTORY = 3600
-    #: Binance injoignable, l'historique sauvegardé répond à sa place : la
-    #: source n'est retentée qu'à cet intervalle, le pousseur, qui lit les
-    #: chandeliers toutes les deux secondes, attendrait sinon chaque délai.
+    #: Binance injoignable, l'historique sauvegardé répond à sa place, et la
+    #: source n'est retentée qu'après un délai : le pousseur, qui lit les
+    #: chandeliers toutes les deux secondes, attendrait sinon chaque délai
+    #: de connexion. Ce délai suit la panne — cinq secondes d'abord, puis la
+    #: durée de la panne déjà vue, une minute au plus. Fixé à une minute, il
+    #: figeait le graphique soixante secondes pour un accroc que le premier
+    #: nouvel essai effaçait — douze des vingt-trois pannes relues au
+    #: journal se rétablissaient en deux minutes au plus. Le temps écoulé,
+    #: et non le compte des échecs, fait grandir le délai : plusieurs
+    #: lecteurs qui échouent ensemble ne le doublent pas d'un coup.
     KLINES_RETRY = 60
+    KLINES_RETRY_FIRST = 5.0
     #: Bougies relues pour le bilan des signaux, et cadence de ce bilan : il
     #: ne change qu'avec les nouvelles clôtures.
     DEEP_BARS = 20_000
@@ -348,11 +367,11 @@ class MarketHub:
     #: réseau avant de reprendre. Les autres lectures ne l'attendent pas :
     #: dans la minute d'un réveil, leurs échecs ne comptent pas comme
     #: pannes (le réseau est revenu en 4 à 28 s aux réveils mesurés), et
-    #: Binance est retenté toutes les cinq secondes au lieu de soixante —
-    #: l'attente armée par un échec du réveil laissait le graphique une
-    #: minute en retard sur un réseau déjà revenu.
+    #: Binance est retenté toutes les cinq secondes sans que le délai ne
+    #: grandisse (`KLINES_RETRY_FIRST`) — l'attente armée par un échec du
+    #: réveil laissait le graphique une minute en retard sur un réseau
+    #: déjà revenu.
     WAKE_GRACE = 60.0
-    WAKE_KLINES_RETRY = 5.0
     #: Profondeur des sonneries relues au démarrage : la journée, celle
     #: que le panneau journal relit — la cloche, elle, compte l'heure.
     ALERTS_WARM_UP_SECONDS = 24 * 3600.0
@@ -391,8 +410,10 @@ class MarketHub:
         #: base — `keep_journal=False` les en tient à l'écart.
         self.history: Optional[KlineHistory] = (
             KlineHistory(symbol) if keep_journal else None)
-        #: Instant avant lequel Binance n'est pas retenté (`KLINES_RETRY`).
+        #: Instant avant lequel Binance n'est pas retenté (`KLINES_RETRY`),
+        #: et début de la panne en cours, qui règle ce délai.
         self._klines_retry_at = 0.0
+        self._klines_down_since: Optional[float] = None
         self._backfill_thread: Optional[threading.Thread] = None
 
         #: Moteur d'alertes : évalué par la boucle d'observation, réglé
@@ -746,28 +767,44 @@ class MarketHub:
                          direct: Callable[[], pd.DataFrame]) -> pd.DataFrame:
         """Lit par l'historique sur disque, ou à la source sans lui.
 
-        Source injoignable : elle n'est retentée qu'après `KLINES_RETRY`,
-        ou `WAKE_KLINES_RETRY` dans la minute d'un réveil — c'est alors le
-        réseau qui manque, et il revient en quelques secondes.
-        Base inutilisable — disque plein, fichier abîmé : ce n'est qu'un
-        cache, le terminal continue sans lui.
+        Source injoignable : elle n'est retentée qu'après un délai qui suit
+        la panne (`KLINES_RETRY`), et la lecture refusée entre-temps lève
+        `SourceBackoff`, que le cache ne compte pas comme une panne de
+        plus. Base inutilisable — disque plein, fichier abîmé : ce n'est
+        qu'un cache, le terminal continue sans lui.
         """
         if self.history is None:
             return direct()
         if time.time() < self._klines_retry_at:
-            raise ConnectionError("Binance en attente de nouvel essai")
+            raise SourceBackoff("Binance en attente de nouvel essai")
         try:
-            return read()
+            frame = read()
         except sqlite3.Error as exc:
             log.warning("historique du cours inutilisable : %s — "
                         "lecture directe de la source", exc)
             self.history = None
             return direct()
         except Exception:
-            self._klines_retry_at = time.time() + (
-                self.WAKE_KLINES_RETRY if self._cache.waking()
-                else self.KLINES_RETRY)
+            now = time.time()
+            if self._klines_down_since is None:
+                self._klines_down_since = now
+            self._klines_retry_at = now + self._klines_delay(now)
             raise
+        self._klines_down_since = None
+        return frame
+
+    def _klines_delay(self, now: float) -> float:
+        """Le délai avant de retenter Binance, d'après la panne en cours.
+
+        Cinq secondes, puis autant que la panne déjà vue — ce qui double
+        le délai d'un essai à l'autre —, une minute au plus. Dans la minute
+        d'un réveil, c'est le réseau qui manque et il revient en quelques
+        secondes : le délai ne grandit pas.
+        """
+        if self._cache.waking() or self._klines_down_since is None:
+            return self.KLINES_RETRY_FIRST
+        return min(self.KLINES_RETRY,
+                   max(self.KLINES_RETRY_FIRST, now - self._klines_down_since))
 
     def _stored_klines(self, interval: str, limit: int,
                        end_ms: Optional[int] = None) -> pd.DataFrame:
