@@ -117,13 +117,14 @@ body {
     text-transform: none;
 }
 
-/* La barre du panneau prix porte dix-sept sélecteurs : c'est la seule qui
-   manque de place, et la case CVD la faisait déborder de 37 px. */
+/* La barre du panneau prix porte dix-huit sélecteurs : c'est la seule qui
+   manque de place. La case CVD la faisait déborder de 37 px, NIV de 36 —
+   le titre réduit à « BTC » et trois pixels entre les libellés y pourvoient. */
 #price-interval label,
 #price-currency label,
 #price-scale label,
 #price-extras label {
-    margin-left: 4px;
+    margin-left: 3px;
 }
 
 .tf-radio .dash-options-list-option-wrapper,

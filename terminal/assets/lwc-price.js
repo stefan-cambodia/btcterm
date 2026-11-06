@@ -251,6 +251,11 @@
         if (extras.indexOf("profile") !== -1) {
             buildProfile();
         }
+        // Niveaux clés — la case NIV : veille, semaine et mois passés,
+        // ouvertures en cours.
+        if (extras.indexOf("levels") !== -1) {
+            buildLevels();
+        }
 
         // L'historique se charge au pan, comme sur tradingview.com :
         // approcher du début des données déclenche la page antérieure.
@@ -906,6 +911,57 @@
         }
     }
 
+    // ── Niveaux clés ────────────────────────────────────────
+    //
+    // Plus hauts et plus bas de la veille, de la semaine et du mois passés,
+    // ouvertures en cours : des lignes de prix grises, de plus en plus
+    // claires de la journée au mois — le violet, l'orange et le bleu sont
+    // déjà aux moyennes et à Bollinger. L'étiquette d'axe dit lequel ; les
+    // ouvertures sont pointillées. Relus toutes les cinq minutes : le jour
+    // qui tourne les change. Les prix arrivent en dollars, la devise
+    // affichée les convertit comme le POC.
+    var LEVEL_COLORS = {day: "#64748b", week: "#94a3b8", month: "#cbd5e1"};
+    var LEVELS_EVERY = 300000;
+
+    function buildLevels() {
+        fetchLevels();
+        state.levelsTimer = setInterval(fetchLevels, LEVELS_EVERY);
+    }
+
+    function fetchLevels() {
+        fetch("/api/levels")
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!state.chart || !state.levelsTimer) { return; }
+                state.levels = data.levels || [];
+                updateLevelLines();
+            })
+            .catch(function () { /* le tour suivant retentera */ });
+    }
+
+    function updateLevelLines() {
+        var series = state.series;
+        if (!series) { return; }
+        (state.levelLines || []).forEach(function (line) {
+            series.candles.removePriceLine(line);
+        });
+        state.levelLines = [];
+        if (!state.levelsTimer) { return; }
+        var rate = (state.cfg.currency === "EUR" && state.packet)
+            ? state.packet.eur_rate : 1;
+        var LS = LightweightCharts.LineStyle;
+        (state.levels || []).forEach(function (level) {
+            state.levelLines.push(series.candles.createPriceLine({
+                price: level.price * rate,
+                color: LEVEL_COLORS[level.span] || LEVEL_COLORS.day,
+                lineWidth: 1,
+                lineStyle: level.kind === "open" ? LS.Dotted : LS.Dashed,
+                axisLabelVisible: true,
+                title: level.label
+            }));
+        });
+    }
+
     // ── Seuils d'alerte ─────────────────────────────────────
 
     // Les seuils de cours posés depuis le panneau ALERTES, tracés sur
@@ -1020,6 +1076,12 @@
         state.profileCanvas = null;
         state.profileData = null;
         state.profileLines = [];
+        if (state.levelsTimer) {
+            clearInterval(state.levelsTimer);
+            state.levelsTimer = null;
+        }
+        state.levels = null;
+        state.levelLines = [];
         if (state.profileTimer) {
             clearTimeout(state.profileTimer);
             state.profileTimer = null;
@@ -1091,6 +1153,7 @@
         // Les lignes portent des prix en unités de série : la bascule
         // de devise les reprend au taux.
         updateAlertLines();
+        updateLevelLines();
     }
 
     // Traduit les signaux gradués du serveur (-2 à +2) en flèches :
@@ -1552,6 +1615,9 @@
                 signals: (state.packet.signals || []).length,
                 signalsShown: !state.signalsHidden,
                 alerts: (state.alertLevels || []).length,
+                levels: (state.levelLines || []).map(function (line) {
+                    return line.options().title;
+                }),
                 alertLevels: state.alertLevels || [],
                 readout: state.readout ? state.readout.textContent : null,
                 measure: state.measureLabel

@@ -179,6 +179,24 @@ def test_profil_fenetre_sur_la_plage():
     print("  ✓ profil borné à sa fenêtre, POC dans la Value Area, fenêtres distinctes")
 
 
+def test_niveaux_cles():
+    """`/api/levels` sert les niveaux de la veille, de la semaine et du mois
+    en dollars, et rien sur la démonstration — des repères tirés d'une
+    marche aléatoire seraient faux."""
+    web = client()
+    page = web.get("/api/levels").get_json()
+    assert page["demo"] is False
+    etiquettes = {niveau["label"].split("/")[0] for niveau in page["levels"]}
+    assert {"H J-1", "B J-1", "O J"} <= etiquettes, etiquettes
+    for niveau in page["levels"]:
+        assert DB["low"].min() <= niveau["price"] <= DB["high"].max(), niveau
+        assert niveau["span"] in ("day", "week", "month")
+
+    demo = client(panne_reseau).get("/api/levels").get_json()
+    assert demo["demo"] is True and demo["levels"] == []
+    print("  ✓ niveaux clés en dollars, aucun sur la démonstration")
+
+
 def test_profil_bornes_et_tranche_vide():
     web = client()
     #: Paramètres refusés : intervalle inconnu, bornes absentes ou inversées.

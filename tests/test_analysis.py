@@ -498,6 +498,53 @@ def test_le_bandeau_24_h():
     print("  ✓ plus haut, plus bas et volume, en devise, et vides sans réponse")
 
 
+
+def test_niveaux_cles():
+    """Veille, semaine et mois passés, ouvertures en cours — en UTC, la
+    semaine partant du lundi ; un niveau partagé n'en fait qu'un, et une
+    bougie du jour absente n'invente pas d'ouverture."""
+    from btcterm.analysis import key_levels
+
+    jours = pd.date_range("2026-09-01", "2026-11-04", freq="D")
+    n = len(jours)
+    bougies = pd.DataFrame({
+        "time": jours,
+        "open": [1000.0 + i for i in range(n)],
+        "high": [1100.0 + i for i in range(n)],
+        "low": [900.0 + i for i in range(n)],
+        "close": [1000.5 + i for i in range(n)],
+    })
+    # Un creux le samedi 31 octobre, dans la semaine passée comme dans le
+    # mois passé : il est le plus bas des deux.
+    bougies.loc[bougies["time"] == "2026-10-31", "low"] = 500.0
+    rang = {d: i for i, d in enumerate(jours)}
+    maintenant = pd.Timestamp("2026-11-04 10:00", tz="UTC")   # un mercredi
+    niveaux = {niveau["label"]: niveau for niveau in key_levels(bougies, maintenant)}
+
+    # La veille : le mardi 3 novembre.
+    assert niveaux["H J-1"]["price"] == 1100.0 + rang[pd.Timestamp("2026-11-03")]
+    assert niveaux["B J-1"]["price"] == 900.0 + rang[pd.Timestamp("2026-11-03")]
+    assert niveaux["O J"]["price"] == 1000.0 + rang[pd.Timestamp("2026-11-04")]
+    # La semaine passée : du lundi 26 octobre au dimanche 1er novembre.
+    assert niveaux["H S-1"]["price"] == 1100.0 + rang[pd.Timestamp("2026-11-01")]
+    assert niveaux["O S"]["price"] == 1000.0 + rang[pd.Timestamp("2026-11-02")]
+    # Le creux du 31 octobre est le plus bas de la semaine ET du mois
+    # passés : une seule ligne, deux noms.
+    assert niveaux["B S-1/M-1"]["price"] == 500.0
+    assert "B S-1" not in niveaux and "B M-1" not in niveaux
+    # Le mois passé : octobre.
+    assert niveaux["H M-1"]["price"] == 1100.0 + rang[pd.Timestamp("2026-10-31")]
+    assert niveaux["O M"]["price"] == 1000.0 + rang[pd.Timestamp("2026-11-01")]
+
+    # Binance muet ce matin : pas de bougie du jour, pas d'ouverture du jour,
+    # mais la veille reste juste.
+    sans_jour = key_levels(bougies[bougies["time"] < "2026-11-04"], maintenant)
+    assert "O J" not in {n["label"] for n in sans_jour}
+    assert any(n["label"] == "H J-1" for n in sans_jour)
+    assert key_levels(bougies.iloc[0:0], maintenant) == []
+    print("  ✓ veille, semaine du lundi, mois ; niveau partagé fusionné ; "
+          "pas d'ouverture inventée")
+
 if __name__ == "__main__":
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     print(f"\nBilan des signaux — {len(tests)} vérifications\n" + "─" * 60)

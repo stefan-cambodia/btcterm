@@ -71,7 +71,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
-| **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
+| **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
@@ -154,6 +154,16 @@ progression de 4 000 à 80 000 dollars écrase tout le début du graphique.
 la barre de titre du panneau prix décident de ce qui accompagne les chandeliers.
 Tout ce qu'on décoche rend sa hauteur au cours. Par défaut : RSI, volume et
 profil de volume ; le CRSI est disponible mais masqué.
+
+**Niveaux clés** — la case `NIV` (touche `N`) trace les repères que les traders
+regardent : plus haut et plus bas de la veille (`H J-1`, `B J-1`), de la semaine
+passée (`S-1`) et du mois passé (`M-1`), et l'ouverture du jour, de la semaine
+et du mois en cours (`O J`, `O S`, `O M`, pointillées) — en UTC, comme les
+bougies de Binance, la semaine partant du lundi. Gris de plus en plus clairs du
+jour au mois, ils ne se confondent pas avec les moyennes ; deux niveaux au même
+prix n'en font qu'un (`B S-1/M-1`). Ce sont des repères où les ordres
+s'accumulent d'ordinaire, pas des garanties de rebond ; aucun n'est tracé sur
+la série de démonstration.
 
 Le graphique conserve zoom et pan pendant que les données coulent — c'est ce qui
 permet d'analyser une zone sans être recadré à chaque tour d'horloge. Les
@@ -640,6 +650,7 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 | `S` | afficher ou masquer les flèches du graphique |
 | `P` | enregistrer le graphique en image |
 | `T` | tracer une ligne de tendance : armer, puis glisser d'un point à l'autre |
+| `N` | niveaux clés : veille, semaine et mois passés, ouvertures en cours |
 | `F` | plein écran du panneau sous la souris |
 | `/` | ligne de commande |
 | `?` | aide |
@@ -650,7 +661,8 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 
 La ligne de commande prend un panneau (`etf`, `perp`, `analyse`, `alertes`…), un
 intervalle (`15m`, `4h`, `1M`), `eur`, `usd`, `log`, `signaux`, un sous-graphique
-(`cvd`, `rsi`, `crsi`, `vol`, `profil`), `capture`, `ligne`, `effacer` (toutes
+(`cvd`, `rsi`, `crsi`, `vol`, `profil`), les niveaux clés (`niv` ou
+`niveaux`), `capture`, `ligne`, `effacer` (toutes
 les lignes) ou un seuil de cours en dollars (`alerte 80000`). Une commande inconnue reste à l'écran, en rouge.
 
 ## Notes

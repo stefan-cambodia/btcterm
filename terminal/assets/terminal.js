@@ -66,6 +66,7 @@ const KEYS_HELP = [
     "S        afficher ou masquer les flèches",
     "P        capture du graphique en image",
     "T        tracer une ligne de tendance",
+    "N        niveaux clés : veille, semaine, mois",
     "F        plein écran du panneau sous la souris",
     "/        ligne de commande",
     "?        cette aide",
@@ -80,7 +81,7 @@ const KEYS_HELP = [
     "Ligne de commande",
     "un panneau       etf, perp, analyse, alertes…",
     "un intervalle    15m, 4h, 1d, 1M…",
-    "eur, usd, log, cvd, rsi, crsi, vol, profil, signaux, capture",
+    "eur, usd, log, cvd, rsi, crsi, vol, profil, niv, signaux, capture",
     "ligne, effacer   tracer une ligne, retirer toutes les lignes",
     "alerte 80000     seuil de cours, en dollars",
 ].join("\n");
@@ -132,6 +133,9 @@ function shortcut(key) {
         return null;
     case "f":
         return document.querySelector(".cell:hover .zoom-btn");
+    case "n":
+        return labels("#price-extras label")
+            .find((label) => label.textContent.trim() === "NIV");
     default:
         return null;
     }
@@ -247,6 +251,10 @@ function runCommand(text) {
     }
     if (word === "capture") {
         return !!window.lwcPrice && window.lwcPrice.capture();
+    }
+    if (word === "niveaux") {
+        return clicked(labels("#price-extras label")
+            .find((label) => label.textContent.trim() === "NIV"));
     }
     if (word === "aide") {
         toggleKeysHelp();

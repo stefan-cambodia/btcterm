@@ -1601,6 +1601,22 @@ page, pour qu'aucune liste de panneaux ne soit à tenir à jour et qu'un
 réarrangement de la grille ne la casse pas. Une commande inconnue reste affichée
 en rouge : une faute de frappe se corrige, elle ne doit pas s'évanouir.
 
+Les **niveaux clés** (case `NIV`, touche `N`) sont des lignes de prix sur les
+chandeliers, comme le POC : plus hauts et plus bas de la veille, de la semaine
+et du mois passés, ouvertures en cours. `analysis.key_levels` les tire des
+bougies journalières que l'alerte de la MA 200 tient déjà en cache, en UTC et
+la semaine partant du lundi, et `/api/levels` les sert en dollars ; le
+navigateur les convertit avec le reste et les relit toutes les cinq minutes, le
+jour qui tourne les changeant. Une période que les bougies ne couvrent pas —
+la bougie du jour manquante, Binance muet — n'a pas de niveau : un repère
+absent vaut mieux qu'un repère faux. Deux niveaux au même prix fusionnent
+(« B S-1/M-1 ») : deux lignes confondues superposaient leurs étiquettes sur
+l'axe. Les couleurs sont des gris, de plus en plus clairs du jour au mois — le
+violet, l'orange et le bleu tiennent déjà les moyennes et Bollinger. La case a
+fait déborder de 36 px la barre de titre du prix, que `ui_smoke.py` surveille :
+le titre y est passé de « BTC/USDT » à « BTC », la paire étant au bandeau, et
+l'écart entre libellés de 4 à 3 px.
+
 ### 3.14 Le panneau ANALYSE : mettre les signaux à l'épreuve
 
 Le graphique pose des flèches d'achat et de vente depuis l'origine, sans que rien
@@ -2378,6 +2394,10 @@ constaté à l'usage, ou des points restés ouverts.
   sans clé — DVOL contre réalisée, courbe des échéances et ailes 25 delta,
   base des futures à échéance, open interest par strike et max pain —, avec
   DVOL au bandeau.
+- ~~**Des niveaux à tracer à la main**~~ — les plus hauts et plus bas de
+  la veille, de la semaine et du mois, que tout trader repère avant d'ouvrir
+  une position, demandaient une ligne posée à la main pour chacun. Fait :
+  case `NIV` et touche `N` (§3.13).
 - ~~**Le bitcoin, seul au monde**~~ — rien ne disait s'il bougeait avec les
   actions, l'or ou le dollar, la première question d'un poste de marché ; le
   panneau macro le confrontait à la seule masse monétaire, mensuelle. Fait :
