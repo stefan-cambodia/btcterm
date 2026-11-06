@@ -90,6 +90,14 @@ OKX_REST = "https://www.okx.com"
 #: une requête rend toute la chaîne (près d'un millier d'options).
 DERIBIT_REST = "https://www.deribit.com/api/v2/public"
 
+#: Marchés traditionnels — actions, or, dollar, taux — par l'API de
+#: graphiques de Yahoo Finance : non documentée, sans clé, la seule source
+#: gratuite qui serve ces séries sans vérification JavaScript (Stooq en
+#: impose une). Elle refuse l'agent par défaut de requests (429) ; un nom
+#: de client générique suffit.
+YAHOO_CHART = "https://query1.finance.yahoo.com/v8/finance/chart"
+YAHOO_HEADERS = {"User-Agent": "btcterm/1.1"}
+
 #: Masse monétaire M2 des États-Unis (série H.6 de la Réserve fédérale,
 #: mensuelle, désaisonnalisée), servie par DBnomics. FRED publie la même
 #: série, mais son export CSV réclame une clé pour l'API et ne répond pas
@@ -399,6 +407,36 @@ def fetch_dvol(days: int = 365, currency: str = "BTC") -> pd.DataFrame:
     frame = pd.DataFrame(data, columns=["time", "open", "high", "low", "close"])
     frame["time"] = pd.to_datetime(frame["time"], unit="ms")
     return frame.sort_values("time").reset_index(drop=True)
+
+
+def fetch_yahoo_daily(symbol: str, span: str = "2y") -> pd.DataFrame:
+    """Clôtures quotidiennes d'un marché coté : `time` (date de la séance,
+    à l'heure de sa place) / `close`.
+
+    La dernière ligne est la séance en cours tant que la place est ouverte.
+    Les séances sans cotation — le DXY en compte une sur six — sont
+    écartées. Une série vide lève : le cache la stockerait sinon comme une
+    lecture réussie.
+    """
+    response = requests.get(f"{YAHOO_CHART}/{symbol}",
+                            params={"range": span, "interval": "1d"},
+                            headers=YAHOO_HEADERS, timeout=10)
+    response.raise_for_status()
+    result = ((response.json().get("chart") or {}).get("result") or [None])[0]
+    if not result or not result.get("timestamp"):
+        raise RuntimeError(f"Yahoo : aucune série pour {symbol}")
+    zone = (result.get("meta") or {}).get("exchangeTimezoneName") or "UTC"
+    closes = result["indicators"]["quote"][0].get("close") or []
+    frame = pd.DataFrame({
+        "time": (pd.to_datetime(result["timestamp"], unit="s", utc=True)
+                 .tz_convert(zone).tz_localize(None).normalize()),
+        "close": pd.to_numeric(pd.Series(closes, dtype="object"),
+                               errors="coerce"),
+    }).dropna()
+    if frame.empty:
+        raise RuntimeError(f"Yahoo : série vide pour {symbol}")
+    return (frame.drop_duplicates("time", keep="last")
+            .sort_values("time").reset_index(drop=True))
 
 
 def fetch_chain_stats() -> dict[str, Any]:

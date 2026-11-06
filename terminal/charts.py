@@ -35,7 +35,9 @@ __all__ = ["VOL_BINS", "prepare_price_frame",
            "etf_total_column", "format_flow",
            "ETF_WINDOWS", "ETF_DEFAULT_WINDOW",
            "OPTIONS_VIEWS", "OPTIONS_DEFAULT_VIEW", "build_vol_chart",
-           "build_term_chart", "build_strikes_chart"]
+           "build_term_chart", "build_strikes_chart",
+           "MARKETS_VIEWS", "MARKETS_WINDOWS", "MARKETS_DEFAULT_WINDOW",
+           "MARKET_COLORS", "build_markets_chart"]
 
 VOL_BINS = 60
 
@@ -885,4 +887,130 @@ def build_strikes_chart(table: pd.DataFrame, forward: float | None,
                           annotation_position="top")
     if view.empty:
         _options_empty(fig, "open interest indisponible")
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────
+# Marchés : le bitcoin face aux actions, à l'or et au dollar
+# ─────────────────────────────────────────────────────────────
+
+#: Les vues et les fenêtres du panneau marchés.
+MARKETS_VIEWS = ("PERF", "CORR")
+MARKETS_WINDOWS = {"1M": 31, "3M": 92, "6M": 183, "1A": 366}
+MARKETS_DEFAULT_WINDOW = "6M"
+
+#: Trois couleurs au plus, les trois premiers pas sombres de la palette de
+#: référence du guide de visualisation, validés ensemble sur la surface
+#: des panneaux : séparation daltonienne ΔE 9,4, vision normale 20,9. Le
+#: bitcoin, la référence, est en encre claire et en trait épais.
+MARKET_COLORS = {"spx": "#3987e5", "gold": "#d95926", "dxy": "#199e70"}
+
+
+def _spread_labels(ends: list, span: float, gap: float = 0.035) -> list:
+    """Écarte les étiquettes de bout de courbe d'au moins `gap` de `span`,
+    la plage de tout ce qui est tracé, en remontant celle du dessus : deux
+    séries qui finissent au même niveau gardent des noms lisibles."""
+    if len(ends) < 2:
+        return ends
+    step = (span or 1.0) * gap
+    placed, previous = [], None
+    for x, y, name in sorted(ends, key=lambda end: end[1]):
+        if previous is not None and y < previous + step:
+            y = previous + step
+        placed.append((x, y, name))
+        previous = y
+    return placed
+
+
+def build_markets_chart(view: str, btc: pd.DataFrame,
+                        frames: dict[str, pd.DataFrame], window: str,
+                        uirevision: str = "markets",
+                        maximized: bool = False) -> go.Figure:
+    """Performance comparée, ou corrélation glissante au bitcoin.
+
+    **PERF** ramène chaque série à 100 au début de la fenêtre : un seul
+    axe, des unités communes. **CORR** trace la corrélation des variations
+    quotidiennes sur trente séances, de −1 à 1 : au-dessus de zéro, le
+    bitcoin bouge avec ce marché. Les courbes portent leur nom au bout,
+    en plus de la légende : l'identité ne tient pas à la seule couleur.
+    """
+    from btcterm import markets as mkt
+
+    fig = go.Figure()
+    days = MARKETS_WINDOWS.get(window, MARKETS_WINDOWS[MARKETS_DEFAULT_WINDOW])
+    since = pd.Timestamp.now().normalize() - pd.Timedelta(days=days)
+    ends, extent = [], []
+
+    def trace(x, y, name, color, width, hover):
+        fig.add_trace(go.Scatter(
+            x=x, y=y, name=name, mode="lines",
+            line=dict(color=color, width=width), hovertemplate=hover))
+        ends.append((x[-1], float(y.iloc[-1]), name))
+        extent.extend((float(y.min()), float(y.max())))
+
+    if view == "CORR":
+        for asset in mkt.ASSETS:
+            frame = frames.get(asset.key)
+            if not asset.charted or frame is None or frame.empty:
+                continue
+            corr = mkt.rolling_correlation(mkt.align(btc, frame), asset.kind,
+                                           mkt.SHORT_WINDOW)
+            corr = corr[corr.index >= since]
+            if not corr.empty:
+                trace(corr.index, corr, asset.label, MARKET_COLORS[asset.key],
+                      1.6, f"{asset.label} %{{y:+.2f}}<extra></extra>")
+        title = "corrélation 30 séances" if maximized else None
+    else:
+        if not btc.empty:
+            series = (btc.assign(date=pd.to_datetime(btc["time"]).dt.normalize())
+                      .groupby("date")["close"].last())
+            perf = mkt.performance(series, since)
+            if not perf.empty:
+                trace(perf.index, perf, "Bitcoin", C["text"], 2.4,
+                      "Bitcoin %{y:.1f}<extra></extra>")
+        for asset in mkt.ASSETS:
+            frame = frames.get(asset.key)
+            if not asset.charted or frame is None or frame.empty:
+                continue
+            series = frame.set_index(pd.to_datetime(frame["time"]))["close"]
+            perf = mkt.performance(series, since)
+            if not perf.empty:
+                trace(perf.index, perf, asset.label, MARKET_COLORS[asset.key],
+                      1.6, f"{asset.label} %{{y:.1f}}<extra></extra>")
+        title = "base 100" if maximized else None
+
+    axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["border"],
+                       tickfont=dict(size=9, color=C["muted"]))
+    fig.update_layout(
+        paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
+        font=dict(family=MONO, color=C["text"], size=10),
+        margin=dict(l=8, r=78, t=18 if maximized else 4, b=4),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
+                        font_color=C["text"], font_size=10),
+        legend=dict(orientation="h", y=1.02, x=0, yanchor="bottom",
+                    font=dict(size=9), bgcolor="rgba(0,0,0,0)"),
+        xaxis=dict(**axis_common),
+        yaxis=dict(title_text=title, **axis_common,
+                   **({"range": [-1, 1], "zeroline": True}
+                      if view == "CORR" else {})),
+        uirevision=uirevision,
+    )
+    if view != "CORR" and ends:
+        fig.add_hline(y=100, line=dict(color=C["border"], width=1))
+    # Le nom au bout de chaque courbe, en encre du texte : la couleur
+    # porte l'identité à côté, jamais le texte lui-même. En plein écran
+    # seulement — dans la rangée basse, deux courbes qui finissent au même
+    # niveau y superposaient leurs noms, et la légende suffit.
+    if maximized:
+        span = (2.0 if view == "CORR"
+                else max(extent) - min(extent) if extent else 1.0)
+        for x, y, name in _spread_labels(ends, span):
+            fig.add_annotation(x=x, y=y, text=name, showarrow=False,
+                               xanchor="left", xshift=4,
+                               font=dict(size=9, color=C["text"]))
+    if not ends:
+        fig.add_annotation(text="marchés indisponibles", xref="paper",
+                           yref="paper", x=0.5, y=0.5, showarrow=False,
+                           font=dict(family=MONO, size=11, color=C["muted"]))
     return fig
