@@ -490,8 +490,14 @@ def test_panneau_journal_rend_la_seance():
         assert "cours étiré" in texte, "l'alerte devait se relire"
         assert "Kraken → Binance" in texte, "l'épisode devait se relire"
         assert "32 k$" in texte, "le bilan des liquidations devait chiffrer"
-        assert "instantanés depuis le" in texte, \
-            "la profondeur de l'historique devait se dire"
+        # Dans la grille, la profondeur de l'historique passe au survol —
+        # la ligne complète débordait de la cellule ; en plein écran, elle
+        # s'écrit.
+        assert "instantanés depuis le" in badges.title, \
+            "la profondeur de l'historique devait se dire au survol"
+        _, plein = render(SimpleNamespace(journal=journal), True)
+        assert "instantanés depuis le" in " ".join(_textes(plein)), \
+            "la profondeur de l'historique devait s'écrire en plein écran"
 
         vide, _ = render(SimpleNamespace(journal=None), False)
         assert "no-journal" in " ".join(_textes(vide))

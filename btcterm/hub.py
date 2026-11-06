@@ -734,6 +734,10 @@ class MarketHub:
             "au réveil, après "
             + (f"{slept:.0f} s" if slept < 60 else f"{slept / 60:.0f} min")
             + " de sommeil")
+        # Le fil de news a l'âge du sommeil : sa tournée n'attend pas la
+        # fin de son intervalle, que le sommeil n'a pas fait avancer.
+        if self.collect_news:
+            self.news.nudge()
 
     def stop(self) -> None:
         self.stopping.set()
@@ -752,6 +756,17 @@ class MarketHub:
             self.journal.close()
         if self.history is not None:
             self.history.close()
+
+    def realtime_links(self) -> list[tuple[str, bool]]:
+        """Tous les liens temps réel et s'ils tiennent : carnets, fils de
+        liquidations, ruban. Le bandeau ne comptait que les cinq carnets."""
+        links = [(f"carnet {name}", book.connected)
+                 for name, book in self.books.items()]
+        links += [(f"liquidations {name}", up)
+                  for name, (up, _) in self.liquidations.links.items()]
+        links += [(f"ruban {name}", up)
+                  for name, (up, _) in self.tape.links.items()]
+        return links
 
     @property
     def connected_count(self) -> int:

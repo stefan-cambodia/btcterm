@@ -322,7 +322,9 @@ plutôt que supposé, et Coinbase, qui marque le côté du teneur, se lit à
 l'envers des deux autres.
 
 **Sources** — le terminal lit une vingtaine de sources, et quand l'une tombe,
-le bandeau en dit le nombre. Le panneau SOURCES — ouvert d'un clic sur cet
+le bandeau en dit le nombre ; il compte aussi les liens temps réel qui tiennent
+(« 10/10 flux » : carnets, liquidations, ruban), nomme les absents au survol, et
+l'un comme l'autre ouvrent ce panneau d'un clic. Le panneau SOURCES — ouvert d'un clic sur cet
 avertissement — en donne le détail sans passer par `journalctl` : pour chaque
 carnet, fil de liquidations, API et tâche de fond, son état (ok, secours,
 panne, muet, coupé, inactif — écrit en toutes lettres, pas seulement en

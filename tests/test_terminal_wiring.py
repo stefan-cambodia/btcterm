@@ -316,6 +316,25 @@ def test_variation_inconnue_dite_telle():
     print("  ✓ variation 24 h inconnue affichée comme telle")
 
 
+
+def test_le_bandeau_compte_tous_les_flux():
+    """Le bandeau disait « 5/5 flux » pour les seuls carnets ; il compte
+    aussi les fils de liquidations et le ruban, et nomme ceux qui manquent."""
+    from terminal.header import links_text
+
+    texte, infobulle = links_text([("carnet Binance", True),
+                                   ("liquidations Binance", False),
+                                   ("ruban Coinbase", True)])
+    assert texte == "2/3 flux"
+    assert infobulle.startswith("sans liquidations Binance")
+    assert links_text([("carnet Kraken", True)])[1].startswith("tous les liens")
+
+    from btcterm.hub import MarketHub
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    noms = [nom for nom, _ in hub.realtime_links()]
+    assert len([n for n in noms if n.startswith("carnet")]) == 5
+    print("  ✓ tous les liens temps réel comptés, les absents nommés")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCâblage du terminal — {len(tests)} vérifications\n" + "─" * 60)

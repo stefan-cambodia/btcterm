@@ -370,6 +370,9 @@ class NewsCollector:
             "running": False, "last_run": None, "new": 0, "error": None,
         }
         self._stop = threading.Event()
+        #: Levé pour devancer l'attente : au réveil de la machine, la
+        #: tournée n'attend pas la fin de son intervalle (`nudge`).
+        self._nudge = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
     def start(self) -> Optional[threading.Thread]:
@@ -383,6 +386,18 @@ class NewsCollector:
 
     def stop(self) -> None:
         self._stop.set()
+        self._nudge.set()
+
+    def nudge(self) -> None:
+        """Lance la tournée suivante sans attendre la fin de l'intervalle.
+
+        L'attente compte en temps monotone, que le sommeil n'avance pas :
+        une machine endormie six heures reprenait avec des news de six
+        heures, et la tournée attendait encore la fin de son quart
+        d'heure — dix minutes de matinée sur un fil périmé, constatées le
+        7 novembre 2026. Le hub appelle ceci au réveil, réseau revenu.
+        """
+        self._nudge.set()
 
     def collect_once(self, connection: sqlite3.Connection) -> int:
         """Une tournée complète : RSS, CryptoPanic, Fear & Greed."""
@@ -416,7 +431,8 @@ class NewsCollector:
                     # Une tournée ratée ne doit pas arrêter les suivantes :
                     # le réseau revient, la boucle doit être encore là.
                     self.status.update(last_run=time.time(), error=str(exc)[:200])
-                self._stop.wait(self.interval)
+                self._nudge.wait(self.interval)
+                self._nudge.clear()
         finally:
             connection.close()
             self.status["running"] = False
