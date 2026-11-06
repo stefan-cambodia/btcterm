@@ -979,6 +979,42 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "!!document.querySelector('#options-chart')", timeout=8))
         macro_tab()
 
+        print("\nPanneau marchés")
+        browser.js("""
+            Array.from(document.querySelectorAll('.cell-tab'))
+                 .find(t => t.textContent.trim() === 'MARCHÉS').click();
+        """)
+        check("l'onglet ouvre le panneau, tableau rempli", browser.wait_for(
+            "(document.getElementById('markets-table') || {textContent: ''})"
+            ".textContent.length > 0", timeout=30))
+        marches = browser.js("""
+            return {lignes: document.querySelectorAll(
+                        '#markets-table tbody tr').length,
+                    badges: document.getElementById('markets-badges')
+                        .textContent};
+        """)
+        check("une ligne pour le bitcoin et une par marché",
+              marches["lignes"] == 6, f"{marches['lignes']} lignes")
+        check("corrélations au titre, ou l'absence dite",
+              "corr." in marches["badges"] or "indisponible" in marches["badges"],
+              marches["badges"][:48])
+        browser.js("""
+            Array.from(document.querySelectorAll('#markets-view label'))
+                 .find(l => l.textContent.trim() === 'CORR').click();
+        """)
+        correlation = browser.wait_for("""(() => {
+            const gd = document.querySelector('#markets-chart .js-plotly-plot');
+            return gd && gd.data && (gd.data.length === 0
+                || gd.data.every(t => t.name !== 'Bitcoin'));
+        })()""", timeout=15)
+        check("CORR : les marchés seuls, sans le bitcoin", correlation)
+        browser.js("""
+            Array.from(document.querySelectorAll('#markets-view label'))
+                 .find(l => l.textContent.trim() === 'PERF').click();
+        """)
+        time.sleep(1)
+        macro_tab()
+
         print("\nDouble-clic")
         browser.js("document.querySelector('#cell-arb')"
                    ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));")

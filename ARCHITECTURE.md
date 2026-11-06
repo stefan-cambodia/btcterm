@@ -14,7 +14,7 @@ centré sur le Bitcoin — où chaque famille d'information occupe un panneau d'
 même interface : prix et indicateurs, carnet d'ordres, profondeur comparée entre
 exchanges, écarts d'arbitrage, liquidations, flux des ETF spot, marché à terme,
 fil de news et sentiment, calendrier macro, dominance, données de chaîne,
-contexte monétaire, marché des options.
+contexte monétaire, marché des options, marchés traditionnels.
 
 ### État actuel : le terminal existe
 
@@ -25,7 +25,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant dix-sept panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant dix-huit panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement doublés d'un canal push pour les panneaux rapides, un hub
   qui n'ouvre qu'une connexion par plateforme et un collecteur de news en
@@ -59,13 +59,16 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── liquidations.py            fil des positions fermées de force
 │   │                              (Binance, et Bybit)
 │   ├── sources.py                 collecteurs REST : marché, ETF, M2,
-│   │                              terme, options, chaîne, news, sentiment
+│   │                              terme, options, marchés, chaîne, news,
+│   │                              sentiment
 │   ├── macrocal.py                calendrier macro tenu à la main
 │   ├── newsdb.py                  base de news : schéma, scoring, collecte
 │   ├── analysis.py                état des intervalles, bilan des signaux,
 │   │                              règles simples, position, saisonnalité
 │   ├── options.py                 chaîne d'options Deribit : sourire, skew,
 │   │                              max pain, base des futures (§2.11)
+│   ├── markets.py                 le bitcoin face aux actions, à l'or, au
+│   │                              dollar et aux taux (§2.12)
 │   ├── history.py                 bougies closes sur disque
 │   │                              (~/.btcterm/klines.db)
 │   ├── journal.py                 journal des liquidations + épisodes
@@ -100,8 +103,8 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   └── panels/                    price · orderbook · arbitrage ·
 │                                   liquidations · journal · etf · perp ·
 │                                   position · news · calendar · alerts ·
-│                                   macro · dominance · onchain · analysis ·
-│                                   options
+│                                   macro · markets · dominance · onchain ·
+│                                   analysis · options
 │
 ├── tests/
 │   ├── test_indicators_parity.py  non-régression des indicateurs
@@ -111,6 +114,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_fear_greed.py         indice Fear & Greed : source, hub, couleurs
 │   ├── test_etf_flows.py          flux ETF : fenêtres, cumul, classement
 │   ├── test_options.py            options : sourire, max pain, base, panneau
+│   ├── test_markets.py            marchés : séances, corrélations, tableau
 │   ├── test_terminal_wiring.py    panneaux posés et branchés
 │   ├── test_grid_layout.py        rangement configurable des panneaux
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
@@ -816,7 +820,35 @@ de démonstration, comparer DVOL à une marche aléatoire n'aurait aucun sens.
 foi (§2.9) : il résout juste aujourd'hui, comme Coinbase et Kraken, et le
 module y est prêt le jour où ce ne sera plus le cas.
 
-### 2.12 Non-régression
+### 2.12 `markets` — le bitcoin parmi les marchés
+
+La question qu'un poste de marché pose avant toute autre : l'actif bouge-t-il
+seul, ou avec le reste ? Le module confronte le bitcoin à cinq marchés — S&P 500,
+Nasdaq 100, or, dollar (DXY), taux américain à dix ans — par des fonctions
+pures, testées sans réseau (`tests/test_markets.py`) :
+
+- `align` ne garde que les séances du marché comparé, le bitcoin pris à la
+  clôture UTC du même jour — trois à quatre heures après la cloche de New
+  York, l'écart qu'on accepte plutôt que d'inventer des séances le week-end ;
+- `changes` compare un prix en rendements logarithmiques, un taux en
+  variations de points : le rendement d'un rendement n'a pas de sens ;
+- `rolling_correlation` suit la corrélation des variations quotidiennes sur
+  30 et 90 séances — la réponse change d'un régime à l'autre, une
+  corrélation d'ensemble la cacherait ;
+- `snapshot` fait le tableau : dernier cours, variation sur une séance et sur
+  un mois (vingt et une séances, trente jours pour le bitcoin qui cote tous
+  les jours), corrélations. Une place muette garde sa ligne, vide.
+
+La source est l'API de graphiques de Yahoo Finance (`fetch_yahoo_daily`) :
+non documentée, sans clé, la seule gratuite qui serve ces séries sans
+vérification JavaScript — Stooq en impose une. Elle refuse l'agent par défaut
+de `requests` (429) ; un nom de client générique, `btcterm/1.1`, suffit. Le
+DXY y a une séance vide sur six, écartée. Le hub lit les cinq marchés en
+parallèle, chacun son cache de cinq minutes : lus l'un après l'autre, des
+ratés de Yahoo — délai dépassé, connexion coupée, vus dès le premier essai —
+faisaient attendre le panneau cinq délais au lieu d'un.
+
+### 2.13 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
@@ -1672,6 +1704,31 @@ sans jamais appeler Deribit (`dvol_cached`), comme le taux € : il tourne toute
 les deux secondes, et une source en panne y bloquerait le cours le temps de
 son délai. Le clic sur DVOL ouvre le panneau, où qu'il soit rangé.
 
+### 3.17 Le panneau MARCHÉS : le bitcoin parmi les autres
+
+Le dix-huitième panneau, en onglet de la rangée basse juste après la macro dont
+il prolonge la question, montre le module `markets` (§2.12) : à gauche le
+graphique, à droite le tableau des cinq marchés et du bitcoin.
+
+- **PERF** ramène chaque série à 100 au début de la fenêtre (1 mois à 1 an) :
+  un seul axe, des unités communes, plutôt que des échelles superposées ;
+- **CORR** trace la corrélation glissante sur trente séances, de −1 à 1.
+
+Le graphique ne porte que trois marchés — S&P 500, or, dollar — et le bitcoin.
+Les couleurs ont été validées par le calcul (le script du guide de
+visualisation) et non à l'œil : la palette du terminal mettait l'or orange à
+côté du bitcoin jaune (écart de 8 en vision normale, sous le plancher de 15),
+et au-delà de trois courbes qui se croisent aucune palette ne reste
+discernable pour un œil daltonien. Les trois premiers pas de la palette de
+référence passent tous les contrôles sur la surface des panneaux ; le bitcoin,
+la référence, est en encre claire et en trait épais. Le Nasdaq, qui redit
+presque le S&P 500, et le taux, qui n'a pas l'unité des autres, ne sont qu'au
+tableau. En plein écran, chaque courbe porte son nom au bout, écarté de ses
+voisins ; dans la rangée basse, deux noms se superposaient, et la légende y
+suffit. Le titre donne la corrélation à 30 séances au S&P 500, à l'or et au
+dollar — écrite « corr. » et non ρ, que la barre de titre en majuscules
+changeait en P.
+
 ## 4. Patrons transverses
 
 ### 4.1 Deux modèles d'acquisition de données
@@ -1999,9 +2056,10 @@ suivante.
 
 **Où en est-on.** Les cinq étapes sont faites — socle extrait, couche de rendu
 tranchée, données mutualisées, doublons supprimés, couverture complète :
-dix-sept panneaux couvrent le prix, la liquidité, l'arbitrage, les
+dix-huit panneaux couvrent le prix, la liquidité, l'arbitrage, les
 liquidations, les flux ETF, le marché à terme, les options, les news, le
-calendrier macro, la macro, la dominance, la chaîne et la relecture de séance. La piste de confort laissée ouverte à la pause
+calendrier macro, la macro, les marchés traditionnels, la dominance, la chaîne
+et la relecture de séance. La piste de confort laissée ouverte à la pause
 précédente — une disposition de grille configurable — est faite (§3.6) :
 chaque panneau se range dans la cellule de son choix, et le rangement
 survit au rechargement. Le dernier chantier, resté conditionnel depuis
@@ -2099,7 +2157,7 @@ Le numéro de version, lui, est resté à 1.1.0.
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.12) :
+scripts y sont ramenés, sans changement de comportement (§2.13) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -2320,6 +2378,11 @@ constaté à l'usage, ou des points restés ouverts.
   sans clé — DVOL contre réalisée, courbe des échéances et ailes 25 delta,
   base des futures à échéance, open interest par strike et max pain —, avec
   DVOL au bandeau.
+- ~~**Le bitcoin, seul au monde**~~ — rien ne disait s'il bougeait avec les
+  actions, l'or ou le dollar, la première question d'un poste de marché ; le
+  panneau macro le confrontait à la seule masse monétaire, mensuelle. Fait :
+  le panneau MARCHÉS (§3.17), performance comparée et corrélations glissantes
+  au S&P 500, au Nasdaq, à l'or, au dollar et au taux à dix ans.
 
 **Pour la surveillance :**
 

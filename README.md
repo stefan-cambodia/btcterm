@@ -87,6 +87,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Analyse** | tendance, écart à la MA 200, RSI, ATR et dernier signal de 15m à 1w ; au choix, bilan des signaux contre une référence, règles simples face à la détention, frais compris, ou carte des rendements mensuels ; export CSV (onglet de la macro) | 30 s |
 | **Dominance** | parts de capitalisation et leur tendance journalisée, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
+| **Marchés** | le bitcoin face au S&P 500, au Nasdaq, à l'or, au dollar et au taux à 10 ans : performance comparée en base 100 ou corrélation glissante sur 30 séances, tableau des cours, variations et corrélations à 30 et 90 séances (onglet de la macro) | 5 min |
 | **Options** | marché des options Deribit en trois vues : DVOL contre volatilité réalisée ; volatilité par échéance avec ses ailes 25 delta, au-dessus de la base annualisée des futures ; open interest par strike d'une échéance, forward et max pain. Skew, put/call, open interest total au titre ; DVOL aussi au bandeau (onglet de la macro) | 1 min |
 
 Les **liquidations** sont le pendant du perpétuel : quand une position à levier
@@ -275,6 +276,18 @@ Celle des **niveaux** est toujours forte et n'apprend rien — deux séries qui
 montent depuis dix ans vont ensemble ; celle des **variations sur trois mois**
 est la seule qui informe.
 
+**Marchés** — le bitcoin bouge-t-il seul, ou avec le reste ? Le panneau le
+confronte au S&P 500, au Nasdaq 100, à l'or, au dollar (DXY) et au taux
+américain à dix ans, sur les séances de ces marchés — ses week-ends n'y
+comptent pas. **PERF** ramène chaque série à 100 au début de la fenêtre (1 mois
+à 1 an) ; **CORR** trace la corrélation des variations quotidiennes sur trente
+séances, de −1 à 1 — au-dessus de zéro, le bitcoin bouge avec ce marché. Le
+tableau donne cours, variation du jour et du mois — en points de base pour le
+taux — et corrélations à 30 et 90 séances : celle à 30 suit le régime, celle à
+90 le confirme. Le graphique ne porte que trois marchés, le Nasdaq et le taux
+restant au tableau : au-delà, les courbes ne se distinguent plus. Source :
+l'API de graphiques de Yahoo Finance, non documentée et sans clé.
+
 **Options** — le carnet, le perpétuel et les liquidations disent ce que le
 marché fait ; les options disent ce qu'il craint et ce qu'il paie pour s'en
 couvrir. Le panneau lit Deribit, sans clé, et propose trois vues. **VOL**
@@ -363,7 +376,9 @@ on a remonté le passé, et une page égarée au changement d'intervalle ne se
 colle plus au milieu de la série. Le terminal a enfin gagné un dix-septième
 panneau, OPTIONS — volatilité implicite contre réalisée, courbe des échéances
 et skew, open interest par strike et max pain, base des futures à échéance —,
-DVOL au bandeau et une alerte quand la volatilité implicite bondit.
+DVOL au bandeau et une alerte quand la volatilité implicite bondit ; puis un
+dix-huitième, MARCHÉS, qui dit si le bitcoin bouge avec les actions, l'or ou
+le dollar.
 Ce même journal a ensuite compté cinquante-quatre resynchronisations
 Kraken en une matinée, et nommé la cause qu'on croyait fortuite : le flux
 décrit une fenêtre de vingt-cinq niveaux, le carnet en gardait cent, et
@@ -502,6 +517,7 @@ python tests/test_resolver.py            # résolution DNS de secours, sans rés
 python tests/test_fear_greed.py          # Fear & Greed : lecture, dérivation, couleurs
 python tests/test_etf_flows.py           # flux ETF : fenêtres, cumul, classement
 python tests/test_options.py             # options : sourire, max pain, base, panneau
+python tests/test_markets.py             # marchés : séances, corrélations, tableau
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox

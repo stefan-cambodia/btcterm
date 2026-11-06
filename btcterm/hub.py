@@ -18,10 +18,12 @@ import socket
 import sqlite3
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable, Optional
 
 import pandas as pd
 
+from . import markets as mkt
 from . import options as opt
 from . import sources
 from .indicators import volatility
@@ -357,6 +359,13 @@ class MarketHub:
     #: Fenêtre de la volatilité réalisée comparée à DVOL : trente jours,
     #: l'horizon de l'indice.
     REALIZED_WINDOW = 30
+    #: Marchés traditionnels (§ markets) : des clôtures quotidiennes, dont
+    #: la dernière bouge pendant la séance — cinq minutes, l'horloge rare.
+    #: Deux ans de profondeur : un an au graphique, et la chauffe des
+    #: corrélations à quatre-vingt-dix séances.
+    TTL_MARKETS = 300
+    MARKETS_SPAN = "2y"
+    MARKETS_BTC_DAYS = 730
     TTL_FEAR_GREED = 900
     #: La masse monétaire est mensuelle et publiée avec deux mois de
     #: retard : la rafraîchir plus souvent qu'une fois par demi-journée
@@ -1028,6 +1037,37 @@ class MarketHub:
                             periods_per_year=365)
         return (pd.DataFrame({"time": daily["time"], "value": values})
                 .dropna().reset_index(drop=True))
+
+    def markets(self) -> dict[str, pd.DataFrame]:
+        """Les marchés confrontés au bitcoin, par clé (§ markets).
+
+        Une série par marché, chacune son cache : une place muette laisse
+        les autres répondre, et son absence se dit au tableau. Les cinq
+        lectures partent ensemble : l'une après l'autre, des ratés de
+        Yahoo — délai dépassé, connexion coupée, vus dès le premier essai —
+        faisaient attendre le panneau cinq délais au lieu d'un.
+        """
+        def read(asset):
+            try:
+                return self._cache.get(
+                    f"market:{asset.key}", self.TTL_MARKETS,
+                    lambda: sources.fetch_yahoo_daily(asset.symbol,
+                                                      self.MARKETS_SPAN))
+            except Exception:
+                return pd.DataFrame(columns=["time", "close"])
+
+        with ThreadPoolExecutor(max_workers=len(mkt.ASSETS)) as pool:
+            return dict(zip((asset.key for asset in mkt.ASSETS),
+                            pool.map(read, mkt.ASSETS)))
+
+    def btc_daily(self) -> pd.DataFrame:
+        """Deux ans de clôtures journalières du bitcoin, bougie du jour
+        comprise ; vide sur la série de démonstration, qu'on ne compare à
+        rien."""
+        daily = self.klines("1d", self.MARKETS_BTC_DAYS)
+        if daily.attrs.get("demo", False):
+            return pd.DataFrame(columns=["time", "close"])
+        return daily[["time", "close"]]
 
     def etf_flows(self) -> pd.DataFrame:
         return self._cache.get("etf", self.TTL_ETF, sources.fetch_etf_flows)
