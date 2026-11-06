@@ -23,6 +23,7 @@ import pandas as pd
 from flask import Response, jsonify, request
 
 from btcterm import indicators as ind
+from btcterm.analysis import key_levels
 from btcterm import sources
 
 from .charts import VOL_BINS, prepare_price_frame
@@ -423,4 +424,22 @@ def register_api(app, hub) -> None:
             "va_low": _val(va_low),
             "va_high": _val(va_high),
             "demo": demo,
+        })
+
+    @app.server.get("/api/levels")
+    def _levels():
+        """Niveaux clés du graphique prix : veille, semaine et mois passés,
+        ouvertures en cours (`analysis.key_levels`).
+
+        Sur les bougies journalières que l'alerte de la MA 200 tient déjà
+        en cache : aucun appel de plus. Rien sur la série de démonstration
+        — des niveaux tirés d'une marche aléatoire seraient des repères
+        faux. Les prix sont en dollars ; le navigateur convertit.
+        """
+        daily = hub.klines("1d", 365)
+        demo = bool(daily.attrs.get("demo", False))
+        return jsonify({
+            "levels": [] if demo else key_levels(daily),
+            "demo": demo,
+            "stale": bool(daily.attrs.get("stale", False)),
         })

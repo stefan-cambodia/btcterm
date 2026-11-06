@@ -349,6 +349,23 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         browser.wait_for("window.lwcPrice.debug().signalsShown === true",
                          timeout=3)
 
+        # N : les niveaux clés. Sur la démonstration, aucun — des repères
+        # tirés d'une marche aléatoire seraient faux.
+        demo = browser.js("return window.lwcPrice.debug().demo;")
+        browser.press("n")
+        niveaux = browser.wait_for(
+            "window.lwcPrice.debug() && window.lwcPrice.debug().levels.length > 0",
+            timeout=15)
+        trouves = browser.js("return window.lwcPrice.debug().levels;") or []
+        check("N trace les niveaux clés, aucun sur la démo",
+              (not niveaux and demo) or {"H J-1", "B J-1"} <= {
+                  t.split("/")[0] for t in trouves},
+              ", ".join(trouves))
+        browser.press("n")
+        check("N les retire", browser.wait_for(
+            "window.lwcPrice.debug() && window.lwcPrice.debug().levels.length === 0",
+            timeout=15))
+
         browser.press("/")
         check("/ ouvre la ligne de commande", browser.wait_for(
             "document.activeElement === document.querySelector('.command-bar input')",

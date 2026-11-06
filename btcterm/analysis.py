@@ -36,7 +36,7 @@ import pandas as pd
 from . import indicators as ind
 
 __all__ = ["FEE_PCT", "GRADES", "HORIZONS", "MIN_SAMPLE", "RULES",
-           "monthly_returns", "position_size", "position_state",
+           "key_levels", "monthly_returns", "position_size", "position_state",
            "price_signals", "rule_stats", "signal_stats", "timeframe_summary"]
 
 #: Les grades de `graded_signals`, du plus acheteur au plus vendeur.
@@ -281,3 +281,71 @@ def timeframe_summary(df: pd.DataFrame) -> Optional[dict]:
         "signal": int(work["signal"].iloc[fired[-1]]) if len(fired) else 0,
         "signal_age": int(len(work) - 1 - fired[-1]) if len(fired) else None,
     }
+
+
+#: Les niveaux clés : période, préfixe de l'étiquette d'axe.
+LEVEL_SPANS = (("day", "J"), ("week", "S"), ("month", "M"))
+
+
+def _period_start(day: pd.Timestamp, span: str) -> pd.Timestamp:
+    """Le premier jour de la période de `day` : lui-même, le lundi, le 1er."""
+    if span == "week":
+        return day - pd.Timedelta(days=day.weekday())
+    if span == "month":
+        return day.replace(day=1)
+    return day
+
+
+def key_levels(daily: pd.DataFrame,
+               now: Optional[pd.Timestamp] = None) -> list[dict]:
+    """Les niveaux que les traders regardent, tirés des bougies journalières.
+
+    Plus haut et plus bas de la veille, de la semaine passée et du mois
+    passé, ouverture du jour, de la semaine et du mois en cours — en UTC,
+    comme les bougies de Binance : la semaine part du lundi. Ce sont des
+    repères de positionnement, là où des ordres s'accumulent d'ordinaire ;
+    rien n'y garantit un rebond.
+
+    Chaque niveau : `label` (« H J-1 », « O S »…), `price`, `span` (`day`,
+    `week`, `month`) et `kind` (`high`, `low`, `open`). Une période que les
+    bougies ne couvrent pas — la bougie du jour manquante, Binance muet —
+    n'a pas de niveau : mieux vaut un repère absent qu'un repère faux.
+
+    Deux niveaux au même prix — le plus bas de la semaine passée qui est
+    aussi celui du mois passé — n'en font qu'un, « B S-1/M-1 » : deux
+    lignes confondues superposeraient leurs étiquettes sur l'axe.
+    """
+    if daily.empty:
+        return []
+    now = pd.Timestamp.now(tz="UTC") if now is None else now
+    today = (now.tz_convert("UTC") if now.tzinfo else now).tz_localize(None).normalize()
+    days = daily.assign(day=pd.to_datetime(daily["time"]).dt.normalize())
+    levels = []
+    for span, letter in LEVEL_SPANS:
+        start = _period_start(today, span)
+        previous_start = _period_start(start - pd.Timedelta(days=1), span)
+        before = days[(days["day"] >= previous_start) & (days["day"] < start)]
+        if not before.empty:
+            levels += [
+                {"label": f"H {letter}-1", "price": float(before["high"].max()),
+                 "span": span, "kind": "high"},
+                {"label": f"B {letter}-1", "price": float(before["low"].min()),
+                 "span": span, "kind": "low"},
+            ]
+        first = days[days["day"] == start]
+        if not first.empty:
+            levels.append({"label": f"O {letter}",
+                           "price": float(first["open"].iloc[0]),
+                           "span": span, "kind": "open"})
+    merged: list[dict] = []
+    for level in levels:
+        twin = next((m for m in merged if m["price"] == level["price"]), None)
+        if twin is None:
+            merged.append(dict(level))
+        else:
+            # « B S-1 » et « B M-1 » donnent « B S-1/M-1 » : la lettre du
+            # niveau n'est écrite qu'une fois si elle est la même.
+            head, _, tail = level["label"].partition(" ")
+            twin["label"] += ("/" + tail if twin["label"].startswith(head + " ")
+                              else " · " + level["label"])
+    return merged
