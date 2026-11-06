@@ -115,6 +115,20 @@ def sources_text(failing: dict[str, float], now: float) -> tuple[str, str]:
     return f"⚠ {count} source{'s' if count > 1 else ''}", title
 
 
+def links_text(links: list[tuple[str, bool]]) -> tuple[str, str]:
+    """« 9/10 flux » et l'infobulle qui nomme ceux qui manquent.
+
+    Tous les liens temps réel comptent — carnets, liquidations, ruban : le
+    bandeau disait « 5/5 flux » pour les seuls carnets, muet sur un fil de
+    liquidations ou un ruban tombé.
+    """
+    up = sum(1 for _, ok in links if ok)
+    missing = [name for name, ok in links if not ok]
+    tip = ("sans " + ", ".join(missing) if missing
+           else "tous les liens temps réel tiennent")
+    return f"{up}/{len(links)} flux", tip + " — cliquer pour le détail"
+
+
 def dvol_text(dvol) -> tuple[str, str]:
     """DVOL et sa variation depuis la clôture de la veille, avec l'infobulle.
 
@@ -190,7 +204,9 @@ def layout():
         # un callback — c'est un état du navigateur, pas du serveur.
         html.Span(id="hdr-push", title="canal des panneaux rapides",
                   style={**STAT, "color": C["muted"], "fontSize": "10px"}),
-        html.Span(id="hdr-status", style={**STAT, "color": C["muted"]}),
+        # Les liens temps réel qui tiennent ; le clic ouvre SOURCES.
+        html.Span(id="hdr-status", className="hdr-bell", n_clicks=0,
+                  style={**STAT, "color": C["muted"]}),
     ], style={
         "display": "flex", "alignItems": "center", "padding": "0 14px",
         "height": "38px", "background": C["panel"],
@@ -211,6 +227,7 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         Output("hdr-dvol", "children"),
         Output("hdr-dvol", "title"),
         Output("hdr-status", "children"),
+        Output("hdr-status", "title"),
         Output("hdr-sources", "children"),
         Output("hdr-sources", "title"),
         Output("hdr-position", "children"),
@@ -239,18 +256,19 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         spread_txt = f"spread min {min(spreads):.4f} %" if spreads else ""
 
         uptime = hub.uptime_seconds
-        status = (f"{hub.connected_count}/5 flux · "
+        flux, flux_tip = links_text(hub.realtime_links())
+        status = (f"{flux} · "
                   f"{uptime // 3600:02d}:{uptime % 3600 // 60:02d}:{uptime % 60:02d}")
 
         return (price_txt, price_tip, change_txt, change_style, range_txt,
-                spread_txt, *dvol_text(hub.dvol_cached()), status,
+                spread_txt, *dvol_text(hub.dvol_cached()), status, flux_tip,
                 *sources_text(hub.failing_sources(), time.time()),
                 *position_text(position, live, display(hub, currency)))
 
 
 #: Ce que le bandeau sait ouvrir : élément cliquable → panneau.
 REVEALS = {"hdr-alerts": "alerts", "hdr-dvol": "options",
-           "hdr-sources": "sources"}
+           "hdr-sources": "sources", "hdr-status": "sources"}
 
 
 def _register_reveal(app: dash.Dash) -> None:

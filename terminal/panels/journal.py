@@ -136,6 +136,27 @@ def _section_liquidations(rows):
     ], style={**_EMPTY, "color": C["text"]})]
 
 
+def _badges_compact(journal, hub, alerts, episodes, liquidations, start, end):
+    """Le titre de la grille : alertes et liquidations du jour ; épisodes,
+    profondeur des instantanés et interruptions au survol."""
+    resume = [f"{HOURS} h : {len(alerts)} alertes, {len(episodes)} épisodes "
+              f"d'arbitrage, {len(liquidations)} liquidations"]
+    snapshots = journal.snapshots_between(0, end)
+    if snapshots:
+        resume.append("instantanés depuis le " + time.strftime(
+            "%d/%m", time.localtime(snapshots[0]["ts"])))
+    trous = journal.interruptions_between(start, end,
+                                          getattr(hub, "SNAPSHOT_GAP", 900))
+    if trous:
+        resume.append(f"{len(trous)} interruption{'s' if len(trous) > 1 else ''}"
+                      f" ({_duree(sum(b - a for a, b in trous))})")
+    return html.Span([
+        html.Span(f"{HOURS} h · ", style={"color": C["muted"]}),
+        html.Span(f"{len(alerts)} alertes · {len(liquidations)} liq.",
+                  style={"color": C["text"]}),
+    ], style={"fontFamily": MONO}, title=" · ".join(resume))
+
+
 def render(hub, expanded: bool):
     """Le contenu du panneau et ses badges — pur vis-à-vis de Dash."""
     journal = getattr(hub, "journal", None)
@@ -158,6 +179,14 @@ def render(hub, expanded: bool):
         + [html.Div("liquidations", style=_HEAD)]
         + _section_liquidations(liquidations),
         style={"fontFamily": MONO, "fontSize": "11px"})
+
+    # Dans la grille, le titre ne garde que les deux comptes qui changent
+    # d'une heure à l'autre : la cellule de l'arbitrage porte quatre
+    # onglets, et la ligne complète y débordait de 433 px sous le bouton
+    # plein écran. Le reste se lit au survol, et en plein écran.
+    if not expanded:
+        return view, _badges_compact(journal, hub, alerts, episodes,
+                                     liquidations, start, end)
 
     #: La profondeur de l'historique d'instantanés se lit ici : c'est la
     #: donnée qui se construit à l'usage, sa croissance mérite d'être vue.

@@ -174,6 +174,53 @@ def test_collecte_filtre_et_dédoublonne():
     print("  ✓ collecte : seuil respecté, doublons écartés, base absente tolérée")
 
 
+
+def test_la_collecte_se_reveille_avec_la_machine():
+    """`nudge` devance l'attente de la tournée : au réveil, la collecte
+    n'attend plus la fin de son quart d'heure, que le sommeil n'a pas fait
+    avancer — dix minutes de matinée sur un fil de six heures."""
+    import threading
+    import time as horloge
+
+    collecteur = newsdb.NewsCollector(interval=3600)
+    tournees = []
+    collecteur.collect_once = lambda connexion: tournees.append(horloge.time())
+    original = newsdb.init_db
+    newsdb.init_db = lambda *a, **k: type("C", (), {"close": lambda self: None})()
+    try:
+        collecteur.start()
+        debut = horloge.monotonic()
+        while len(tournees) < 1 and horloge.monotonic() - debut < 3:
+            horloge.sleep(0.01)
+        collecteur.nudge()
+        while len(tournees) < 2 and horloge.monotonic() - debut < 3:
+            horloge.sleep(0.01)
+        assert len(tournees) == 2, "le réveil devait lancer une tournée"
+        collecteur.stop()
+        collecteur._thread.join(timeout=2)
+        assert not collecteur._thread.is_alive(), "l'arrêt doit couper l'attente"
+    finally:
+        newsdb.init_db = original
+    print("  ✓ une tournée au réveil, sans attendre l'intervalle ; l'arrêt coupe")
+
+
+def test_l_age_de_la_collecte_tient_dans_le_titre():
+    """« il y a 345 min » poussait le titre de la cellule contre ses
+    onglets : l'âge s'écrit court, et un fil en retard se dit."""
+    import time as horloge
+    from terminal.panels import news as panneau
+
+    assert [panneau._age(s) for s in (20, 600, 345 * 60, 3 * 86_400)] == [
+        "à l'instant", "10 min", "5 h 45", "3 j"]
+    badge = panneau._collecte_badge({"last_run": horloge.time() - 345 * 60,
+                                     "new": 2})
+    assert badge.children == "collecte 5 h 45 · +2"
+    assert badge.style["color"] == panneau.C["orange"], "le retard doit se voir"
+    assert "fil en retard" in badge.title
+    frais = panneau._collecte_badge({"last_run": horloge.time() - 300})
+    assert frais.style["color"] == panneau.C["muted"]
+    print("  ✓ âge court, retard dit au-delà de deux intervalles")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nBase de news — {len(tests)} vérifications\n" + "─" * 60)

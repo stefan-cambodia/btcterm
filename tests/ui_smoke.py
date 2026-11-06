@@ -94,6 +94,42 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("toutes tiennent sur une ligne", not trop_hautes,
               trop_hautes or f"max {max(hauteurs.values())} px")
 
+        # En largeur aussi, onglet par onglet : un titre trop long pousse
+        # ses badges contre les onglets, ou cache un sélecteur. Le ruban,
+        # le prix et les news l'ont fait chacun leur tour, et seule la
+        # hauteur était contrôlée — sur les onglets visibles au chargement.
+        cellules = browser.js("""
+            return Array.from(document.querySelectorAll('.cell')).map(c =>
+                [c.id, Array.from(c.querySelectorAll('.cell-tab'))
+                             .map(t => t.textContent)]);
+        """)
+        debordes = {}
+        for cell_id, onglets in cellules:
+            for onglet in onglets or [None]:
+                if onglet:
+                    browser.js("""
+                        Array.from(document.querySelectorAll(
+                            '#' + arguments[0] + ' .cell-tab'))
+                             .find(t => t.textContent === arguments[1]).click();
+                    """, [cell_id, onglet])
+                    time.sleep(2.5)
+                exces = browser.js("""
+                    const cell = document.getElementById(arguments[0]);
+                    const bar = cell.children[1].firstElementChild
+                        .firstElementChild;
+                    return bar.scrollWidth - bar.clientWidth;
+                """, [cell_id])
+                if exces > 1:
+                    debordes[onglet or cell_id] = exces
+            if onglets:
+                browser.js("""
+                    document.querySelector('#' + arguments[0] + ' .cell-tab')
+                        .click();
+                """, [cell_id])
+                time.sleep(1)
+        check("aucune ne déborde en largeur, onglet par onglet",
+              not debordes, debordes or f"{sum(len(o) or 1 for _, o in cellules)} titres")
+
         print("\nBarre de titre du panneau prix")
         check("9 intervalles proposés", browser.js(
             "return document.querySelectorAll('#price-interval input').length;") == 9)

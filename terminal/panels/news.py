@@ -72,10 +72,34 @@ def _collecte_badge(status: dict):
             "collecte en cours…" if status.get("running") else "collecte inactive",
             style={"color": C["muted"]})
 
-    minutes = int((time.time() - status["last_run"]) // 60)
-    age = "à l'instant" if minutes < 1 else f"il y a {minutes} min"
+    seconds = time.time() - status["last_run"]
     neuf = f" · +{status['new']}" if status.get("new") else ""
-    return html.Span(f"collecte {age}{neuf}", style={"color": C["muted"]})
+    # Au-delà de deux intervalles, le fil est en retard : la couleur le
+    # signale, l'âge écrit le dit.
+    late = seconds > 2 * STALE_AFTER
+    return html.Span(
+        f"collecte {_age(seconds)}{neuf}",
+        style={"color": C["orange"] if late else C["muted"]},
+        title=("dernière collecte à "
+               + time.strftime("%H:%M", time.localtime(status["last_run"]))
+               + (" — fil en retard" if late else "")))
+
+
+#: L'intervalle de la collecte du hub : au-delà de deux, le fil est en retard.
+STALE_AFTER = 15 * 60
+
+
+def _age(seconds: float) -> str:
+    """Un âge court, pour une barre de titre étroite : « il y a 345 min »
+    poussait le titre de la cellule contre ses onglets."""
+    minutes = int(seconds // 60)
+    if minutes < 1:
+        return "à l'instant"
+    if minutes < 60:
+        return f"{minutes} min"
+    if minutes < 48 * 60:
+        return f"{minutes // 60} h {minutes % 60:02d}"
+    return f"{minutes // 1440} j"
 
 
 def register(app, hub):

@@ -71,8 +71,16 @@ def _montant(valeur: float, unit: str = "$") -> str:
     return f"{valeur:.0f} {unit}"
 
 
-def _badges(feed, fx=DOLLARS):
-    """Totaux de l'heure, part du Bitcoin, et état du flux."""
+def _badges(feed, fx=DOLLARS, verbose: bool = True):
+    """Totaux de l'heure, part du Bitcoin, et état du flux.
+
+    Dans la grille (`verbose` faux), une version courte : la cellule de
+    l'arbitrage porte quatre onglets depuis le panneau SOURCES, et il n'y
+    reste qu'environ 200 px — « aucune liquidation depuis une heure » y
+    débordait. Le détail passe au survol, et s'écrit en plein écran.
+    """
+    if not verbose:
+        return _badges_compact(feed, fx)
     if not feed.connected:
         return html.Span(f"flux coupé{' · ' + feed.error if feed.error else ''}",
                          style={"color": C["red"]})
@@ -115,6 +123,40 @@ def _badges(feed, fx=DOLLARS):
                   style={"color": C["yellow"]},
                   title=fx.title("part des paires Bitcoin dans le total")),
     ] + sans + muets, style={"fontFamily": MONO})
+
+
+def _badges_compact(feed, fx=DOLLARS):
+    """La version de la grille : totaux de l'heure en abrégé, liens absents
+    ou muets par leur sigle."""
+    if not feed.connected:
+        return html.Span("flux coupé", style={"color": C["red"]},
+                         title=feed.error or "aucun lien ne tient")
+    alertes = [html.Span(f" · sans {EXCHANGE_TAG.get(name, name)}",
+                         style={"color": C["red"]},
+                         title=f"lien {name} non établi")
+               for name in feed.missing()]
+    alertes += [html.Span(f" · {EXCHANGE_TAG.get(name, name)} muet",
+                          style={"color": C["yellow"]},
+                          title=f"lien {name} ouvert, rien reçu depuis "
+                                f"{int(age // 60)} min")
+                for name, age in feed.silent(SILENCE)]
+    totals = feed.totals(WINDOW)
+    if not totals["count"]:
+        return html.Span([html.Span("aucune en 1 h",
+                                    style={"color": C["muted"]})] + alertes,
+                         style={"fontFamily": MONO})
+    detail = fx.title(
+        f"sur une heure : longs {_montant(totals['long'] * fx.rate, fx.unit)}, "
+        f"shorts {_montant(totals['short'] * fx.rate, fx.unit)}, dont BTC "
+        f"{_montant(totals['btc'] * fx.rate, fx.unit)}")
+    return html.Span([
+        html.Span("1 h · ", style={"color": C["muted"]}),
+        html.Span(f"{fx.warning}L {_montant(totals['long'] * fx.rate, fx.unit)}",
+                  style={"color": C["red"]}),
+        html.Span(" · ", style={"color": C["muted"]}),
+        html.Span(f"S {_montant(totals['short'] * fx.rate, fx.unit)}",
+                  style={"color": C["green"]}),
+    ] + alertes, style={"fontFamily": MONO}, title=detail)
 
 
 def _prix(valeur: float) -> str:
@@ -173,7 +215,7 @@ def render(hub, expanded: bool, currency=None):
         table = html.Table([html.Tbody([_row(e, fx) for e in events])],
                            style=TABLE_STYLE)
 
-    return table, _badges(feed, fx)
+    return table, _badges(feed, fx, verbose=expanded)
 
 
 def register(app, hub):

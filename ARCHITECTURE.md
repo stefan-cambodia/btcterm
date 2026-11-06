@@ -337,6 +337,15 @@ et les panneaux se contentent de lire. L'état de la dernière tournée est publ
 dans `status`, ce qui permet à la barre de titre d'afficher son âge, et de dire
 quand elle échoue.
 
+**Au réveil**, la tournée n'attend pas la fin de son intervalle (`nudge`). Elle
+attendait un quart d'heure en temps monotone, que le sommeil n'avance pas : le
+7 novembre 2026, la machine a dormi de 00:40 à 06:18, et le fil a gardé six
+heures de retard pendant les dix premières minutes de la matinée — celles où
+l'on ouvre le terminal. La boucle d'observation, qui voit le réveil (§2.7),
+relance la collecte dès le réseau revenu. Le titre dit l'âge court (« 5 h 45 »
+et non « il y a 345 min », qui poussait le titre contre ses onglets) et passe
+en orange au-delà de deux intervalles de retard.
+
 ### 2.5 `liquidations` — le fil des positions fermées de force
 
 Une position à levier qui ne couvre plus sa marge est fermée au marché
@@ -2530,6 +2539,19 @@ d'historique pour en étalonner le seuil.
   sans clé — DVOL contre réalisée, courbe des échéances et ailes 25 delta,
   base des futures à échéance, open interest par strike et max pain —, avec
   DVOL au bandeau.
+- ~~**Le fil de news en retard au réveil**~~ — constaté au matin du
+  7 novembre 2026 : « collecte il y a 345 min », six heures de sommeil et
+  dix minutes de plus à attendre l'intervalle. Fait : la collecte repart au
+  réveil (§2.4).
+- ~~**« 5/5 flux » pour les seuls carnets**~~ — le bandeau ne comptait pas les
+  fils de liquidations ni le ruban. Fait : il compte les dix liens temps réel,
+  nomme les absents au survol et ouvre le panneau SOURCES au clic.
+- ~~**Des titres qui débordent**~~ — le contrôle d'interface ne mesurait que
+  la hauteur des barres de titre, sur les onglets visibles au chargement. Il
+  ouvre désormais chaque onglet de chaque cellule et en mesure la largeur ; sa
+  première passe a trouvé le journal (433 px de trop) et les liquidations
+  (17 px), dans la cellule de l'arbitrage passée à quatre onglets avec SOURCES.
+  Leurs titres de grille sont compacts, le détail au survol et en plein écran.
 - ~~**Des alertes qui ne sonnent que devant l'écran**~~ — sur le serveur
   allumé en permanence qu'on vise, personne ne regarde l'onglet. Fait :
   chaque sonnerie part aussi vers ntfy, jusqu'au téléphone (§2.8).
