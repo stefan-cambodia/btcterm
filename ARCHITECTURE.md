@@ -2378,19 +2378,20 @@ des manques constatés à la clôture et depuis — chacun à ouvrir quand l'usa
 fera sentir, aucun ne conditionnant les autres. Celui qui reste ouvert est
 en fin de section, et ne presse pas.
 
-**Point de reprise** (pause du 6 novembre 2026, batterie à plat) : `main`
-porte tout le travail de la séance — réveil et attente de Binance, cache
-borné, panneaux OPTIONS et MARCHÉS, niveaux clés, calendrier 2027, historique
-du skew, portage et carte des liquidations. Les tests Python passent. **À
-refaire en premier** : `ui_smoke.py` contre une instance d'essai. Ses deux
-derniers passages, machine chargée et Binance en délais dépassés, ont échoué
-sur des panneaux différents d'un passage à l'autre (marchés, puis perpétuel,
-on-chain, macro, options) — le panneau marchés, rejoué seul, passait. À
-démêler : lenteur de la machine ou vrai défaut. Le service n'a pas été
-redémarré sur les deux derniers ajouts (portage, carte). Restent à ouvrir :
-un panneau SOURCES (l'état de chaque source, aujourd'hui au seul journal
-système) et une alerte sur le skew, une fois quelques semaines d'historique
-pour en étalonner le seuil.
+**Point de reprise** (6 novembre 2026, au soir) : `main` porte tout le travail
+de la séance — réveil et attente de Binance, cache borné, panneaux OPTIONS et
+MARCHÉS, niveaux clés, calendrier 2027, historique du skew, portage et carte
+des liquidations —, le service tourne sur ce code, et les contrôles passent :
+tests Python et `ui_smoke.py`, trois passages conformes sur une machine chargée
+à 15–21 pour 22 cœurs par une machine virtuelle. Les échecs intermittents
+d'avant la pause venaient du contrôle et non de l'interface : des délais fixes
+qui lisaient sous charge la figure précédente (vues des options, macro), une
+attente de 12 s trop courte pour un perpétuel dont Binance dépasse les délais,
+et un on-chain refusé alors qu'il annonçait honnêtement sa série manquante.
+Chaque contrôle attend désormais sa condition. Restent à ouvrir : un panneau
+SOURCES (l'état de chaque source, aujourd'hui au seul journal système) et une
+alerte sur le skew, une fois quelques semaines d'historique pour en étalonner
+le seuil.
 
 **Pour l'analyse :**
 
