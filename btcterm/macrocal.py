@@ -10,12 +10,23 @@ la source.
 | Événement | Source | Publié jusqu'à |
 |---|---|---|
 | FOMC (décision de taux) | federalreserve.gov/monetarypolicy/fomccalendars.htm | déc. 2027 |
-| CPI, NFP | calendrier OMB 2026 des indicateurs fédéraux (bls.gov/schedule) | déc. 2026 |
-| PCE | même calendrier OMB (bea.gov/news/schedule) | déc. 2026 |
+| CPI | bls.gov/schedule/news_release/cpi.htm | déc. 2027 |
+| NFP | bls.gov/schedule/news_release/empsit.htm | déc. 2027 |
+| PCE | apps.bea.gov/API/signup/release_dates.json (« Personal Income and Outlays ») | déc. 2027 |
 
-Une liste tenue à la main s'épuise : `last_date()` dit jusqu'où elle
-court, et le panneau l'affiche — un calendrier qui se tait parce qu'il
-est périmé doit se voir, comme un fil de news figé.
+Le BLS refuse les clients en ligne de commande (403) : ses pages se lisent
+au navigateur. Le BEA, lui, publie un fichier JSON de toutes ses dates —
+c'est par lui que l'année 2027 du PCE a été transcrite, le 6 novembre 2026.
+Le même fichier montre que les publications du PCE de janvier à avril 2026
+ont été avancées après coup (rattrapage du calendrier de 2025) ; passées,
+elles sont laissées telles que le calendrier initial les donnait.
+
+Une liste tenue à la main s'épuise, et chaque famille à son rythme :
+`last_dates()` dit jusqu'où court chacune, `last_date()` jusqu'où la liste
+est complète — la plus proche des quatre —, et le panneau le dit. Il disait
+le dernier FOMC, décembre 2027, quand le CPI, le NFP et le PCE s'arrêtaient
+un an plus tôt : un calendrier qui se tait parce qu'il est périmé doit se
+voir, comme un fil de news figé.
 
 Les heures sont celles de New York, où ces publications sont définies
 (8 h 30 pour les statistiques, 14 h pour le FOMC) ; `when_utc` fait la
@@ -66,23 +77,35 @@ _FOMC = (
     (2027, 10, 27, False), (2027, 12, 8, True),
 )
 
-#: Publications statistiques 2026 : jour du mois, indexé par mois. La
-#: donnée publiée porte toujours sur le mois précédent.
-_CPI_2026 = (13, 11, 11, 10, 12, 10, 14, 12, 11, 14, 10, 10)
-_NFP_2026 = (9, 6, 6, 3, 8, 5, 2, 7, 4, 2, 6, 4)
-_PCE_2026 = (29, 26, 27, 30, 28, 25, 30, 26, 30, 29, 25, 23)
+#: Publications statistiques : par année, le jour du mois, indexé par
+#: mois de publication. La donnée publiée porte toujours sur le mois
+#: précédent — le CPI de janvier 2027 est celui de décembre 2026.
+_CPI = {
+    2026: (13, 11, 11, 10, 12, 10, 14, 12, 11, 14, 10, 10),
+    2027: (13, 11, 10, 13, 12, 10, 14, 11, 14, 14, 10, 10),
+}
+_NFP = {
+    2026: (9, 6, 6, 3, 8, 5, 2, 7, 4, 2, 6, 4),
+    2027: (8, 5, 5, 2, 7, 4, 2, 6, 3, 8, 5, 3),
+}
+_PCE = {
+    2026: (29, 26, 27, 30, 28, 25, 30, 26, 30, 29, 25, 23),
+    2027: (28, 25, 31, 29, 27, 25, 29, 25, 30, 28, 24, 22),
+}
 
 _MOIS = ("janvier", "février", "mars", "avril", "mai", "juin", "juillet",
          "août", "septembre", "octobre", "novembre", "décembre")
 
 
-def _stats(kind: str, label: str, days: tuple[int, ...]) -> list[MacroEvent]:
+def _stats(kind: str, label: str,
+           by_year: dict[int, tuple[int, ...]]) -> list[MacroEvent]:
     events = []
-    for month, day in enumerate(days, start=1):
-        ref = _MOIS[month - 2]  # la donnée porte sur le mois précédent
-        de = "d'" if ref[0] in "aâo" else "de "
-        events.append(MacroEvent(dt.date(2026, month, day), TIME_STATS,
-                                 kind, label, note=f"données {de}{ref}"))
+    for year, days in by_year.items():
+        for month, day in enumerate(days, start=1):
+            ref = _MOIS[month - 2]  # la donnée porte sur le mois précédent
+            de = "d'" if ref[0] in "aâo" else "de "
+            events.append(MacroEvent(dt.date(year, month, day), TIME_STATS,
+                                     kind, label, note=f"données {de}{ref}"))
     return events
 
 
@@ -93,9 +116,9 @@ def _build_events() -> tuple[MacroEvent, ...]:
                    note="avec projections (SEP)" if sep else "")
         for year, month, day, sep in _FOMC
     ]
-    events += _stats("CPI", "Inflation US (CPI)", _CPI_2026)
-    events += _stats("NFP", "Emploi US (NFP)", _NFP_2026)
-    events += _stats("PCE", "Inflation PCE", _PCE_2026)
+    events += _stats("CPI", "Inflation US (CPI)", _CPI)
+    events += _stats("NFP", "Emploi US (NFP)", _NFP)
+    events += _stats("PCE", "Inflation PCE", _PCE)
     return tuple(sorted(events, key=lambda e: e.when_utc))
 
 
@@ -123,6 +146,13 @@ def next_of(kind: str, today: dt.date | None = None) -> MacroEvent | None:
     return next((e for e in upcoming(today) if e.kind == kind), None)
 
 
+def last_dates() -> dict[str, dt.date]:
+    """Jusqu'où court chaque famille, dans l'ordre de `KINDS`."""
+    return {kind: max(e.date for e in EVENTS if e.kind == kind)
+            for kind in KINDS}
+
+
 def last_date() -> dt.date:
-    """Jusqu'où court la liste — au-delà, elle est à compléter ici."""
-    return EVENTS[-1].date
+    """Jusqu'où la liste est complète — la famille qui s'épuise la
+    première. Au-delà, elle est à compléter ici."""
+    return min(last_dates().values())
