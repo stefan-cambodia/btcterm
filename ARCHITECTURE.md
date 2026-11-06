@@ -1658,10 +1658,28 @@ le sommeil, et le journal disait « klines:1h:400 de nouveau servie après
 95 min » de quatre-vingt-quatre minutes de sommeil. Dans les
 `WAKE_GRACE` secondes d'un réveil (une minute, `SleepWatch` au §2.7), un
 échec est donc servi de secours mais ne se journalise pas et ne compte pas
-au bandeau. Il armait aussi l'attente de Binance (`KLINES_RETRY`, une
-minute) : le graphique repartait soixante et une secondes après le retour
-du réseau, à chacun des réveils relus. Pendant la même minute, Binance est
-retenté toutes les cinq secondes (`WAKE_KLINES_RETRY`).
+au bandeau. Il armait aussi l'attente de Binance, alors fixée à une
+minute : le graphique repartait soixante et une secondes après le retour
+du réseau, à chacun des réveils relus.
+
+Cette attente a été revue pour elle-même. Binance injoignable, le
+pousseur attendrait sinon chaque délai de connexion, et la source n'est
+retentée qu'après un délai (`KLINES_RETRY`) ; mais une minute fixe figeait
+le graphique soixante secondes pour un accroc que le premier nouvel essai
+effaçait — douze des vingt-trois pannes de Binance relues au journal se
+rétablissaient en deux minutes au plus, au premier ou au deuxième essai.
+Le délai part désormais de cinq
+secondes (`KLINES_RETRY_FIRST`) et suit la durée de la panne déjà vue,
+une minute au plus ; dans la minute d'un réveil, il reste à cinq secondes.
+Le temps écoulé, et non le compte des échecs, le fait grandir : plusieurs
+lecteurs qui échouent ensemble ne le doublent pas d'un coup. Et une
+lecture refusée pendant l'attente lève `SourceBackoff`, que le cache sert
+de secours sans compter de panne : la source n'a pas été appelée. Un seul
+délai de connexion, le 6 novembre à 12:30:01, avait écrit onze lignes au
+journal — la panne réelle du quart d'heure, puis chaque intervalle lu
+pendant l'attente, « en panne : Binance en attente de nouvel essai »,
+suivi de son retour ; ces échos faisaient trente-cinq des quatre-vingt-dix-huit
+lignes de panne du journal en trois jours.
 
 Un collecteur qui n'a rien obtenu
 lève au lieu de rendre un vide : `fetch_perp_snapshot` rendait `{}`
@@ -2239,6 +2257,16 @@ constaté à l'usage, ou des points restés ouverts.
   secours sans compter comme panne, Binance y est retenté toutes les cinq
   secondes, et un échec après un long silence ouvre une panne au lieu
   d'allonger l'ancienne (§4.3).
+- ~~**Un accroc de Binance fige le graphique une minute**~~ — constaté au
+  journal du service une heure après : un seul délai de connexion, à
+  12:30:01, et onze lignes de panne, tous les intervalles lus pendant
+  l'attente d'une minute se disant « en panne : Binance en attente de
+  nouvel essai » — trente-cinq des quatre-vingt-dix-huit lignes de panne
+  en trois jours étaient de ces échos. Le graphique, lui, restait figé
+  soixante secondes pour un accroc que le premier nouvel essai effaçait.
+  Fait : le délai part de cinq secondes et suit la panne vue, une minute au
+  plus, et une lecture refusée pendant l'attente (`SourceBackoff`) est
+  servie de secours sans compter comme panne (§4.3).
 - ~~**Les alertes après un redémarrage**~~ — constaté au balayage des
   panneaux du service en marche : « aucune alerte — les seuils
   veillent » quand le journal en comptait onze sur la journée. Fait :

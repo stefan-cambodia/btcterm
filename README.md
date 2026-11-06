@@ -355,7 +355,10 @@ est traité comme un boot. Il se lit désormais sur les horloges du noyau,
 qui voient aussi les sommeils de quelques secondes ; dans la minute qui le
 suit, un échec n'est plus une panne — il comptait le sommeil dans la durée
 de la panne d'avant et retenait le graphique une minute après le retour du
-réseau. Le tableau des liquidations écrit ses prix
+réseau. Un accroc de Binance, de même, ne fige plus le graphique une minute
+ni n'écrit une ligne de panne par intervalle : la source est retentée après
+cinq secondes, puis d'autant plus tard que la panne dure. Le tableau des
+liquidations écrit ses prix
 selon leur taille — un bitcoin à 79 090 $ s'y lisait `7.909e+04`. Et un onglet ouvert
 coûtait un sixième de cœur au serveur — la moitié en figures de
 profondeur rebâties dix fois par seconde ; la profondeur part désormais
