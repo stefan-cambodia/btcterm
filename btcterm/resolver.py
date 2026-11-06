@@ -62,11 +62,13 @@ DOH_ENDPOINTS: tuple[str, ...] = (
     "https://8.8.8.8/resolve",
 )
 
-#: Domaines dont la réponse du système ne fait jamais foi : ceux des cinq
-#: plateformes. Quatre sont déjà falsifiés depuis le Cambodge, le cinquième
-#: est là pour le jour où il le sera.
+#: Domaines dont la réponse du système ne fait jamais foi : ceux des
+#: plateformes. Quatre sont déjà falsifiés depuis le Cambodge ; Coinbase,
+#: Kraken et Deribit — celui-ci pour les options — sont là pour le jour où
+#: ils le seront.
 GUARDED_DOMAINS: tuple[str, ...] = (
     "binance.com", "bybit.com", "okx.com", "coinbase.com", "kraken.com",
+    "deribit.com",
 )
 
 #: Adresses publiques que le fournisseur d'accès substitue aux domaines

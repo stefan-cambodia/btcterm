@@ -33,7 +33,9 @@ __all__ = ["VOL_BINS", "prepare_price_frame",
            "fear_greed_color", "FEAR_GREED_ZONES",
            "build_etf_chart", "etf_stats", "etf_issuers",
            "etf_total_column", "format_flow",
-           "ETF_WINDOWS", "ETF_DEFAULT_WINDOW"]
+           "ETF_WINDOWS", "ETF_DEFAULT_WINDOW",
+           "OPTIONS_VIEWS", "OPTIONS_DEFAULT_VIEW", "build_vol_chart",
+           "build_term_chart", "build_strikes_chart"]
 
 VOL_BINS = 60
 
@@ -713,4 +715,174 @@ def _etf_empty(message: str) -> go.Figure:
                           font=dict(family=MONO, color=C["muted"], size=11))],
         xaxis=dict(visible=False), yaxis=dict(visible=False),
     )
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────
+# Options : volatilité, échéances, strikes
+# ─────────────────────────────────────────────────────────────
+
+#: Les trois vues du panneau options, dans l'ordre du sélecteur.
+OPTIONS_VIEWS = {"VOL": "vol", "TERME": "term", "STRIKES": "strikes"}
+OPTIONS_DEFAULT_VIEW = "VOL"
+
+#: Strikes montrés autour du forward, en fraction : au-delà, l'open interest
+#: n'est plus qu'une poussière de paris lointains qui écrase l'échelle.
+STRIKES_SPAN = (0.6, 1.5)
+
+
+def _options_layout(fig: go.Figure, uirevision: str, maximized: bool) -> None:
+    axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
+                       tickfont=dict(size=9, color=C["muted"]))
+    fig.update_layout(
+        paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
+        font=dict(family=MONO, color=C["text"], size=10),
+        margin=dict(l=8, r=8, t=18 if maximized else 4, b=4),
+        hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
+                        font_color=C["text"], font_size=10),
+        legend=dict(orientation="h", y=1.02, x=0, yanchor="bottom",
+                    font=dict(size=9), bgcolor="rgba(0,0,0,0)"),
+        xaxis=dict(**axis_common), yaxis=dict(**axis_common),
+        uirevision=uirevision,
+    )
+
+
+def _options_empty(fig: go.Figure, message: str) -> go.Figure:
+    fig.add_annotation(text=message, xref="paper", yref="paper", x=0.5, y=0.5,
+                       showarrow=False,
+                       font=dict(family=MONO, size=11, color=C["muted"]))
+    return fig
+
+
+def build_vol_chart(dvol: pd.DataFrame, realized: pd.DataFrame,
+                    uirevision: str = "options:vol",
+                    maximized: bool = False) -> go.Figure:
+    """DVOL contre la volatilité réalisée à trente jours.
+
+    DVOL dit la volatilité que les options attendent pour le mois qui
+    vient, la réalisée celle que le mois écoulé a livrée. L'écart est la
+    prime que paient les acheteurs d'options : positive d'ordinaire — on
+    paie pour se couvrir —, elle se retourne quand le marché bouge plus
+    que ce qu'il avait prévu.
+    """
+    fig = go.Figure()
+    if not dvol.empty:
+        fig.add_trace(go.Scatter(
+            x=dvol["time"], y=dvol["close"], name="DVOL (implicite 30 j)",
+            mode="lines", line=dict(color=C["yellow"], width=1.6),
+            hovertemplate="DVOL %{y:.1f}<extra></extra>",
+        ))
+    if not realized.empty:
+        fig.add_trace(go.Scatter(
+            x=realized["time"], y=realized["value"], name="réalisée 30 j",
+            mode="lines", line=dict(color=C["cyan"], width=1.3),
+            hovertemplate="réalisée %{y:.1f}<extra></extra>",
+        ))
+    _options_layout(fig, uirevision, maximized)
+    # Le titre d'axe ne tient qu'en plein écran : dans la rangée basse, il
+    # est coupé, et la légende dit déjà ce que sont les courbes.
+    fig.update_layout(hovermode="x unified",
+                      yaxis_title_text=("volatilité annualisée (%)"
+                                        if maximized else None))
+    if dvol.empty and realized.empty:
+        _options_empty(fig, "volatilité indisponible")
+    return fig
+
+
+def build_term_chart(curve: pd.DataFrame, futures: pd.DataFrame,
+                     uirevision: str = "options:term",
+                     maximized: bool = False) -> go.Figure:
+    """La courbe des échéances : volatilité implicite en haut, base en bas.
+
+    En haut, la volatilité à la monnaie de chaque échéance, et ses deux
+    ailes 25 delta : l'aile des puts au-dessus de celle des calls, c'est
+    la couverture à la baisse qui se paie. En bas, la base annualisée des
+    futures, le coût du portage d'une position longue jusqu'à l'échéance.
+    L'axe est le temps, pas le rang de l'échéance : la courbe a la forme
+    du calendrier.
+    """
+    fig = go.Figure()
+    if not curve.empty:
+        days = curve["days"].round().astype(int)
+        for column, name, color, dash in (
+                ("put25", "put 25Δ", C["red"], "dot"),
+                ("atm", "à la monnaie", C["yellow"], "solid"),
+                ("call25", "call 25Δ", C["green"], "dot")):
+            fig.add_trace(go.Scatter(
+                x=curve["expiry"], y=curve[column] * 100, name=name,
+                mode="lines+markers", customdata=days,
+                line=dict(color=color, width=1.6 if dash == "solid" else 1.1,
+                          dash=dash),
+                marker=dict(size=4),
+                hovertemplate=(f"{name} %{{y:.1f}} · "
+                               "%{x|%d %b %y} (%{customdata} j)<extra></extra>"),
+            ))
+    if not futures.empty:
+        # Une courbe et non des barres : sur un axe de dates, deux échéances
+        # à un jour d'écart réduisaient les barres à des traits.
+        fig.add_trace(go.Scatter(
+            x=futures["expiry"], y=futures["annualized"] * 100,
+            name="base annualisée", yaxis="y2", mode="lines+markers",
+            line=dict(color=C["purple"], width=1.4), marker=dict(size=4),
+            fill="tozeroy", fillcolor="rgba(167,139,250,0.08)",
+            customdata=futures["days"].round().astype(int),
+            hovertemplate=("base %{y:.2f} %/an · %{x|%d %b %y} "
+                           "(%{customdata} j)<extra></extra>"),
+        ))
+    _options_layout(fig, uirevision, maximized)
+    axis = dict(gridcolor=C["grid"], zerolinecolor=C["border"])
+    fig.update_layout(
+        hovermode="closest",
+        # L'axe des dates sous l'étage du bas, qu'il partage avec le haut.
+        xaxis=dict(anchor="y2", gridcolor=C["grid"],
+                   tickfont=dict(size=9, color=C["muted"])),
+        yaxis=dict(domain=[0.34, 1.0], tickfont=dict(size=9, color=C["muted"]),
+                   title_text="vol. implicite (%)" if maximized else None,
+                   **axis),
+        yaxis2=dict(domain=[0.0, 0.26], tickfont=dict(size=9, color=C["purple"]),
+                    title_text="base %/an" if maximized else None,
+                    rangemode="tozero", **axis),
+    )
+    if curve.empty and futures.empty:
+        _options_empty(fig, "options indisponibles")
+    return fig
+
+
+def build_strikes_chart(table: pd.DataFrame, forward: float | None,
+                        pain: float | None, uirevision: str = "options:strikes",
+                        maximized: bool = False) -> go.Figure:
+    """L'open interest par strike d'une échéance, calls contre puts.
+
+    Le forward de l'échéance et son max pain en verticales : l'écart entre
+    les deux dit de quel côté la plupart des options finiraient sans
+    valeur si le prix ne bougeait pas.
+    """
+    fig = go.Figure()
+    view = table
+    if forward and not table.empty:
+        low, high = STRIKES_SPAN
+        view = table[(table["strike"] >= forward * low)
+                     & (table["strike"] <= forward * high)]
+    if not view.empty:
+        for column, name, color in (("call_oi", "calls", C["green"]),
+                                    ("put_oi", "puts", C["red"])):
+            fig.add_trace(go.Bar(
+                x=view["strike"], y=view[column], name=name,
+                marker=dict(color=color, opacity=0.8),
+                hovertemplate=(f"{name} %{{y:,.0f}} BTC · strike "
+                               "%{x:,.0f}<extra></extra>"),
+            ))
+    _options_layout(fig, uirevision, maximized)
+    fig.update_layout(barmode="group", bargap=0.25, hovermode="closest",
+                      yaxis_title_text=("open interest (BTC)" if maximized
+                                        else None))
+    for value, label, color, dash in ((forward, "forward", C["text"], "dash"),
+                                      (pain, "max pain", C["yellow"], "dot")):
+        if value and not view.empty:
+            fig.add_vline(x=value, line=dict(color=color, width=1, dash=dash),
+                          annotation_text=f"{label} {value:,.0f}",
+                          annotation_font=dict(size=9, color=color),
+                          annotation_position="top")
+    if view.empty:
+        _options_empty(fig, "open interest indisponible")
     return fig

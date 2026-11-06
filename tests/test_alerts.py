@@ -71,6 +71,11 @@ class FakeHub:
         self.etf = pd.DataFrame(columns=["Date", "Total"])
         self.mempool = pd.DataFrame(columns=["time", "value"])
         self.chain = {}
+        #: DVOL vide par défaut : la règle de volatilité se tait.
+        self.vol = pd.DataFrame(columns=["time", "open", "high", "low", "close"])
+
+    def dvol(self):
+        return self.vol
 
     def etf_flows(self):
         return self.etf
@@ -457,6 +462,42 @@ def test_reseau_charge():
     e.evaluate(hub, now=T0 + COOLDOWN + 6 * (SLOW_EVERY + 1))
     assert len([a for a in e.alerts if a.kind == "chain"]) == 3
     print("  ✓ réseau chargé : un front par grandeur, délai de garde tenu")
+
+
+def test_volatilite_implicite_en_hausse():
+    """DVOL au-dessus de la clôture de la veille : un front par montée."""
+    def dvol(veille, jour):
+        return pd.DataFrame({"time": pd.to_datetime(["2026-02-04", "2026-02-05"]),
+                             "open": [veille, veille], "high": [veille, jour],
+                             "low": [veille, veille], "close": [veille, jour]})
+
+    hub = FakeHub()
+    e = engine(dvol_jump_pts=6)
+    e.evaluate(hub, now=T0)
+    assert not e.alerts, "DVOL absent a sonné"
+
+    hub.vol = dvol(53.5, 57.0)
+    e.evaluate(hub, now=T0 + SLOW_EVERY + 1)
+    assert not e.alerts, "une hausse sous le seuil a sonné"
+
+    hub.vol = dvol(53.5, 82.6)
+    e.evaluate(hub, now=T0 + 2 * (SLOW_EVERY + 1))
+    sonneries = [a for a in e.alerts if a.kind == "vol"]
+    assert len(sonneries) == 1, sonneries
+    assert sonneries[0].message == ("volatilité implicite en hausse : DVOL "
+                                    "82.6, +29.1 points depuis la clôture "
+                                    "d'hier"), sonneries[0].message
+
+    # La journée reste tendue : une seule sonnerie.
+    e.evaluate(hub, now=T0 + 3 * (SLOW_EVERY + 1))
+    assert len([a for a in e.alerts if a.kind == "vol"]) == 1, "rafale"
+
+    # Une ligne de DVOL ne suffit pas à dire une veille : silence.
+    hub.vol = dvol(53.5, 82.6).iloc[1:]
+    e2 = engine(dvol_jump_pts=6)
+    e2.evaluate(hub, now=T0)
+    assert not e2.alerts
+    print("  ✓ DVOL : un bond au-dessus de la veille sonne une fois")
 
 
 def test_sonneries_au_journal():

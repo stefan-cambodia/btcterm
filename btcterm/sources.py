@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import io
 import re
+import time
 from datetime import datetime, timezone
 from typing import Any, Iterable, Optional
 
@@ -83,6 +84,11 @@ COINGECKO_GLOBAL = "https://api.coingecko.com/api/v3/global"
 BINANCE_FUTURES = "https://fapi.binance.com"
 BYBIT_REST = "https://api.bybit.com"
 OKX_REST = "https://www.okx.com"
+
+#: Options et futures à échéance — Deribit, API publique sans clé. La
+#: plateforme tient l'essentiel de l'open interest des options bitcoin ;
+#: une requête rend toute la chaîne (près d'un millier d'options).
+DERIBIT_REST = "https://www.deribit.com/api/v2/public"
 
 #: Masse monétaire M2 des États-Unis (série H.6 de la Réserve fédérale,
 #: mensuelle, désaisonnalisée), servie par DBnomics. FRED publie la même
@@ -347,6 +353,52 @@ def fetch_chain_chart(
         "time": pd.to_datetime(df["x"], unit="s"),
         "value": df["y"].astype(float),
     })
+
+
+def _deribit(method: str, params: dict, timeout: float = 10) -> Any:
+    response = requests.get(f"{DERIBIT_REST}/{method}", params=params,
+                            timeout=timeout)
+    response.raise_for_status()
+    payload = response.json()
+    if "result" not in payload:
+        raise RuntimeError(f"Deribit {method} : {payload.get('error')}")
+    return payload["result"]
+
+
+def fetch_deribit_summary(kind: str = "option",
+                          currency: str = "BTC") -> list[dict[str, Any]]:
+    """Le résumé de chaque instrument coté : `kind` vaut `option` ou `future`.
+
+    Une ligne par instrument — nom, prix de marque, open interest, volume,
+    et pour les options la volatilité de marque (`mark_iv`, en pour cent)
+    et le prix du future de l'échéance (`underlying_price`). Une liste vide
+    lève : le cache la stockerait sinon comme une lecture réussie.
+    """
+    rows = _deribit("get_book_summary_by_currency",
+                    {"currency": currency, "kind": kind})
+    if not isinstance(rows, list) or not rows:
+        raise RuntimeError(f"Deribit : aucun instrument {kind}")
+    return rows
+
+
+def fetch_dvol(days: int = 365, currency: str = "BTC") -> pd.DataFrame:
+    """DVOL, l'indice de volatilité implicite à trente jours de Deribit.
+
+    Bougies journalières, `time` / `open` / `high` / `low` / `close`, en
+    points de volatilité annualisée. C'est le VIX du bitcoin : la
+    volatilité que les options attendent pour le mois qui vient.
+    """
+    end = int(time.time() * 1000)
+    result = _deribit("get_volatility_index_data", {
+        "currency": currency, "resolution": "1D",
+        "start_timestamp": end - days * 86_400_000, "end_timestamp": end,
+    })
+    data = result.get("data") or []
+    if not data:
+        raise RuntimeError("Deribit : DVOL vide")
+    frame = pd.DataFrame(data, columns=["time", "open", "high", "low", "close"])
+    frame["time"] = pd.to_datetime(frame["time"], unit="ms")
+    return frame.sort_values("time").reset_index(drop=True)
 
 
 def fetch_chain_stats() -> dict[str, Any]:

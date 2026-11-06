@@ -82,11 +82,12 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; financement, prime et open interest comparés sur Binance, Bybit et OKX (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
-| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé (onglet des news) | 2 s |
+| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
 | **Analyse** | tendance, écart à la MA 200, RSI, ATR et dernier signal de 15m à 1w ; au choix, bilan des signaux contre une référence, règles simples face à la détention, frais compris, ou carte des rendements mensuels ; export CSV (onglet de la macro) | 30 s |
 | **Dominance** | parts de capitalisation et leur tendance journalisée, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
+| **Options** | marché des options Deribit en trois vues : DVOL contre volatilité réalisée ; volatilité par échéance avec ses ailes 25 delta, au-dessus de la base annualisée des futures ; open interest par strike d'une échéance, forward et max pain. Skew, put/call, open interest total au titre ; DVOL aussi au bandeau (onglet de la macro) | 1 min |
 
 Les **liquidations** sont le pendant du perpétuel : quand une position à levier
 ne couvre plus sa marge, la plateforme la ferme au marché, et ces fermetures
@@ -256,7 +257,9 @@ journalisé : le glissement de la dominance BTC sur 24 h, qui ne peut sonner
 qu'une fois l'historique accumulé — et deux lues sur les panneaux ETF et
 on-chain : un jour de flux ETF au-delà du seuil (une sonnerie par jour,
 le jour présent au démarrage tenu pour vu) et un réseau chargé, mempool
-gonflé ou blocs lents.
+gonflé ou blocs lents — et une sur le marché des options : DVOL qui monte de
+plus de six points (réglable) au-dessus de sa clôture de la veille, ce qui
+n'est arrivé que dix jours sur l'année écoulée.
 Les règles sonnent sur le front montant, sous délai de garde — une condition
 qui dure ou qui clignote ne sonne pas en rafale. La cloche du bandeau compte
 la dernière heure et ouvre le panneau d'un clic, où qu'il soit rangé ; le bip et les notifications navigateur (permission
@@ -271,6 +274,25 @@ un trimestre de retard ; les deux corrélations affichées disent ce qu'il en es
 Celle des **niveaux** est toujours forte et n'apprend rien — deux séries qui
 montent depuis dix ans vont ensemble ; celle des **variations sur trois mois**
 est la seule qui informe.
+
+**Options** — le carnet, le perpétuel et les liquidations disent ce que le
+marché fait ; les options disent ce qu'il craint et ce qu'il paie pour s'en
+couvrir. Le panneau lit Deribit, sans clé, et propose trois vues. **VOL**
+confronte DVOL, la volatilité implicite à trente jours — le VIX du bitcoin —, à
+la volatilité réalisée sur le même horizon : l'écart est la prime des options,
+qui se retourne quand le marché bouge plus qu'il ne l'attendait. **TERME** trace
+la volatilité à la monnaie de chaque échéance et ses deux ailes à 25 delta —
+l'aile des puts au-dessus de celle des calls, c'est la couverture à la baisse
+qui se paie —, au-dessus de la base annualisée des futures à échéance, le
+pendant à terme du financement du perpétuel. **STRIKES** montre l'open interest
+d'une échéance par strike, calls contre puts, avec le forward et le max pain :
+le prix où les acheteurs d'options perdraient le plus à l'échéance, une
+lecture du positionnement et non une prévision. Le titre donne le skew 25 delta
+à un mois, le ratio put/call et, en plein écran, la prime, l'open interest
+total et la base à trois mois. Les deltas sont calculés en Black-76 depuis la
+volatilité de marque de Deribit (`btcterm/options.py`) ; les strikes restent en
+dollars, la devise des contrats. DVOL est aussi au bandeau, avec sa variation
+depuis la veille, et le clic l'y ouvre le panneau.
 
 **Calendrier** — les prochaines échéances qui font bouger le marché : décisions
 du FOMC (avec ou sans projections), inflation CPI et PCE, rapport sur l'emploi
@@ -338,7 +360,10 @@ Et un pan vers le passé qui tombe pendant une pause de Binance ne ferme plus
 l'historique pour la séance : la page manquée se dit, et le graphique la
 redemande. Un retour d'onglet ne fait plus sauter la vue de deux ans quand
 on a remonté le passé, et une page égarée au changement d'intervalle ne se
-colle plus au milieu de la série.
+colle plus au milieu de la série. Le terminal a enfin gagné un dix-septième
+panneau, OPTIONS — volatilité implicite contre réalisée, courbe des échéances
+et skew, open interest par strike et max pain, base des futures à échéance —,
+DVOL au bandeau et une alerte quand la volatilité implicite bondit.
 Ce même journal a ensuite compté cinquante-quatre resynchronisations
 Kraken en une matinée, et nommé la cause qu'on croyait fortuite : le flux
 décrit une fenêtre de vingt-cinq niveaux, le carnet en gardait cent, et
@@ -476,6 +501,7 @@ python tests/test_prepare_price_frame.py # enrichissement du prix : colonnes, bo
 python tests/test_resolver.py            # résolution DNS de secours, sans réseau
 python tests/test_fear_greed.py          # Fear & Greed : lecture, dérivation, couleurs
 python tests/test_etf_flows.py           # flux ETF : fenêtres, cumul, classement
+python tests/test_options.py             # options : sourire, max pain, base, panneau
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox

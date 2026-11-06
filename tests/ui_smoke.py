@@ -29,6 +29,8 @@ import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+#: La racine, pour lire le registre des panneaux (terminal/grid.py).
+sys.path.insert(1, str(Path(__file__).resolve().parent.parent))
 
 URL = "http://127.0.0.1:8050/"
 
@@ -903,6 +905,80 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("corrélations affichées", "r niveaux" in macro["stats"],
               macro["stats"][:48])
 
+        print("\nPanneau options")
+        # Onglet de la rangée basse ; Deribit muet, le panneau doit le dire
+        # plutôt que rester vide — le contrôle vérifie l'écran, pas la source.
+        browser.js("""
+            Array.from(document.querySelectorAll('.cell-tab'))
+                 .find(t => t.textContent.trim() === 'OPTIONS').click();
+        """)
+        check("l'onglet ouvre le panneau", browser.wait_for(
+            "!!document.querySelector('#options-chart .js-plotly-plot')",
+            timeout=20))
+        time.sleep(4)
+        badges = browser.js(
+            "return document.getElementById('options-badges').textContent;")
+        check("DVOL au bandeau, ou l'absence de Deribit dite",
+              "DVOL" in badges or "indisponible" in badges, badges[:48])
+
+        def options_view(label):
+            browser.js("""
+                Array.from(document.querySelectorAll('#options-view label'))
+                     .find(l => l.textContent.trim() === arguments[0]).click();
+            """, [label])
+            time.sleep(3)
+            return browser.js("""
+                const gd = document.querySelector('#options-chart .js-plotly-plot');
+                return {traces: gd.data.map(t => t.name),
+                        vide: (gd.layout.annotations || []).length > 0 &&
+                              gd.data.length === 0,
+                        echeances: Array.from(document.querySelectorAll(
+                            '#options-expiry label')).length,
+                        cochee: !!document.querySelector(
+                            '#options-expiry input:checked'),
+                        selecteur: getComputedStyle(document.getElementById(
+                            'options-expiry')).display};
+            """)
+
+        terme = options_view("TERME")
+        check("TERME : monnaie, ailes 25Δ et base, ou vide annoté",
+              terme["vide"] or {"à la monnaie", "put 25Δ", "call 25Δ",
+                                "base annualisée"} <= set(terme["traces"]),
+              ", ".join(terme["traces"]))
+        check("TERME : pas de sélecteur d'échéance",
+              terme["selecteur"] == "none", terme["selecteur"])
+        strikes = options_view("STRIKES")
+        check("STRIKES : calls et puts, ou vide annoté",
+              strikes["vide"] or {"calls", "puts"} <= set(strikes["traces"]),
+              ", ".join(strikes["traces"]))
+        check("STRIKES : échéances au choix, l'une cochée",
+              strikes["vide"] or (strikes["echeances"] >= 1
+                                  and strikes["cochee"]),
+              f"{strikes['echeances']} échéances")
+        vol = options_view("VOL")
+        check("VOL : DVOL contre réalisée, ou vide annoté",
+              vol["vide"] or "DVOL (implicite 30 j)" in vol["traces"],
+              ", ".join(vol["traces"]))
+        hdr_dvol = browser.js(
+            "return document.getElementById('hdr-dvol').textContent;")
+        check("DVOL au bandeau, s'il est connu",
+              hdr_dvol.startswith("DVOL ") or "indisponible" in badges,
+              hdr_dvol)
+
+        def macro_tab():
+            browser.js("""
+                Array.from(document.querySelectorAll('.cell-tab'))
+                     .find(t => t.textContent.trim() === 'MACRO').click();
+            """)
+            time.sleep(1.5)
+
+        # Le clic sur DVOL ramène le panneau, comme la cloche les alertes.
+        macro_tab()
+        browser.js("document.getElementById('hdr-dvol').click();")
+        check("le clic sur DVOL ouvre le panneau options", browser.wait_for(
+            "!!document.querySelector('#options-chart')", timeout=8))
+        macro_tab()
+
         print("\nDouble-clic")
         browser.js("document.querySelector('#cell-arb')"
                    ".dispatchEvent(new MouseEvent('dblclick', {bubbles: true}));")
@@ -962,8 +1038,13 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("⚙ ouvre le dialogue", browser.wait_for(
             "!document.getElementById('layout-overlay')"
             ".className.includes('layout-overlay-hidden')", timeout=8))
-        check("un rang par panneau", browser.js(
-            "return document.querySelectorAll('.layout-row').length;") == 16)
+        # Le compte vient du registre : une constante écrite ici cassait à
+        # chaque panneau ajouté.
+        from terminal.grid import PANEL_REGISTRY
+        rangs = browser.js(
+            "return document.querySelectorAll('.layout-row').length;")
+        check("un rang par panneau", rangs == len(PANEL_REGISTRY),
+              f"{rangs} rangs, {len(PANEL_REGISTRY)} panneaux")
         browser.js("""
             const rang = Array.from(document.querySelectorAll('.layout-row'))
                 .find(r => r.querySelector('.layout-panel-name')

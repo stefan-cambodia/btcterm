@@ -14,7 +14,7 @@ centré sur le Bitcoin — où chaque famille d'information occupe un panneau d'
 même interface : prix et indicateurs, carnet d'ordres, profondeur comparée entre
 exchanges, écarts d'arbitrage, liquidations, flux des ETF spot, marché à terme,
 fil de news et sentiment, calendrier macro, dominance, données de chaîne,
-contexte monétaire.
+contexte monétaire, marché des options.
 
 ### État actuel : le terminal existe
 
@@ -25,7 +25,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant seize panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant dix-sept panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement doublés d'un canal push pour les panneaux rapides, un hub
   qui n'ouvre qu'une connexion par plateforme et un collecteur de news en
@@ -59,11 +59,13 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── liquidations.py            fil des positions fermées de force
 │   │                              (Binance, et Bybit)
 │   ├── sources.py                 collecteurs REST : marché, ETF, M2,
-│   │                              terme, chaîne, news, sentiment
+│   │                              terme, options, chaîne, news, sentiment
 │   ├── macrocal.py                calendrier macro tenu à la main
 │   ├── newsdb.py                  base de news : schéma, scoring, collecte
 │   ├── analysis.py                état des intervalles, bilan des signaux,
 │   │                              règles simples, position, saisonnalité
+│   ├── options.py                 chaîne d'options Deribit : sourire, skew,
+│   │                              max pain, base des futures (§2.11)
 │   ├── history.py                 bougies closes sur disque
 │   │                              (~/.btcterm/klines.db)
 │   ├── journal.py                 journal des liquidations + épisodes
@@ -80,7 +82,8 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── grid.py                    grille : rangement, cellules, onglets,
 │   │                              plein écran (§3.4–3.5)
 │   ├── placement.py               dialogue de disposition (§3.6)
-│   ├── header.py                  bandeau : cours, variation, spread, flux
+│   ├── header.py                  bandeau : cours, variation, spread, DVOL,
+│   │                              flux
 │   ├── push.py                    canal push des panneaux rapides (§3.10)
 │   ├── fx.py                      devise d'affichage commune aux panneaux
 │   ├── lwc.py                     données des rendus LWC : /api/klines,
@@ -97,7 +100,8 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   └── panels/                    price · orderbook · arbitrage ·
 │                                   liquidations · journal · etf · perp ·
 │                                   position · news · calendar · alerts ·
-│                                   macro · dominance · onchain · analysis
+│                                   macro · dominance · onchain · analysis ·
+│                                   options
 │
 ├── tests/
 │   ├── test_indicators_parity.py  non-régression des indicateurs
@@ -106,6 +110,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_macrocal.py           calendrier macro tenu à la main
 │   ├── test_fear_greed.py         indice Fear & Greed : source, hub, couleurs
 │   ├── test_etf_flows.py          flux ETF : fenêtres, cumul, classement
+│   ├── test_options.py            options : sourire, max pain, base, panneau
 │   ├── test_terminal_wiring.py    panneaux posés et branchés
 │   ├── test_grid_layout.py        rangement configurable des panneaux
 │   ├── test_fullscreen_toggle.py  bascule plein écran (sous Node)
@@ -609,6 +614,16 @@ on-chain tirent déjà — mêmes caches, aucune requête de plus :
   mineurs depuis le dernier ajustement — ce que le panneau on-chain
   colore déjà en orange.
 
+Une autre lit le marché des options (§2.11), dont la règle tient le cache
+chaud à la minute — c'est sur lui que le bandeau lit DVOL sans réseau :
+
+- **volatilité implicite en hausse** — DVOL monte de plus du seuil (six
+  points par défaut) au-dessus de sa clôture de la veille. Le seuil vient de
+  l'année écoulée : une telle hausse n'est arrivée que dix jours, dont le
+  31 janvier, le 3 et le 5 février 2026 — la semaine du krach, où DVOL est
+  passé de 53 à 90 dans la journée. Une sonnerie par montée : la condition tient le reste du
+  jour, le front ne sonne qu'une fois.
+
 Les deux dernières sont des événements datés, comme le signal gradué,
 mais tirés de ce que le bilan du panneau ANALYSE (§3.14) et le
 calendrier (§2.6) ont appris au terminal :
@@ -665,7 +680,8 @@ les sonneries et les réglages, qui vivent dans un Store persisté et
 réarment le moteur au chargement ; la cloche du bandeau compte la
 dernière heure et **ouvre le panneau d'un clic** — elle demande à la
 grille (`reveal`) dans quelle cellule le panneau a été rangé, et quitte
-au passage un éventuel plein écran qui le masquerait ; un bip et une notification navigateur (permission
+au passage un éventuel plein écran qui le masquerait — DVOL, au bandeau, fait
+de même pour le panneau options (`REVEALS` dans `terminal/header.py`) ; un bip et une notification navigateur (permission
 demandée d'un geste) partent d'un callback clientside sur le fil global
 — la sonnerie retentit même panneau replié, et un rechargement ne
 rejoue rien.
@@ -759,7 +775,48 @@ la série, l'appel ne valait plus que sa poignée de main TLS (337 ms contre
 110). Le réveil de la machine l'oublie (`reset_connections`) : morte sans
 l'avoir dit, elle ferait attendre la lecture suivante jusqu'au bout de son délai.
 
-### 2.11 Non-régression
+### 2.11 `options` — ce que les prix d'options disent du futur
+
+Le carnet, le perpétuel et les liquidations disent ce que le marché *fait* ; les
+options disent ce qu'il *craint* et ce qu'il paie pour s'en couvrir. Le module
+lit une photographie de Deribit — la plateforme qui tient l'essentiel de
+l'open interest des options bitcoin, publique et sans clé — et n'en tire que
+des fonctions pures, testées sans réseau (`tests/test_options.py`) :
+
+- `option_chain` met les lignes brutes de `get_book_summary_by_currency` en
+  table : échéance (08:00 UTC, l'heure de Deribit), strike, sorte,
+  volatilité de marque, open interest en BTC, forward de l'échéance ;
+- `term_structure` lit le **sourire** de chaque échéance sur ses seules
+  options hors de la monnaie — puts sous le forward, calls au-dessus, celles
+  qui s'échangent : volatilité au forward, interpolée en log-strike, et ailes
+  à 25 delta, interpolées en delta du call (0,25 pour le call, 0,75 pour le
+  put de delta −0,25). Le delta vient de Black-76 à taux nul, la convention
+  de Deribit pour des options sur le future de l'échéance. En sortent le
+  *risk reversal* (call moins put : négatif, la couverture à la baisse se
+  paie) et le *butterfly* (convexité du sourire) ;
+- `strike_table` et `max_pain` : l'open interest par strike, et le strike où
+  la valeur des options à l'échéance serait la plus faible — une description
+  du positionnement ; l'idée que le prix y serait attiré n'a rien d'établi ;
+- `futures_curve` : la base des futures à échéance contre l'indice, et son
+  annualisation, le pendant à terme du financement du perpétuel ;
+- `front_expiry` : l'échéance montrée par défaut, la plus proche qui pèse au
+  moins 5 % de l'open interest — Deribit liste une échéance par jour sur la
+  semaine qui vient, chacune minuscule — et jamais celle du jour.
+
+Les échéances à moins de deux jours (`MIN_DAYS`) restent dans l'open interest
+mais sortent des courbes : à quelques heures du terme, un écart de quelques
+dollars fait un taux annualisé absurde, et la volatilité ne mesure plus que
+le bruit de la journée.
+
+Le hub sert la chaîne et la courbe des futures à la minute (`TTL_OPTIONS`),
+DVOL à dix minutes, et la volatilité réalisée à trente jours sur les clôtures
+journalières qu'il tient déjà pour l'alerte de la MA 200 — rien sur la série
+de démonstration, comparer DVOL à une marche aléatoire n'aurait aucun sens.
+`deribit.com` rejoint les domaines dont la réponse DNS du système ne fait pas
+foi (§2.9) : il résout juste aujourd'hui, comme Coinbase et Kraken, et le
+module y est prêt le jour où ce ne sera plus le cas.
+
+### 2.12 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
@@ -1581,6 +1638,40 @@ global `position`, persisté, que le bandeau lit à chaque tour d'horloge lente.
 Un panneau caché n'étant pas dans la page (§3.5), c'est ce Store, et non les
 champs, qui porte la position entre deux ouvertures de l'onglet.
 
+### 3.16 Le panneau OPTIONS : ce que le marché craint
+
+Le dix-septième panneau, en onglet de la rangée basse — la courbe des
+échéances et l'open interest par strike se lisent en longueur —, montre le
+module `options` (§2.11) en trois vues :
+
+- **VOL** — DVOL contre la volatilité réalisée à trente jours, sur un an.
+  L'écart est la prime des options, positive d'ordinaire ; elle se retourne
+  quand le marché bouge plus qu'il ne l'attendait ;
+- **TERME** — la volatilité à la monnaie de chaque échéance et ses deux ailes
+  à 25 delta, sur un axe de temps et non de rang : la courbe a la forme du
+  calendrier. Sous elle, la base annualisée des futures, en courbe : des
+  barres, sur un axe de dates où deux échéances sont à un jour d'écart, se
+  réduisaient à des traits ;
+- **STRIKES** — l'open interest d'une échéance par strike, calls contre puts,
+  le forward et le max pain en verticales, les strikes bornés à 0,6–1,5 fois
+  le forward. Le choix de l'échéance n'apparaît que dans cette vue, limité
+  aux six qui pèsent au moins 2 % de l'open interest ; mémorisé, il cède à
+  l'échéance par défaut quand la sienne est passée, et cette dernière est
+  cochée pour que le sélecteur dise ce que montre le graphique.
+
+Le titre porte DVOL, le skew 25 delta à un mois et le ratio put/call ; le plein
+écran y ajoute la réalisée et la prime, la volatilité à un mois, le put/call
+en volume, l'open interest total, le max pain et la base à trois mois. Le
+panneau a sa propre minuterie d'une minute — l'horloge rare du terminal en
+compte cinq —, qui n'existe, comme ses callbacks, que s'il est affiché. Les
+strikes restent en dollars quelle que soit la devise choisie : ce sont les
+termes des contrats, pas un prix du moment (§4.3).
+
+Le **bandeau** affiche DVOL et sa variation depuis la veille ; il lit le cache
+sans jamais appeler Deribit (`dvol_cached`), comme le taux € : il tourne toutes
+les deux secondes, et une source en panne y bloquerait le cours le temps de
+son délai. Le clic sur DVOL ouvre le panneau, où qu'il soit rangé.
+
 ## 4. Patrons transverses
 
 ### 4.1 Deux modèles d'acquisition de données
@@ -1908,9 +1999,9 @@ suivante.
 
 **Où en est-on.** Les cinq étapes sont faites — socle extrait, couche de rendu
 tranchée, données mutualisées, doublons supprimés, couverture complète :
-seize panneaux couvrent le prix, la liquidité, l'arbitrage, les
-liquidations, les flux ETF, le marché à terme, les news, le calendrier macro,
-la macro, la dominance, la chaîne et la relecture de séance. La piste de confort laissée ouverte à la pause
+dix-sept panneaux couvrent le prix, la liquidité, l'arbitrage, les
+liquidations, les flux ETF, le marché à terme, les options, les news, le
+calendrier macro, la macro, la dominance, la chaîne et la relecture de séance. La piste de confort laissée ouverte à la pause
 précédente — une disposition de grille configurable — est faite (§3.6) :
 chaque panneau se range dans la cellule de son choix, et le rangement
 survit au rechargement. Le dernier chantier, resté conditionnel depuis
@@ -2008,7 +2099,7 @@ Le numéro de version, lui, est resté à 1.1.0.
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.11) :
+scripts y sont ramenés, sans changement de comportement (§2.12) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -2221,6 +2312,14 @@ constaté à l'usage, ou des points restés ouverts.
   son message, elle n'est pas rejouée au redémarrage. L'alerte sur les signaux
   ±2 reste active par défaut, malgré ce que le bilan en dit : c'est un réglage
   de l'utilisateur, pas un défaut du terminal.
+- ~~**Un terminal aveugle aux options**~~ — tout ce que le terminal lisait
+  disait ce que le marché fait — cours, carnet, financement, liquidations —,
+  rien de ce qu'il craint : ni volatilité implicite, ni skew, ni échéances, ni
+  positionnement par strike, alors que c'est la moitié de ce qu'un poste de
+  marché montre d'un actif. Fait : le panneau OPTIONS (§3.16) sur Deribit,
+  sans clé — DVOL contre réalisée, courbe des échéances et ailes 25 delta,
+  base des futures à échéance, open interest par strike et max pain —, avec
+  DVOL au bandeau.
 
 **Pour la surveillance :**
 
@@ -2325,6 +2424,10 @@ constaté à l'usage, ou des points restés ouverts.
   Fait : les bougies closes vivent sur disque (§2.10) ; changer d'intervalle
   passe de 0,4 à 0,19 s, reculer dans le graphique de 0,4 à 0,07 s, et une
   panne affiche le vrai historique, bandeau à l'appui.
+- ~~**Le stress des options, sans alerte**~~ — fait avec le panneau
+  OPTIONS : une douzième règle sonne quand DVOL monte de plus de six points
+  (réglable) au-dessus de sa clôture de la veille, ce qui n'est arrivé que dix
+  jours sur l'année écoulée (§2.8).
 - ~~**Une source en panne, au journal seulement**~~ — la journée a montré des
   sources muettes que seul `journalctl` nommait, le bandeau affichant 5/5 flux.
   Fait : `failing_sources` regroupe les pannes par famille, le bandeau en dit le

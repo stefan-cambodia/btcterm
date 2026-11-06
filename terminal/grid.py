@@ -23,8 +23,8 @@ import dash
 from dash import ALL, Input, Output, State, dcc, html
 
 from .panels import (alerts, analysis, arbitrage, calendar, dominance, etf, journal,
-                     liquidations, macro, news, onchain, orderbook, perp, position,
-                     price)
+                     liquidations, macro, news, onchain, options, orderbook, perp,
+                     position, price)
 from .theme import C
 
 # Disposition des panneaux. Le graphique prix occupe toute la colonne de
@@ -88,7 +88,8 @@ CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
     "macro": (("macro", "MACRO", macro.layout),
               ("dominance", "DOMINANCE", dominance.layout),
               ("onchain", "ON-CHAIN", onchain.layout),
-              ("analysis", "ANALYSE", analysis.layout)),
+              ("analysis", "ANALYSE", analysis.layout),
+              ("options", "OPTIONS", options.layout)),
 }
 
 #: Zones de la grille, dans l'ordre où elles sont posées. C'est aussi
