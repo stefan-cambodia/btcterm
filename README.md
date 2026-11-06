@@ -88,6 +88,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Dominance** | parts de capitalisation et leur tendance journalisée, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
 | **Marchés** | le bitcoin face au S&P 500, au Nasdaq, à l'or, au dollar et au taux à 10 ans : performance comparée en base 100 ou corrélation glissante sur 30 séances, tableau des cours, variations et corrélations à 30 et 90 séances (onglet de la macro) | 5 min |
+| **Sources** | l'état de chaque source — carnets, fils de liquidations, API REST, tâches de fond : ok, secours, panne, muet ou coupé, âge de la dernière donnée fraîche et dernière erreur ; ouvert aussi par l'avertissement « ⚠ N sources » du bandeau (onglet de l'arbitrage) | 10 s |
 | **Options** | marché des options Deribit en quatre vues : DVOL contre volatilité réalisée ; volatilité par échéance avec ses ailes 25 delta, au-dessus de la base annualisée des futures ; open interest par strike d'une échéance, forward et max pain ; historique du skew et de la volatilité, noté par le journal. Skew, put/call, open interest total au titre ; DVOL aussi au bandeau (onglet de la macro) | 1 min |
 
 Les **liquidations** sont le pendant du perpétuel : quand une position à levier
@@ -293,6 +294,14 @@ un trimestre de retard ; les deux corrélations affichées disent ce qu'il en es
 Celle des **niveaux** est toujours forte et n'apprend rien — deux séries qui
 montent depuis dix ans vont ensemble ; celle des **variations sur trois mois**
 est la seule qui informe.
+
+**Sources** — le terminal lit une vingtaine de sources, et quand l'une tombe,
+le bandeau en dit le nombre. Le panneau SOURCES — ouvert d'un clic sur cet
+avertissement — en donne le détail sans passer par `journalctl` : pour chaque
+carnet, fil de liquidations, API et tâche de fond, son état (ok, secours,
+panne, muet, coupé, inactif — écrit en toutes lettres, pas seulement en
+couleur), l'âge de sa dernière donnée fraîche et sa dernière erreur en une
+ligne. Les pannes viennent en tête.
 
 **Marchés** — le bitcoin bouge-t-il seul, ou avec le reste ? Le panneau le
 confronte au S&P 500, au Nasdaq 100, à l'or, au dollar (DXY) et au taux

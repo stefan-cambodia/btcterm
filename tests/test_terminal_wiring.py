@@ -300,7 +300,8 @@ def test_les_sources_en_panne_au_bandeau():
 
     #: Les deux lectures de la chaîne ne font qu'une source.
     assert sources_text({"chain": 700.0, "chain_stats": 400.0},
-                        1000.0) == ("⚠ 1 source", "on-chain depuis 10 min")
+                        1000.0) == ("⚠ 1 source", "on-chain depuis 10 min"
+                                    " — cliquer pour le détail")
     print("  ✓ sources en panne nommées au bandeau, la plus ancienne date")
 
 

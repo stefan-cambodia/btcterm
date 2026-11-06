@@ -711,6 +711,59 @@ def test_le_cache_oublie_ce_que_personne_ne_lit():
     print("  ✓ le cache oublie ce que personne ne lit, garde le secours lu")
 
 
+def test_l_etat_des_sources():
+    """Le cache dit, par clé, sa dernière valeur fraîche, son secours, sa
+    panne et sa dernière erreur ; le hub les regroupe par famille, la plus
+    mal en point donnant l'état, et y ajoute flux et tâches de fond."""
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    hub._cache = TTLCache()
+
+    erreur = ConnectionError("HTTPSConnectionPool(host='api.coingecko.com', "
+                             "port=443): Read timed out. (read timeout=12)")
+    attendue = sources.brief_error(erreur)
+
+    def panne():
+        raise erreur
+
+    hub._cache.get("klines:1h:350", 0, lambda: 1)
+    hub._cache.get("klines:4h:350", 0, lambda: 2)
+    hub._cache.get("klines:4h:350", 0, panne)          # secours servi
+    hub._cache.get("signal_stats:1h", 0, lambda: {})   # un calcul, pas une source
+    try:
+        hub._cache.get("global", 0, panne)
+    except ConnectionError:
+        pass
+    etat = hub._cache.status()
+    assert etat["global"]["error"] == attendue == "api.coingecko.com : Read timed out"
+    assert etat["global"]["failing_since"] is not None
+    assert etat["global"]["fresh_at"] is None
+    assert etat["klines:1h:350"]["stale"] is False
+
+    sections = hub.sources_status()
+    assert list(sections) == ["Flux temps réel", "Sources REST", "Tâches de fond"]
+    rest = {row["name"]: row for row in sections["Sources REST"]}
+    assert "signal_stats" not in rest
+    assert rest["global"]["state"] == "panne"
+    assert rest["global"]["detail"] == attendue
+    # Deux lectures de chandeliers, l'une en panne : la famille l'est.
+    assert rest["klines"]["state"] == "panne" and rest["klines"]["keys"] == 2
+    assert rest["klines"]["age"] is not None
+    # Les pannes en tête.
+    assert sections["Sources REST"][0]["state"] == "panne"
+    # Les carnets d'un hub jamais démarré sont coupés ; les tâches désactivées
+    # au lancement le disent.
+    assert {row["state"] for row in sections["Flux temps réel"]} == {"coupé"}
+    assert {row["state"] for row in sections["Tâches de fond"]} == {"inactif"}
+
+    from terminal.panels import sources as panneau
+    texte = str(panneau.table(sections))
+    assert "Agrégats de marché · CoinGecko" in texte and "Chandeliers · Binance" in texte
+    assert "en défaut" in str(panneau.badges(sections))
+    assert [panneau._age(s) for s in (None, 12, 600, 7200, 3 * 86_400)] == [
+        "—", "12 s", "10 min", "2 h", "3 j"]
+    print("  ✓ état par clé, familles, pannes en tête, flux et tâches dits")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCache du hub — {len(tests)} vérifications\n" + "─" * 60)

@@ -110,6 +110,7 @@ def sources_text(failing: dict[str, float], now: float) -> tuple[str, str]:
         longest[label] = max(int((now - since) // 60), longest.get(label, 0))
     title = " · ".join(f"{label} depuis {minutes} min"
                        for label, minutes in sorted(longest.items()))
+    title += " — cliquer pour le détail"
     count = len(longest)
     return f"⚠ {count} source{'s' if count > 1 else ''}", title
 
@@ -162,7 +163,10 @@ def layout():
                   style={**STAT, "color": C["yellow"]}),
         html.Span(id="hdr-position", style=STAT,
                   title="résultat de la position suivie au panneau POSITION"),
-        html.Span(id="hdr-sources", style={**STAT, "color": C["orange"]}),
+        # Le nombre de sources en panne ; le clic ouvre le panneau SOURCES,
+        # où chacune dit son état et sa dernière erreur.
+        html.Span(id="hdr-sources", className="hdr-bell", n_clicks=0,
+                  style={**STAT, "color": C["orange"]}),
         html.Button("⚙", id="layout-btn", className="layout-btn",
                     title="disposition de la grille"),
         # La cloche : sonneries de la dernière heure. Son contenu est
@@ -245,7 +249,8 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
 
 
 #: Ce que le bandeau sait ouvrir : élément cliquable → panneau.
-REVEALS = {"hdr-alerts": "alerts", "hdr-dvol": "options"}
+REVEALS = {"hdr-alerts": "alerts", "hdr-dvol": "options",
+           "hdr-sources": "sources"}
 
 
 def _register_reveal(app: dash.Dash) -> None:
