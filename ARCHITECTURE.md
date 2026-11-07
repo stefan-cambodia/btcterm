@@ -419,6 +419,27 @@ l'occasion : un flux qui n'alimente aucun carnet publie son état de
 connexion lui-même, en redéfinissant deux marqueurs, et hérite du reste —
 backoff exponentiel plafonné, remise à zéro après une connexion qui tient.
 
+**Une troisième source, OKX** (`OKXLiquidationConnector`). Le 7 novembre 2026
+au matin, le panneau SOURCES a montré les deux liens « muets » depuis une heure :
+Binance, qui tait son flux futures depuis le Cambodge, et Bybit, qui ne suit que
+dix paires. Rejoués à part pendant trois minutes, Bybit n'a rien livré et OKX
+dix liquidations — le terminal ne reposait plus que sur un fil qui pouvait se
+taire. Le canal `liquidation-orders` d'OKX couvre tous ses perpétuels d'un
+abonnement. Il compte en contrats : un linéaire vaut `ctVal` unités du
+sous-jacent (0,01 BTC pour BTC-USDT), un inverse `ctVal` dollars (100 pour
+BTC-USD) — la table des 543 contrats est lue à la connexion. À l'abonnement,
+OKX rejoue des liquidations anciennes, de la veille au soir au premier essai :
+tout ce qui précède l'ouverture du lien est écarté, sans quoi chaque
+reconnexion les reverserait au journal. OKX coupe une connexion muette depuis
+trente secondes : le connecteur lui envoie son « ping » toutes les vingt.
+
+**Ce qui est du bitcoin** (`is_bitcoin`) : un contrat sur le BTC coté en dollars
+— `BTCUSDT`, `BTCUSDC`, l'inverse `BTCUSD` d'OKX —, échéances comprises. La
+règle précédente, « commence par BTC », comptait `BTCDOMUSDT`, le contrat de
+Binance sur l'indice de dominance, qui cote quelques milliers de points : il
+gonflait le « dont BTC » du panneau et aurait étiré l'axe de la carte des
+liquidations. Le fil et la carte partagent désormais la même règle.
+
 ### 2.6 `macrocal` — le calendrier macro tenu à la main
 
 Aucune source publique satisfaisante n'existe pour un calendrier
@@ -2539,6 +2560,10 @@ d'historique pour en étalonner le seuil.
   sans clé — DVOL contre réalisée, courbe des échéances et ailes 25 delta,
   base des futures à échéance, open interest par strike et max pain —, avec
   DVOL au bandeau.
+- ~~**Un seul fil de liquidations qui livre**~~ — constaté au panneau SOURCES
+  le 7 novembre au matin : Binance muet depuis le Cambodge, Bybit sur dix
+  paires sans rien depuis une heure. Fait : OKX en troisième source, tous ses
+  perpétuels (§2.5), et la part du bitcoin reconnue exactement.
 - ~~**Le fil de news en retard au réveil**~~ — constaté au matin du
   7 novembre 2026 : « collecte il y a 345 min », six heures de sommeil et
   dix minutes de plus à attendre l'intervalle. Fait : la collecte repart au

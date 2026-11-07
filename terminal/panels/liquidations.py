@@ -47,7 +47,7 @@ SIDE_LABEL = {"long": ("LONG", C["red"]), "short": ("SHORT", C["green"])}
 
 #: Étiquette courte de la plateforme, dans la table — les mêmes
 #: abréviations que le sélecteur du carnet.
-EXCHANGE_TAG = {"Binance": "BIN", "Bybit": "BYB"}
+EXCHANGE_TAG = {"Binance": "BIN", "Bybit": "BYB", "OKX": "OKX"}
 
 
 def layout(title=None):
