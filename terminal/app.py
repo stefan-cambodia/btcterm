@@ -34,7 +34,7 @@ import os
 import dash
 from dash import dcc, html
 
-from btcterm import notify
+from btcterm import brief, notify
 from btcterm.hub import MarketHub
 
 from . import grid, header, lwc, placement, push
@@ -150,6 +150,11 @@ def main() -> None:
              "-secret (défaut : variable d'environnement BTCTERM_NTFY ; "
              "BTCTERM_NTFY_TOKEN pour un serveur protégé)",
     )
+    parser.add_argument(
+        "--brief", default=os.environ.get("BTCTERM_BRIEF", ""),
+        help="heure locale (HH:MM) de la synthèse du matin, envoyée au "
+             "sujet ntfy (défaut : variable d'environnement BTCTERM_BRIEF)",
+    )
     args = parser.parse_args()
 
     hub = MarketHub(
@@ -159,6 +164,7 @@ def main() -> None:
     )
     hub.alerts.notifier = notify.from_environment(
         {**os.environ, "BTCTERM_NTFY": args.ntfy})
+    hub.brief_at = brief.parse_time(args.brief)
     hub.start()
 
     app = create_app(hub)

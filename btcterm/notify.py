@@ -46,7 +46,9 @@ log = logging.getLogger("btcterm.notify")
 #: et passe au-dessus des autres notifications, 3 est l'ordinaire. Ce qui
 #: demande d'agir — un seuil posé, une cascade, la volatilité qui bondit,
 #: la tendance qui bascule — monte d'un cran.
-KIND_PRIORITY = {"price": 4, "liq": 4, "vol": 4, "trend": 4, "flip": 4}
+#: La synthèse du matin, sous le défaut : un résumé, pas une sonnerie.
+KIND_PRIORITY = {"price": 4, "liq": 4, "vol": 4, "trend": 4, "flip": 4,
+                 "brief": 2}
 DEFAULT_PRIORITY = 3
 
 #: Une étiquette par règle : ntfy l'affiche en émoji devant le titre.
@@ -56,6 +58,7 @@ KIND_TAGS = {
     "flip": "chart_with_upwards_trend", "event": "calendar",
     "rsi": "thermometer", "signal": "triangular_flag_on_post",
     "dominance": "pie", "etf": "bank", "chain": "link", "vol": "zap",
+    "brief": "sunrise",
 }
 
 #: Le titre de la notification, par règle : le nom que lui donne le
@@ -66,6 +69,7 @@ KIND_TITLES = {
     "flip": "tendance journalière", "event": "échéance macro",
     "rsi": "RSI", "signal": "signal", "dominance": "dominance",
     "etf": "flux ETF", "chain": "réseau", "vol": "volatilité implicite",
+    "brief": "synthèse du matin",
 }
 
 #: Au-delà, les notifications en attente sont abandonnées plutôt que

@@ -131,8 +131,14 @@ def register(app, hub):
         fear_greed = hub.fear_greed()
         if fear_greed:
             value = fear_greed["value"]
-            badge = html.Span(f"F&G {value}/100 · {fear_greed['label']}",
-                              style={"color": fear_greed_color(value)})
+            # Le chiffre seul, sa couleur dit la zone : la cellule porte
+            # quatre onglets depuis la SYNTHÈSE, et « F&G 25/100 · Extreme
+            # Fear » faisait passer la barre de titre à deux lignes. Le
+            # libellé reste au survol, et la courbe en plein écran.
+            badge = html.Span(f"F&G {value}",
+                              style={"color": fear_greed_color(value)},
+                              title=f"Fear & Greed {value}/100 · "
+                                    f"{fear_greed['label']}")
         else:
             badge = ""
 

@@ -34,7 +34,7 @@ __all__ = [
     "connect", "init_db", "article_id", "save_article",
     "score_article", "detect_sentiment",
     "collect_rss", "collect_cryptopanic", "record_fear_greed",
-    "latest", "last_fear_greed", "NewsCollector",
+    "latest", "top_since", "last_fear_greed", "NewsCollector",
 ]
 
 DB_DIR = Path.home() / ".btc_news"
@@ -327,6 +327,25 @@ def latest(limit: int = 12, path: Path = DB_PATH) -> list[sqlite3.Row]:
             "SELECT title, source, score, sentiment, url, published"
             " FROM news ORDER BY fetched_at DESC, score DESC LIMIT ?",
             (limit,),
+        ).fetchall()
+    finally:
+        connection.close()
+
+
+def top_since(since: datetime, limit: int = 3,
+              path: Path = DB_PATH) -> list[sqlite3.Row]:
+    """Les news les mieux notées collectées depuis `since` (UTC) — celles de
+    la synthèse (§ brief). `fetched_at` est un horodatage ISO en UTC : la
+    comparaison de chaînes suit l'ordre du temps."""
+    connection = connect(path)
+    if connection is None:
+        return []
+    try:
+        return connection.execute(
+            "SELECT title, source, score, sentiment, url, published"
+            " FROM news WHERE fetched_at >= ?"
+            " ORDER BY score DESC, fetched_at DESC LIMIT ?",
+            (since.astimezone(timezone.utc).isoformat(), limit),
         ).fetchall()
     finally:
         connection.close()

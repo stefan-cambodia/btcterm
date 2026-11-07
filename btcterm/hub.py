@@ -13,6 +13,7 @@ que l'interface — quelle qu'elle soit — garde le thread principal.
 
 from __future__ import annotations
 
+import datetime as dt
 import logging
 import socket
 import sqlite3
@@ -23,6 +24,7 @@ from typing import Any, Callable, Optional
 
 import pandas as pd
 
+from . import brief
 from . import markets as mkt
 from . import options as opt
 from . import sources
@@ -496,6 +498,16 @@ class MarketHub:
             # effaçait l'heure en mémoire.
             self.tape.on_large = self.journal.record_trade
 
+        #: Heure locale de la synthèse du matin (§ brief), envoyée au sujet
+        #: ntfy des alertes ; `None` : pas d'envoi. Posée par la fabrique
+        #: (`BTCTERM_BRIEF`) ou la ligne de commande (`--brief`).
+        self.brief_at: Optional[dt.time] = None
+        #: Le jour du dernier envoi, à côté du journal quand il est tenu :
+        #: un service relancé après l'heure ne la renvoie pas.
+        self._brief_sent = brief.SentLog(
+            self.journal.path.parent / "brief.json"
+            if self.journal is not None else None)
+
         #: Les bougies closes sur disque (§ history). Lié au journal, et
         #: pas seulement par commodité : les tests remplacent la source par
         #: des bougies fabriquées, qui ne doivent pas finir dans la vraie
@@ -724,6 +736,7 @@ class MarketHub:
                 self.alerts.evaluate(self, opportunities)
             except Exception:
                 pass
+            self._maybe_brief()
             # L'instantané de marché, à cadence propre : c'est lui qui
             # construit l'historique que les API refusent de servir, et
             # il couvre la séance entière — navigateur ouvert ou non.
@@ -734,6 +747,38 @@ class MarketHub:
                     self.record_market_snapshot()
                 except Exception:
                     pass
+
+    def _maybe_brief(self, now: Optional[float] = None) -> bool:
+        """Envoie la synthèse du jour, une fois son heure passée.
+
+        Une fois par jour au plus, la date d'envoi notée avant de partir :
+        la construire lit plusieurs sources, jusqu'à leurs délais, dans un
+        thread à elle — la boucle d'observation ne l'attend pas, et ne la
+        relance pas entre-temps. Une machine qui dormait à l'heure dite
+        l'envoie au réveil, datée : le résumé reste celui de la journée
+        écoulée. Rien ne part sans sujet ntfy.
+        """
+        notifier = self.alerts.notifier
+        if self.brief_at is None or notifier is None:
+            return False
+        now = time.time() if now is None else now
+        moment = dt.datetime.fromtimestamp(now)
+        if (moment.time() < self.brief_at
+                or self._brief_sent.sent_on(moment.date())):
+            return False
+        self._brief_sent.mark(moment.date())
+        threading.Thread(target=self._send_brief, args=(notifier, now),
+                         name="brief", daemon=True).start()
+        return True
+
+    def _send_brief(self, notifier, now: float) -> None:
+        try:
+            text = brief.build(self, now).text()
+        except Exception as exc:  # noqa: BLE001 — demain, elle repartira
+            log.warning("synthèse du matin non construite : %s", exc)
+            return
+        notifier.send(Alert(time=now, kind="brief", message=text))
+        log.info("synthèse du matin envoyée à %s", notifier.describe())
 
     def _after_sleep(self) -> None:
         """Rattend le réseau si la machine s'est réveillée depuis le tour

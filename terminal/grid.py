@@ -22,9 +22,9 @@ from __future__ import annotations
 import dash
 from dash import ALL, Input, Output, State, dcc, html
 
-from .panels import (alerts, analysis, arbitrage, calendar, dominance, etf, journal,
-                     liquidations, macro, markets, news, onchain, options,
-                     orderbook, perp, position, price, sources, tape)
+from .panels import (alerts, analysis, arbitrage, brief, calendar, dominance, etf,
+                     journal, liquidations, macro, markets, news, onchain,
+                     options, orderbook, perp, position, price, sources, tape)
 from .theme import C
 
 # Disposition des panneaux. Le graphique prix occupe toute la colonne de
@@ -86,7 +86,8 @@ CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
             ("position", "POSITION", position.layout)),
     "news": (("news", "NEWS", news.layout),
              ("cal", "CALENDRIER", calendar.layout),
-             ("alerts", "ALERTES", alerts.layout)),
+             ("alerts", "ALERTES", alerts.layout),
+             ("brief", "SYNTHÈSE", brief.layout)),
     "macro": (("macro", "MACRO", macro.layout),
               ("markets", "MARCHÉS", markets.layout),
               ("dominance", "DOMINANCE", dominance.layout),

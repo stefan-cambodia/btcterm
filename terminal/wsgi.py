@@ -34,6 +34,8 @@ ligne de commande (`btcterm --help`) :
     CRYPTOPANIC_API_KEY=…   clé CryptoPanic pour la collecte de news
     BTCTERM_NTFY=URL        sujet ntfy où envoyer les alertes (§ notify)
     BTCTERM_NTFY_TOKEN=…    jeton d'un serveur ntfy protégé
+    BTCTERM_BRIEF=07:00     heure locale de la synthèse du matin, envoyée
+                            au même sujet ntfy (§ brief)
 
 `terminal/systemd_service.conf` contient le gabarit d'unité `--user`
 qui va avec.
@@ -46,7 +48,7 @@ import os
 import signal
 import threading
 
-from btcterm import notify
+from btcterm import brief, notify
 from btcterm.hub import MarketHub
 
 from .app import create_app
@@ -81,6 +83,7 @@ def build(hub_factory=MarketHub):
         keep_journal=not _flag("BTCTERM_NO_JOURNAL"),
     )
     hub.alerts.notifier = notify.from_environment()
+    hub.brief_at = brief.parse_time(os.environ.get("BTCTERM_BRIEF"))
     hub.start()
     atexit.register(hub.stop)
     _stop_on_signal(hub)

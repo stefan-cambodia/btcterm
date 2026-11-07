@@ -34,6 +34,9 @@ sys.path.insert(1, str(Path(__file__).resolve().parent.parent))
 
 URL = "http://127.0.0.1:8050/"
 
+#: Le nombre de lignes du panneau SYNTHÈSE, pour le dire en cas d'échec.
+SYNTHESE_LIGNES = "return document.querySelectorAll('#brief-view tr').length;"
+
 
 def run(capture_dir: Path | None, url: str = URL) -> int:
     from marionette_client import Firefox
@@ -1168,6 +1171,35 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         browser.js("""
             Array.from(document.querySelectorAll('#cell-book .cell-tab'))
                  .find(t => t.textContent === 'CARNET').click();
+        """)
+        time.sleep(1.5)
+
+        print("\nPanneau synthèse")
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-news .cell-tab'))
+                 .find(t => t.textContent === 'SYNTHÈSE').click();
+        """)
+        # Elle lit plusieurs sources à son premier rendu : l'attendre.
+        check("la synthèse remplit ses lignes", browser.wait_for(
+            "document.querySelectorAll('#brief-view tr').length >= 6",
+            timeout=40),
+            f"{browser.js(SYNTHESE_LIGNES)} lignes")
+        etat = browser.js("""
+            const vue = document.getElementById('brief-view');
+            const titre = document.getElementById('brief-badges').parentElement;
+            return {texte: vue.textContent,
+                    deborde: titre.scrollWidth - titre.clientWidth,
+                    large: vue.scrollWidth - vue.clientWidth};""")
+        check("le cours et l'agenda y sont",
+              "Cours" in etat["texte"] and "Agenda" in etat["texte"],
+              etat["texte"][:60])
+        check("titre et lignes tiennent dans la cellule",
+              etat["deborde"] <= 1 and etat["large"] <= 1,
+              f"titre {etat['deborde']} px, lignes {etat['large']} px de trop")
+        # Le calendrier reprend la cellule : la persistance l'attend.
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-news .cell-tab'))
+                 .find(t => t.textContent === 'CALENDRIER').click();
         """)
         time.sleep(1.5)
 

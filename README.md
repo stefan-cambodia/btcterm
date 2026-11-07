@@ -82,6 +82,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Position** | la position tenue, saisie à la main : résultat, distance au stop, multiple du risque ; taille qu'autorise un risque choisi, stop à quelques ATR ; résultat au bandeau. Rien ne quitte le navigateur (onglet des flux ETF) | 2 s |
 | **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; financement, prime et open interest comparés sur Binance, Bybit et OKX , et le portage annualisé — financement de chaque plateforme et base du future Deribit à trois mois, dans la même unité (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
+| **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF, Fear & Greed, DVOL et skew, prime Coinbase, dominance, prochaines échéances macro, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
 | **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
@@ -303,6 +304,15 @@ Sur ntfy.sh, le sujet fait office de mot de passe : un nom long et
 imprévisible. Un serveur ntfy auto-hébergé convient aussi
 (`BTCTERM_NTFY_TOKEN` s'il est protégé). Le panneau ALERTES dit si le
 téléphone est servi.
+
+**La synthèse du matin** — le panneau SYNTHÈSE part aussi vers le même
+sujet, une fois par jour, à l'heure locale posée ; une machine qui dormait à
+l'heure dite l'envoie au réveil, et un service relancé ne la renvoie pas :
+
+```bash
+export BTCTERM_BRIEF=07:00             # ou btcterm --brief 07:00
+python -m btcterm.brief                # l'aperçu, à la ligne de commande
+```
 
 **Macro** — le panneau du bas confronte le cours à la masse monétaire M2 des
 États-Unis (série H.6 de la Fed, mensuelle). Le sélecteur `+1M` … `+3M` décale
@@ -584,6 +594,7 @@ python tests/test_options.py             # options : sourire, max pain, base, pa
 python tests/test_markets.py             # marchés : séances, corrélations, tableau
 python tests/test_notify.py              # alertes vers ntfy, sans réseau
 python tests/test_tape.py                # ruban : sens du preneur, flux, panneau
+python tests/test_brief.py               # synthèse : écarts, couverture, envoi du matin
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox

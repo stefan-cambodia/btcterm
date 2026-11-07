@@ -25,7 +25,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant vingt panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant vingt et un panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement doublés d'un canal push pour les panneaux rapides, un hub
   qui n'ouvre qu'une connexion par plateforme et un collecteur de news en
@@ -72,6 +72,8 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── tape.py                    ruban des échanges : gros ordres, flux
 │   │                              agressif, sens du preneur (§2.13)
 │   ├── notify.py                  les alertes vers ntfy, jusqu'au téléphone
+│   ├── brief.py                   synthèse des dernières 24 h : panneau,
+│   │                              ligne de commande, ntfy du matin (§2.14)
 │   ├── history.py                 bougies closes sur disque
 │   │                              (~/.btcterm/klines.db)
 │   ├── journal.py                 journal des liquidations + épisodes
@@ -107,7 +109,8 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │                                   liquidations · journal · etf · perp ·
 │                                   position · news · calendar · alerts ·
 │                                   macro · markets · dominance · onchain ·
-│                                   analysis · options · sources · tape
+│                                   analysis · options · sources · tape ·
+│                                   brief
 │
 ├── tests/
 │   ├── test_indicators_parity.py  non-régression des indicateurs
@@ -988,7 +991,41 @@ l'écart, qui ne se lit qu'au-delà de quelques centièmes. Le titre du RUBAN la
 porte, et l'instantané de marché la note toutes les cinq minutes
 (`cb_premium`) : un historique qu'aucune API gratuite ne sert.
 
-### 2.14 Non-régression
+### 2.14 `brief` — la journée en une page
+
+Chaque panneau dit son présent ; aucun ne disait ce que la nuit avait changé,
+et y répondre demandait d'ouvrir six onglets. `brief.build(hub)` rend une
+douzaine de lignes, toutes tirées de ce que le terminal tient déjà : le ticker
+de Binance pour la journée glissante ; les instantanés du journal pour le
+financement, l'open interest, DVOL et le skew, la prime Coinbase et la
+dominance, chacun avec son écart sur la journée ; les liquidations, gros
+ordres et alertes journalisés ; les flux ETF, le Fear & Greed, le calendrier
+macro et les news les mieux notées de la fenêtre (`newsdb.top_since`). Les
+fonctions de section sont pures, testées sans réseau
+(`tests/test_brief.py`) ; une source muette ne coûte que sa ligne.
+
+**La couverture se dit.** Le portable dort : sur les vingt-quatre heures qui
+précédaient la première synthèse, le journal n'en couvrait que sept et
+quart, en six interruptions. Les liquidations et les gros ordres n'y comptent
+que le temps de veille, et l'écart « sur 24 h » se prend contre l'instantané le
+plus proche de la veille — qui peut n'avoir que quinze heures, ce que la ligne
+écrit alors (« sur 15 h ») ; sous douze heures, l'écart n'est pas donné. Les
+heures couvertes s'écrivent en tête dès qu'il en manque plus de dix minutes :
+une nuit de sommeil ne se présente pas comme une nuit calme.
+
+Elle vit en trois endroits : le panneau SYNTHÈSE (§3.20), la ligne de
+commande (`python -m btcterm.brief`, qui installe le résolveur DoH comme le
+service), et ntfy chaque matin à l'heure de `BTCTERM_BRIEF` (`--brief`).
+L'envoi part de la boucle d'observation (`MarketHub._maybe_brief`) dans un
+thread à lui — la synthèse lit plusieurs sources jusqu'à leurs délais —, une
+fois par jour au plus : la date part sur disque à côté du journal
+(`~/.btcterm/brief.json`), et un service relancé après l'heure ne la renvoie
+pas. Une machine qui dormait à l'heure dite l'envoie au réveil. Elle part en
+priorité 2, sous les sonneries : c'est un résumé, pas une alerte, et elle ne
+passe pas par le moteur d'alertes — elle ne sonnerait pas à la cloche du
+bandeau ni ne se relirait parmi les alertes.
+
+### 2.15 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
@@ -1949,6 +1986,21 @@ rendu les mettait tous au titre, qui débordait de 180 px dans la cellule
 largeur des deux lignes. Montants et prix suivent la devise du panneau prix :
 c'est le marché du moment (§4.3).
 
+### 3.20 Le panneau SYNTHÈSE : la journée en une page
+
+Le vingt et unième panneau, en onglet des news, affiche `brief` (§2.14) : une
+ligne par sujet, le nom en petites capitales, le texte coloré selon son sens —
+hausse, baisse, à surveiller —, le détail au survol. La couverture du journal
+s'écrit en tête, en jaune, et le titre dit « partielle » ; il dit aussi l'heure
+de l'envoi du matin quand `BTCTERM_BRIEF` est posé, et si ntfy manque pour
+l'envoyer. Refaite à l'horloge rare : une synthèse de la journée n'a rien de
+neuf à dire toutes les deux secondes.
+
+La cellule des news est passée à quatre onglets, et la barre de titre à deux
+lignes — `ui_smoke.py` l'a vu. Le badge du Fear & Greed y ne garde que le
+chiffre, sa couleur disant la zone ; le libellé passe au survol, et dans la
+synthèse.
+
 ## 4. Patrons transverses
 
 ### 4.1 Deux modèles d'acquisition de données
@@ -2377,7 +2429,7 @@ Le numéro de version, lui, est resté à 1.1.0.
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.14) :
+scripts y sont ramenés, sans changement de comportement (§2.15) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -2663,6 +2715,10 @@ d'historique pour en étalonner le seuil.
   panneau macro le confrontait à la seule masse monétaire, mensuelle. Fait :
   le panneau MARCHÉS (§3.17), performance comparée et corrélations glissantes
   au S&P 500, au Nasdaq, à l'or, au dollar et au taux à dix ans.
+- ~~**Ce que la nuit a changé**~~ — au retour devant l'écran, il fallait
+  ouvrir six onglets pour savoir ce qui avait bougé. Fait : le panneau
+  SYNTHÈSE (§3.20) dit la journée en une page, sa couverture comprise, et
+  la même synthèse part chaque matin vers ntfy (§2.14).
 
 **Pour la surveillance :**
 
