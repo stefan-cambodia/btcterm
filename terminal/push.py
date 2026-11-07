@@ -76,8 +76,16 @@ PUSH_PRICE_INTERVAL = 2.0
 #: l'œil ne lit pas dix fois par seconde. La figure a depuis perdu sa
 #: validation Plotly (charts.py) et ne coûte plus qu'une milliseconde ;
 #: la cadence reste, pour le repli par interrogation comme pour le
-#: canal. L'arbitrage et les liquidations, eux, gardent la cadence du canal.
+#: canal. L'arbitrage, lui, garde la cadence du canal.
 PUSH_DEPTH_INTERVAL = 1.0
+
+#: Les liquidations repartent dès que leur fil change (`version` : un
+#: événement, un lien qui tombe ou revient), et sinon à ce pas, pour ce que
+#: seul le temps fait bouger — totaux de l'heure, liens muets. Rebâties à
+#: chaque trame, table et badges valaient 2,2 ms sur 4,8 (hub réel, machine
+#: chargée, le 7 novembre 2026), pour une table qui changeait une fois en
+#: dix secondes.
+PUSH_LIQ_INTERVAL = 1.0
 
 #: Cadence du carnet : celle du canal, plein écran compris. Rendu par Dash,
 #: il devait partir à 250 ms, et à 500 ms en plein écran : chaque trame
@@ -107,25 +115,26 @@ DEFAULT_STATE = {"exchange": "Binance", "expanded": None,
 
 
 def _frame(hub, state: dict, depth: bool = True,
-           book: bool = True) -> dict[str, dict]:
+           book: bool = True, liq: bool = True) -> dict[str, dict]:
     """Le rendu des panneaux rapides, ciblé par identifiant de composant.
 
     Exactement ce que les callbacks Dash produiraient pour le même état :
     les fonctions `render` sont partagées, seul le canal change. Les six
     cibles sont rendues — c'est la trame qui écarte celles qui n'ont pas
     changé, et le navigateur celles qui ne sont pas à l'écran — sauf le
-    carnet et la profondeur, que la boucle ne demande qu'à leur cadence
-    (`book`, `depth`).
+    carnet, la profondeur et les liquidations, que la boucle ne demande
+    qu'à leur cadence ou à leur changement (`book`, `depth`, `liq`).
     """
     arb_table, arb_count = arbitrage.render(hub, state["currency"])
-    liq_table, liq_badges = liquidations.render(
-        hub, state["expanded"] == "liq", state["currency"])
     frame = {
         "arb-table": {"children": arb_table},
         "arb-count": {"children": arb_count},
-        "liq-table": {"children": liq_table},
-        "liq-badges": {"children": liq_badges},
     }
+    if liq:
+        liq_table, liq_badges = liquidations.render(
+            hub, state["expanded"] == "liq", state["currency"])
+        frame["liq-table"] = {"children": liq_table}
+        frame["liq-badges"] = {"children": liq_badges}
     if book:
         frame["book-data"] = {"data": orderbook.book_payload(
             hub, state["exchange"], state["expanded"] == "book",
@@ -279,6 +288,9 @@ def serve(hub, ws) -> None:
     price_due = 0.0
     depth_due = 0.0
     book_due = 0.0
+    # Ce que valaient le fil des liquidations et le pas de temps à leur
+    # dernier rendu : `None` les fait repartir.
+    liq_seen = None
     # La lecture de la cible prix en cours, s'il y en a une.
     price_read: _PriceRead | None = None
     try:
@@ -300,13 +312,18 @@ def serve(hub, ws) -> None:
                         sent.clear()
                         next_send = time.monotonic()
                         price_due = depth_due = book_due = 0.0
+                        liq_seen = None
                         # Elle portait peut-être sur l'intervalle d'avant.
                         price_read = None
                 continue
 
             depth = time.monotonic() >= depth_due
             book = time.monotonic() >= book_due
-            frame = _frame(hub, state, depth=depth, book=book)
+            liq_now = (hub.liquidations.version,
+                       int(time.monotonic() / PUSH_LIQ_INTERVAL))
+            liq = liq_now != liq_seen
+            frame = _frame(hub, state, depth=depth, book=book, liq=liq)
+            liq_seen = liq_now
             if depth:
                 depth_due = time.monotonic() + PUSH_DEPTH_INTERVAL
             if book:

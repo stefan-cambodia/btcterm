@@ -1500,8 +1500,13 @@ complet : sur un tunnel SSH lointain, la latence s'ajoute à la période et le
 carnet prend du retard. Le chantier laissé conditionnel à l'étape 2 est
 désormais fait : `terminal/push.py` pose une route WebSocket `/push` sur le serveur Flask qui porte Dash (flask-sock), et
 pousse le rendu des six cibles rapides — carnet, profondeur, arbitrage et son
-compteur, liquidations et leurs badges — à une cadence de 100 ms. Deux
-cibles ont la leur. La profondeur part à la seconde, une figure entière que
+compteur, liquidations et leurs badges — à une cadence de 100 ms. Trois
+cibles ont la leur. Les liquidations ne se rebâtissent qu'au changement de
+leur fil (`LiquidationFeed.version` : un événement, un lien qui tombe ou
+revient) et sinon à la seconde, pour ce que seul le temps fait bouger —
+totaux de l'heure, liens muets : rebâties à chaque trame, elles valaient
+2,2 ms sur 4,8, pour une table qui changeait une fois en dix secondes. La
+profondeur part à la seconde, une figure entière que
 des carnets jamais immobiles faisaient repartir à chaque trame — la moitié du
 temps processeur d'un onglet ouvert, au profil. La cible prix, seule à pouvoir toucher au réseau,
 est lue hors de la boucle (`_PriceRead`) : 140 à 350 ms toutes les cinq
@@ -2823,6 +2828,18 @@ d'historique pour en étalonner le seuil.
   de la même façon : la machine portait un autre calcul à cinquante-huit
   threads, charge 22 pour 22 cœurs. `ui_smoke.py` le dit désormais en
   tête dès que la charge dépasse la moitié des cœurs.
+- ~~**Un onglet ouvert coûte encore un dixième de cœur**~~ — mesuré le
+  7 novembre 2026 sur le service, 4,5 % d'un cœur sans onglet et 14,5 avec ;
+  sur une seconde instance, le thread du pousseur en prenait 7,2 à lui seul.
+  Le banc cible par cible sur un hub réel a mis les liquidations à 2,2 ms
+  d'une trame de 4,8 — davantage depuis qu'OKX les nourrit de tous ses
+  perpétuels —, rebâties dix fois par seconde pour une table qui changeait
+  une fois en dix secondes. Fait : elles suivent leur fil, et la seconde
+  (§3.10) ; le thread du pousseur tombe à 4,1 %, et une liquidation reste à
+  l'écran à la trame suivante. Un premier échantillonneur en processus
+  désignait la compression des trames (permessage-deflate) : rejouée seule,
+  elle coûte 1,3 ms par seconde de flux — il comptait en trop les instants
+  où un thread rend le verrou de l'interpréteur.
 - ~~**Le carnet sature la page**~~ — constaté au contrôle Firefox, deux
   contrôles du plein écran qui échouaient et qu'on mettait sur le compte de
   la charge de la machine, à tort : le rendu Dash ne suivait pas dix carnets

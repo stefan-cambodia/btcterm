@@ -38,6 +38,7 @@ from terminal.panels.orderbook import DEPTH, DEPTH_MAX  # noqa: E402
 from terminal.push import (DEFAULT_STATE,  # noqa: E402
                            PUSH_BOOK_INTERVAL,
                            PUSH_DEPTH_INTERVAL, PUSH_INTERVAL,
+                           PUSH_LIQ_INTERVAL,
                            PUSH_PRICE_INTERVAL, _frame, _merge,
                            _price_target)
 
@@ -536,6 +537,49 @@ def test_une_socket_morte_ne_fait_pas_de_trace():
     serve(hub, WsMorte())   # lèverait si l'erreur n'était pas retenue
     hub.stop()
     print("  ✓ socket morte : fin de boucle, sans exception")
+
+
+def test_les_liquidations_suivent_leur_fil():
+    """Table et badges des liquidations ne se rebâtissent qu'au changement du
+    fil, ou une fois par seconde pour ce que seul le temps change — et une
+    liquidation arrivée part à la trame suivante, pas à la seconde suivante.
+
+    Rebâties à chaque trame, elles valaient près de la moitié d'une trame,
+    pour une table qui changeait une fois en dix secondes.
+    """
+    from terminal import push
+    from test_liquidations import message
+
+    rendus = []
+    vrai = push.liquidations.render
+
+    def compte(*args, **kwargs):
+        rendus.append(time.monotonic())
+        return vrai(*args, **kwargs)
+
+    hub = hub_garni()
+    ws = WsDeSecours()
+    arrivee = []
+
+    def liquide():
+        arrivee.append(time.monotonic())
+        hub.liquidations._handle(message(price="64321"))
+
+    push.liquidations.render = compte
+    threading.Timer(1.25, liquide).start()
+    threading.Timer(2.0, hub.stop).start()
+    try:
+        push.serve(hub, ws)
+    finally:
+        push.liquidations.render = vrai
+
+    #: Deux secondes à dix trames : vingt rendus jusqu'ici.
+    assert len(rendus) <= 2 / PUSH_LIQ_INTERVAL + 3, len(rendus)
+    vue = next(t for t, f in ws.trames
+               if "64,321" in json.dumps(f.get("liq-table", "")))
+    assert vue - arrivee[0] < PUSH_INTERVAL + 0.15, vue - arrivee[0]
+    print(f"  ✓ {len(rendus)} rendus en deux secondes, la liquidation "
+          f"à l'écran {1000 * (vue - arrivee[0]):.0f} ms après son arrivée")
 
 
 def test_la_boucle_sort_a_l_arret():

@@ -128,6 +128,13 @@ class LiquidationFeed(ExchangeConnector):
         #: n'a encore rien livré, jamais depuis un événement d'avant.
         self.since: dict[str, float] = {}
         self._lock = threading.Lock()
+        #: Compteur des changements que le panneau doit montrer sans
+        #: attendre — un événement retenu, un lien qui tombe ou se rouvre.
+        #: Le pousseur ne rebâtit la table que s'il a bougé, ou une fois par
+        #: seconde pour ce que seul le temps change (totaux de l'heure,
+        #: silences) : la rebâtir dix fois par seconde valait près de la
+        #: moitié d'une trame.
+        self.version = 0
         #: Rappel appelé à chaque événement retenu — même convention que
         #: les collectes de newsdb : c'est l'appelant qui décide quoi en
         #: faire (le hub y branche le journal). Une erreur du rappel ne
@@ -145,6 +152,7 @@ class LiquidationFeed(ExchangeConnector):
         """Met à jour l'état d'un lien, et date son ouverture."""
         was_up = self.links.get(name, (False, None))[0]
         self.links[name] = (connected, None if connected else error)
+        self.version += 1
         if connected and not was_up:
             self.since[name] = time.time()
         elif not connected:
@@ -290,6 +298,7 @@ class LiquidationFeed(ExchangeConnector):
         with self._lock:
             self.events.append(event)
             self._seen(event)
+            self.version += 1
         if self.on_event is not None:
             try:
                 self.on_event(event)
@@ -321,6 +330,7 @@ class LiquidationFeed(ExchangeConnector):
                 self.events.append(event)
                 self._seen(event)
                 kept += 1
+            self.version += 1
         return kept
 
 
