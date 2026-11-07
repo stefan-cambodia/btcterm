@@ -20,8 +20,8 @@ monétaire.*
 ![Les onglets secondaires : profondeur comparée, liquidations, perpétuel, calendrier macro, dominance](docs/captures/grille-onglets.png)
 
 *Les mêmes cellules, autres onglets — profondeur cumulée des cinq carnets,
-liquidations Binance et Bybit, financement et open interest du perpétuel,
-calendrier macro, dominance.*
+liquidations Binance, Bybit et OKX, financement et open interest du
+perpétuel comparés sur trois plateformes, calendrier macro, dominance.*
 
 ![Le panneau prix en plein écran](docs/captures/plein-ecran.png)
 
@@ -29,14 +29,24 @@ calendrier macro, dominance.*
 revenir ; ici le prix en 4 h avec ses signaux gradués et le profil de volume
 de la plage visible.*
 
-![Le journal de la séance, les réglages d'alertes et les données de chaîne](docs/captures/grille-journal.png)
+![Le journal de la séance, la position, les réglages d'alertes et les données de chaîne](docs/captures/grille-journal.png)
 
 *Le journal relit la séance — alertes sonnées, épisodes d'arbitrage, bilan
-des liquidations —, les seuils d'alerte se règlent dans le terminal, et la
-chaîne (hashrate, difficulté, mempool) a son onglet.*
+des liquidations et des gros ordres —, la position se suit et se dimensionne,
+les seuils d'alerte se règlent dans le terminal, et la chaîne (hashrate,
+difficulté, mempool) a son onglet ; le prix en horaire.*
 
-Captures produites par `tests/ui_smoke.py --capture` et
-`tests/ui_captures.py` sur un terminal en marche, réduites à 1600 px.
+![La synthèse des dernières 24 h, le ruban des gros ordres, l'état des sources et les options](docs/captures/grille-synthese.png)
+
+*La synthèse dit la journée en une page — cours, perpétuel, liquidations,
+gros ordres, ETF, sentiment, volatilité, prime Coinbase, agenda, news —, et
+ce que le journal en a vu : ici 7 h 22 sur 24, le portable ayant dormi. Le
+ruban suit les gros ordres exécutés, SOURCES l'état de chaque flux, OPTIONS
+la volatilité implicite de Deribit ; le prix en cinq minutes, une semaine de
+bougies.*
+
+Captures produites par `python tests/ui_captures.py docs/captures` sur le
+terminal en marche, réduites à 1600 px et 256 couleurs.
 
 **Démo à manipuler** — le panneau prix se dessine entièrement dans le
 navigateur : il est servi en page statique, sur un instantané figé, à
