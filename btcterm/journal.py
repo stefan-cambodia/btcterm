@@ -101,6 +101,16 @@ CREATE TABLE IF NOT EXISTS arbitrage_episodes (
 );
 CREATE INDEX IF NOT EXISTS idx_episodes_ts ON arbitrage_episodes (first_seen);
 
+CREATE TABLE IF NOT EXISTS large_trades (
+    ts       REAL NOT NULL,      -- epoch de l'exécution
+    exchange TEXT NOT NULL,      -- Binance | Coinbase | Bybit
+    side     TEXT NOT NULL,      -- côté du preneur : buy | sell
+    price    REAL NOT NULL,
+    quantity REAL NOT NULL,      -- en BTC
+    notional REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_large_trades_ts ON large_trades (ts);
+
 CREATE TABLE IF NOT EXISTS alerts (
     ts      REAL NOT NULL,
     kind    TEXT NOT NULL,       -- price | liq | funding | news | arb
@@ -121,7 +131,8 @@ CREATE TABLE IF NOT EXISTS market_snapshots (
     atm30_iv         REAL,           -- vol. à la monnaie de l'échéance à 1 mois
     rr25             REAL,           -- skew 25 delta à 1 mois, points
     pc_oi            REAL,           -- put/call en open interest
-    basis90          REAL            -- base annualisée du future à 3 mois, %/an
+    basis90          REAL,           -- base annualisée du future à 3 mois, %/an
+    cb_premium       REAL            -- prime Coinbase sur Binance, %
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON market_snapshots (ts);
 """
@@ -132,14 +143,15 @@ CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON market_snapshots (ts);
 SNAPSHOT_FIELDS = ("btc_dominance", "stable_share",
                    "total_cap_usd", "total_volume_usd", "oi_usd",
                    "funding_rate", "dvol", "atm30_iv", "rr25", "pc_oi",
-                   "basis90")
+                   "basis90", "cb_premium")
 
 #: Colonnes apparues après la création de `market_snapshots` : ajoutées
 #: par ALTER TABLE à l'ouverture d'une base antérieure, NULL sur les
 #: lignes déjà écrites — l'historique accumulé n'est jamais perdu.
 _MIGRATIONS = {
     "market_snapshots": ("funding_rate REAL", "dvol REAL", "atm30_iv REAL",
-                         "rr25 REAL", "pc_oi REAL", "basis90 REAL"),
+                         "rr25 REAL", "pc_oi REAL", "basis90 REAL",
+                         "cb_premium REAL"),
     "liquidations": ("exchange TEXT",),
 }
 
@@ -200,6 +212,16 @@ class Journal:
                  event.price, event.quantity, event.notional,
                  getattr(event, "exchange", None)),
             )
+            self._db.commit()
+
+    def record_trade(self, trade) -> None:
+        """Un gros ordre du ruban — branché sur `on_large` (§ tape)."""
+        with self._lock:
+            self._connection().execute(
+                "INSERT INTO large_trades (ts, exchange, side, price, "
+                "quantity, notional) VALUES (?, ?, ?, ?, ?, ?)",
+                (trade.time, trade.exchange, trade.side, trade.price,
+                 trade.quantity, trade.notional))
             self._db.commit()
 
     def record_alert(self, alert) -> None:
@@ -297,6 +319,7 @@ class Journal:
         with self._lock:
             db = self._connection()
             db.execute("DELETE FROM liquidations WHERE ts < ?", (horizon,))
+            db.execute("DELETE FROM large_trades WHERE ts < ?", (horizon,))
             db.execute("DELETE FROM arbitrage_episodes WHERE last_seen < ?",
                        (horizon,))
             db.execute("DELETE FROM alerts WHERE ts < ?", (horizon,))
@@ -312,6 +335,14 @@ class Journal:
         with self._lock:
             return self._connection().execute(
                 "SELECT * FROM liquidations WHERE ts BETWEEN ? AND ?"
+                " ORDER BY ts", (start, end)).fetchall()
+
+    def trades_between(self, start: float, end: float) -> list[sqlite3.Row]:
+        if not self.path.exists():
+            return []
+        with self._lock:
+            return self._connection().execute(
+                "SELECT * FROM large_trades WHERE ts BETWEEN ? AND ?"
                 " ORDER BY ts", (start, end)).fetchall()
 
     def episodes_between(self, start: float, end: float) -> list[sqlite3.Row]:

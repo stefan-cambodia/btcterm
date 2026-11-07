@@ -5,7 +5,8 @@ Le pendant du carnet : le carnet montre des intentions, le ruban ce qui
 s'est exécuté — chaque gros échange de Binance, Coinbase et Bybit au
 comptant, avec le côté de celui qui a **agressé** (§ tape). Le titre dit
 le flux agressif des cinq dernières minutes, toutes tailles confondues :
-la part des achats, et où ils ont eu lieu. Coinbase est la place des
+la part des achats, et où ils ont eu lieu ; et la prime Coinbase, l'écart
+du bitcoin en dollars sur Coinbase à Binance en USDT. Coinbase est la place des
 acheteurs américains ; qu'elle achète quand Binance vend se lit ici.
 
 Le seuil se règle : 100 k$, 250 k$, 1 M$. Montants et prix suivent la
@@ -80,6 +81,17 @@ def badges(tape):
                                     style={"color": C["muted"]})] + sans,
                          style={"fontFamily": MONO})
     share = flow["buy"] / total * 100
+    prime = tape.coinbase_premium(FLOW_WINDOW)
+    prime_span = ([] if prime is None else [
+        html.Span(" · ", style={"color": C["muted"]}),
+        html.Span(f"prime CBS {prime * 100:+.2f} %",
+                  style={"color": C["green"] if prime >= 0 else C["red"]},
+                  title=("prime Coinbase : le bitcoin en dollars sur Coinbase "
+                         "contre Binance en USDT, prix moyens pondérés de cinq "
+                         "minutes. Positive, l'Amérique paie plus cher. Un "
+                         "USDT décoté sur le dollar en fait une part : l'écart "
+                         "ne se lit qu'au-delà de quelques centièmes.")),
+    ])
     detail = " · ".join(
         f"{EXCHANGE_TAG.get(name, name)} "
         f"{sides['buy'] / (sides['buy'] + sides['sell']) * 100:.0f} %"
@@ -90,7 +102,7 @@ def badges(tape):
                   style={"color": C["green"] if share >= 50 else C["red"]},
                   title=("part des achats agressifs sur cinq minutes, par "
                          f"place : {detail}")),
-    ] + sans, style={"fontFamily": MONO})
+    ] + prime_span + sans, style={"fontFamily": MONO})
 
 
 def flow_line(tape, fx=DOLLARS):
