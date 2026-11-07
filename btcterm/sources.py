@@ -559,6 +559,21 @@ def _okx(path: str, **params: str) -> dict[str, Any]:
     return response.json()["data"][0]
 
 
+def fetch_okx_swap_contracts() -> dict[str, tuple[float, str]]:
+    """La valeur de chaque contrat perpétuel d'OKX : `instId` → (`ctVal`,
+    `ctValCcy`). Un contrat linéaire vaut `ctVal` unités du sous-jacent, un
+    inverse `ctVal` dollars. Une table vide lève."""
+    response = requests.get(f"{OKX_REST}/api/v5/public/instruments",
+                            params={"instType": "SWAP"}, timeout=15)
+    response.raise_for_status()
+    contracts = {item["instId"]: (float(item["ctVal"]), item["ctValCcy"])
+                 for item in response.json().get("data") or []
+                 if item.get("ctVal")}
+    if not contracts:
+        raise RuntimeError("OKX : aucun contrat perpétuel")
+    return contracts
+
+
 def fetch_okx_perp(inst_id: str = "BTC-USDT-SWAP") -> dict[str, float]:
     """La même chose chez OKX, qui répartit ces champs sur quatre endpoints."""
     return {

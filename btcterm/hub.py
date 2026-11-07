@@ -36,7 +36,7 @@ from .newsdb import NewsCollector
 from .tape import (BinanceTradeConnector, BybitTradeConnector,
                    CoinbaseTradeConnector, TradeTape)
 from .liquidations import (BybitLiquidationConnector, Liquidation,
-                           LiquidationFeed)
+                           LiquidationFeed, OKXLiquidationConnector)
 from . import resolver
 from .exchanges import (
     BinanceConnector,
@@ -563,6 +563,8 @@ class MarketHub:
             # Seconde source du même fil : Binance tait ses flux futures
             # depuis certains pays, Bybit non.
             BybitLiquidationConnector(self.liquidations),
+            # Troisième : OKX, tous les perpétuels d'un abonnement.
+            OKXLiquidationConnector(self.liquidations),
             BinanceTradeConnector(self.tape),
             CoinbaseTradeConnector(self.tape),
             BybitTradeConnector(self.tape),

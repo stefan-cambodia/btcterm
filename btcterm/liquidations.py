@@ -39,10 +39,24 @@ from typing import Callable, Iterable, Optional
 from .exchanges import ExchangeConnector
 
 __all__ = ["Liquidation", "LiquidationFeed", "BybitLiquidationConnector",
-           "BYBIT_SYMBOLS", "MAP_BINS", "price_map"]
+           "OKXLiquidationConnector", "BYBIT_SYMBOLS", "MAP_BINS", "price_map",
+           "is_bitcoin"]
 
 BINANCE_FUTURES_WS = "wss://fstream.binance.com/ws/!forceOrder@arr"
 BYBIT_LINEAR_WS = "wss://stream.bybit.com/v5/public/linear"
+OKX_PUBLIC_WS = "wss://ws.okx.com:8443/ws/v5/public"
+
+#: Le bitcoin coté en dollars, sous les noms des trois plateformes —
+#: `BTCUSDT` partout, `BTCUSD` pour l'inverse d'OKX —, échéances comprises
+#: (`BTCUSDT_261225`). « Commence par BTC » laissait passer `BTCDOMUSDT`,
+#: le contrat de Binance sur l'indice de dominance, qui cote quelques
+#: milliers de points et n'est pas du bitcoin.
+BITCOIN_SYMBOLS = frozenset({"BTCUSDT", "BTCUSDC", "BTCUSD"})
+
+
+def is_bitcoin(symbol: str) -> bool:
+    """Vrai pour un contrat sur le bitcoin coté en dollars."""
+    return (symbol or "").split("_", 1)[0] in BITCOIN_SYMBOLS
 
 #: Paires suivies chez Bybit — le canal `allLiquidation` se souscrit par
 #: paire. Les plus grosses capitalisations : c'est là que les cascades
@@ -187,9 +201,8 @@ class LiquidationFeed(ExchangeConnector):
     def totals(self, window: float = 3600) -> dict[str, float]:
         """Montants liquidés sur la fenêtre, par côté et pour le Bitcoin.
 
-        `btc` ne compte que les paires dont le symbole commence par
-        `BTC` : c'est ce qui distingue une cascade locale d'une cascade
-        de marché.
+        `btc` ne compte que les contrats sur le bitcoin (`is_bitcoin`) :
+        c'est ce qui distingue une cascade locale d'une cascade de marché.
         """
         limite = time.time() - window
         longs = shorts = btc = 0.0
@@ -201,7 +214,7 @@ class LiquidationFeed(ExchangeConnector):
                 longs += event.notional
             else:
                 shorts += event.notional
-            if event.symbol.startswith("BTC"):
+            if is_bitcoin(event.symbol):
                 btc += event.notional
 
         return {"long": longs, "short": shorts, "btc": btc,
@@ -375,6 +388,119 @@ class BybitLiquidationConnector(ExchangeConnector):
             self.feed.record(event)
 
 
+class OKXLiquidationConnector(ExchangeConnector):
+    """Troisième source du fil : le canal `liquidation-orders` d'OKX.
+
+    Tous les contrats perpétuels d'un seul abonnement, sans liste de
+    paires. Depuis le Cambodge, Binance tait son flux futures et Bybit,
+    sur dix paires, peut se taire une heure : le 7 novembre 2026 au matin,
+    OKX a livré dix liquidations en trois minutes pendant que Bybit n'en
+    livrait aucune.
+
+    OKX compte en contrats : un contrat linéaire vaut `ctVal` unités du
+    sous-jacent (0,01 BTC pour BTC-USDT), un inverse `ctVal` dollars (100
+    pour BTC-USD) — la table des contrats est lue à la connexion, et relue
+    au plus une fois par heure si un contrat inconnu se présente. Le côté
+    vient de `posSide` (la position liquidée) ou, en mode net, du sens de
+    l'ordre forcé. OKX coupe une connexion muette depuis trente secondes :
+    le connecteur lui envoie son « ping » toutes les vingt.
+
+    À l'abonnement, OKX renvoie des liquidations anciennes — de la veille au
+    soir, au premier essai. Tout ce qui précède l'ouverture du lien est
+    écarté : sans cela, chaque reconnexion les reverserait au journal.
+    """
+
+    name = "OKX"
+    PING_EVERY = 20.0
+    CONTRACTS_RETRY = 3600.0
+
+    def __init__(self, feed: LiquidationFeed, **kwargs):
+        super().__init__(book=None, **kwargs)
+        self.feed = feed
+        self.feed.attach(self.name)
+        self.contracts: dict[str, tuple[float, str]] = {}
+        self._contracts_at = 0.0
+        #: Instant d'ouverture du lien, moins une marge d'horloge : ce qui
+        #: le précède est un rejeu, pas une liquidation qui arrive.
+        self.since = 0.0
+
+    def _mark_connected(self) -> None:
+        self.feed.mark(self.name, True)
+
+    def _mark_disconnected(self, exc: Exception) -> None:
+        self.feed.mark(self.name, False, str(exc)[:50])
+
+    async def _load_contracts(self) -> None:
+        import asyncio
+
+        from . import sources
+        self._contracts_at = time.time()
+        self.contracts = await asyncio.to_thread(sources.fetch_okx_swap_contracts)
+
+    async def _stream(self) -> None:
+        import asyncio
+
+        if not self.contracts:
+            await self._load_contracts()
+        async with self._connect(OKX_PUBLIC_WS) as socket:
+            self.since = time.time() - 5.0
+            await socket.send(json.dumps({"op": "subscribe", "args": [
+                {"channel": "liquidation-orders", "instType": "SWAP"}]}))
+            self._mark_connected()
+
+            async def keepalive():
+                while self._running:
+                    await asyncio.sleep(self.PING_EVERY)
+                    await socket.send("ping")
+
+            pinger = asyncio.create_task(keepalive())
+            try:
+                async for raw in socket:
+                    if not self._running:
+                        break
+                    if raw == "pong":
+                        continue
+                    unknown = self.handle(json.loads(raw))
+                    if (unknown and time.time() - self._contracts_at
+                            > self.CONTRACTS_RETRY):
+                        await self._load_contracts()
+            finally:
+                pinger.cancel()
+
+    def handle(self, message: dict) -> bool:
+        """Verse les liquidations au fil ; vrai si un contrat est inconnu."""
+        if message.get("event") == "error":
+            raise RuntimeError(message.get("msg") or "abonnement refusé")
+        unknown = False
+        for item in message.get("data") or []:
+            inst = item.get("instId", "")
+            contract = self.contracts.get(inst)
+            if contract is None:
+                unknown = True
+                continue
+            ct_val, ct_ccy = contract
+            symbol = inst.replace("-SWAP", "").replace("-", "")
+            for detail in item.get("details") or []:
+                try:
+                    moment = float(detail["ts"]) / 1000
+                    if moment < self.since:
+                        continue
+                    price = float(detail["bkPx"])
+                    size = float(detail["sz"]) * ct_val
+                    quantity = size / price if ct_ccy == "USD" else size
+                    side = detail.get("posSide") or (
+                        "long" if detail.get("side") == "sell" else "short")
+                    if side not in ("long", "short") or price <= 0:
+                        continue
+                    self.feed.record(Liquidation(
+                        time=moment, symbol=symbol,
+                        side=side, price=price, quantity=quantity,
+                        exchange=self.name))
+                except (KeyError, TypeError, ValueError, ZeroDivisionError):
+                    continue
+        return unknown
+
+
 # ─────────────────────────────────────────────────────────────
 # La carte des liquidations : où, en prix, le levier a sauté
 # ─────────────────────────────────────────────────────────────
@@ -383,8 +509,7 @@ class BybitLiquidationConnector(ExchangeConnector):
 MAP_BINS = 60
 
 
-def price_map(events: Iterable, symbol: str = "BTCUSDT",
-              bins: int = MAP_BINS) -> Optional[dict]:
+def price_map(events: Iterable, bins: int = MAP_BINS) -> Optional[dict]:
     """Le notionnel liquidé par tranche de prix, longs et shorts à part.
 
     Les événements sont des lignes du journal (`symbol`, `side`, `price`,
@@ -394,6 +519,9 @@ def price_map(events: Iterable, symbol: str = "BTCUSDT",
     les longs, des achats forcés pour les shorts : les zones où le marché a
     déjà purgé son levier, et celles où il l'a fait d'un seul côté.
 
+    Seuls comptent les contrats sur le bitcoin (`is_bitcoin`), de toutes
+    les plateformes : leurs prix sont ceux de l'axe du graphique.
+
     Rend `None` sans aucun événement de la paire ; sinon `centers`, `width`
     (largeur d'une tranche), `longs`, `shorts` (notionnel en dollars),
     `count`, `notional`, `exchanges` (les plateformes présentes — la
@@ -401,7 +529,7 @@ def price_map(events: Iterable, symbol: str = "BTCUSDT",
     """
     rows = [(float(e["price"]), float(e["notional"]), e["side"],
              e["exchange"] or "Binance", float(e["ts"]))
-            for e in events if e["symbol"] == symbol]
+            for e in events if is_bitcoin(e["symbol"])]
     if not rows:
         return None
     prices = [row[0] for row in rows]

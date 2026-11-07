@@ -378,6 +378,73 @@ def test_la_carte_des_liquidations():
     assert sum(seul["longs"]) == 1e6
     print("  ✓ carte par tranche, côtés séparés, paire filtrée, plateformes dites")
 
+
+def test_okx_troisieme_source():
+    """OKX compte en contrats : linéaire en unités du sous-jacent, inverse en
+    dollars ; le côté vient de `posSide`, ou du sens de l'ordre en mode net ;
+    un contrat inconnu se signale, et le rejeu de l'abonnement est écarté."""
+    import time as horloge
+    from btcterm.liquidations import LiquidationFeed, OKXLiquidationConnector
+
+    feed = LiquidationFeed()
+    okx = OKXLiquidationConnector(feed)
+    okx.contracts = {"BTC-USDT-SWAP": (0.01, "BTC"),
+                     "BTC-USD-SWAP": (100.0, "USD")}
+    okx.since = horloge.time() - 5
+    maintenant = int(horloge.time() * 1000)
+    inconnu = okx.handle({"data": [
+        {"instId": "BTC-USDT-SWAP", "details": [
+            {"posSide": "long", "side": "sell", "bkPx": "75000", "sz": "8.2",
+             "ts": str(maintenant)},
+            # Rejeu de l'abonnement : la veille au soir.
+            {"posSide": "short", "side": "buy", "bkPx": "76000", "sz": "50",
+             "ts": str(maintenant - 10 * 3600 * 1000)}]},
+        {"instId": "BTC-USD-SWAP", "details": [
+            # Mode net : un ordre forcé d'achat liquide un short.
+            {"posSide": "", "side": "buy", "bkPx": "80000", "sz": "40",
+             "ts": str(maintenant)}]},
+        {"instId": "NOUVEAU-USDT-SWAP", "details": [
+            {"posSide": "long", "bkPx": "1", "sz": "1", "ts": str(maintenant)}]},
+    ]})
+    assert inconnu is True, "un contrat inconnu doit se signaler"
+    evenements = {e.symbol: e for e in feed.latest(10)}
+    assert set(evenements) == {"BTCUSDT", "BTCUSD"}, evenements
+    lineaire = evenements["BTCUSDT"]
+    assert lineaire.side == "long" and abs(lineaire.quantity - 0.082) < 1e-12
+    assert abs(lineaire.notional - 6_150) < 1e-6
+    inverse = evenements["BTCUSD"]
+    assert inverse.side == "short" and abs(inverse.notional - 4_000) < 1e-6, \
+        "40 contrats de 100 $"
+    assert inverse.exchange == "OKX" and feed.links["OKX"] == (False, None)
+    try:
+        okx.handle({"event": "error", "msg": "canal inconnu"})
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("un refus d'abonnement doit lever")
+    print("  ✓ contrats convertis, côté lu, rejeu écarté, inconnu signalé")
+
+
+def test_le_bitcoin_se_reconnait_exactement():
+    """« Commence par BTC » comptait l'indice de dominance de Binance
+    (`BTCDOMUSDT`, quelques milliers de points) comme du bitcoin, dans le
+    « dont BTC » du panneau comme sur la carte."""
+    from btcterm.liquidations import Liquidation, LiquidationFeed, is_bitcoin, price_map
+
+    assert all(is_bitcoin(s) for s in ("BTCUSDT", "BTCUSDC", "BTCUSD",
+                                       "BTCUSDT_261225"))
+    assert not any(is_bitcoin(s) for s in ("BTCDOMUSDT", "ETHUSDT", "", None))
+    feed = LiquidationFeed()
+    import time as horloge
+    for symbole, prix in (("BTCUSDT", 75_000.0), ("BTCDOMUSDT", 5_000.0)):
+        feed.record(Liquidation(time=horloge.time(), symbol=symbole, side="long",
+                                price=prix, quantity=1.0, exchange="Binance"))
+    assert feed.totals()["btc"] == 75_000.0
+    carte = price_map([{"symbol": "BTCDOMUSDT", "side": "long", "price": 5_000,
+                        "notional": 5_000, "exchange": "Binance", "ts": 1}])
+    assert carte is None, "l'indice de dominance n'a rien à faire sur l'axe du bitcoin"
+    print("  ✓ BTC en dollars et ses échéances ; l'indice de dominance écarté")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nFil des liquidations — {len(tests)} vérifications\n" + "─" * 60)
