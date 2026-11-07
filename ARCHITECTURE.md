@@ -1292,6 +1292,14 @@ voyaient pas. Dix pixels d'un seul côté lui rendent cent quatre-vingts. Les
 chiffres gardent leurs intervalles (1 le quart d'heure, 7 le jour, 9 le mois) :
 la minute et les cinq minutes s'atteignent par `-`, qui affine pas à pas, `+`
 élargissant, ou par la ligne de commande — `/1m` est la minute, `/1M` le mois.
+Elles chargent davantage que les autres : une journée de minutes (1 440
+bougies), une semaine de cinq minutes (2 016) — six heures de minutes, le
+premier réglage, ne montraient presque rien d'une séance. Binance plafonne
+chaque appel à 1 000 bougies : `/api/klines` en sert jusqu'à 2 500, que
+l'historique sur disque assemble en plusieurs pages, et `fetch_klines` borne
+sa demande à 1 000 pour qu'un terminal sans historique (`--no-journal`)
+reçoive une série tronquée plutôt qu'un refus. Le tampon du navigateur monte
+à 10 000 bougies : une semaine de minutes, un mois de cinq minutes.
 
 **Le perpétuel a rejoint ce côté du partage.** Même contrat que le prix,
 en plus simple : `/api/perp` sérialise financement (en % par 8 h) et open

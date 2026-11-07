@@ -196,8 +196,11 @@ def fetch_klines(
     `start_time` borne son début : les `limit` premières bougies ouvertes
     à partir de cet instant — c'est le rattrapage de l'historique sauvegardé.
     """
+    # Binance refuse un `limit` au-delà de 1000 : la série est servie
+    # tronquée plutôt que pas du tout — l'historique sur disque, lui,
+    # enchaîne les pages (§ history).
     params: dict[str, Any] = {"symbol": symbol, "interval": interval,
-                              "limit": limit}
+                              "limit": min(limit, KLINES_MAX)}
     if end_time is not None:
         params["endTime"] = int(end_time)
     if start_time is not None:
@@ -262,6 +265,9 @@ def fetch_depth(
         [(float(p), float(q)) for p, q in book["asks"]],
     )
 
+
+#: Plafond de Binance par appel à `/api/v3/klines`.
+KLINES_MAX = 1000
 
 #: Correspondance intervalle Binance → alias de fréquence pandas, pour les
 #: séries de démonstration : Binance parle en `15m` et `1M`, pandas en

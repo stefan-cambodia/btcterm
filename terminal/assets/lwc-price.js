@@ -65,9 +65,11 @@
     var BACKFILL_MARGIN = 50;
 
     //: Plafond du tampon par intervalle : au-delà, on cesse de remonter
-    //: le passé — la mémoire reste bornée, et 5 000 bougies font déjà
-    //: sept mois d'horaire ou treize ans de quotidien.
-    var MAX_BARS = 5000;
+    //: le passé — la mémoire reste bornée. 10 000 bougies font une semaine
+    //: de minutes, un mois de cinq minutes, quatorze mois d'horaire ; 5 000
+    //: arrêtaient la minute à trois jours et demi, trois pages après la
+    //: première.
+    var MAX_BARS = 10000;
 
     //: Une page antérieure revenue vide parce que Binance se taisait
     //: (`stale`) n'est pas la fin de l'historique : elle est redemandée

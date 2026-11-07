@@ -281,8 +281,11 @@ EXPORT_COLUMNS = ("time", "open", "high", "low", "close", "volume",
                   "quote_vol", "trades", "taker_buy_base", "taker_buy_quote")
 EXPORT_MAX = 2_000_000
 
-#: Bornes de la taille de page — Binance plafonne `/api/v3/klines` à 1000.
-PAGE_MAX = 1000
+#: Borne de la taille de page. Binance plafonne chaque appel à 1000
+#: bougies ; l'historique sur disque enchaîne les pages au-delà, et la
+#: minute (1440) comme les cinq minutes (2016) en demandent davantage.
+#: Sans historique (`--no-journal`), la source rend ses 1000.
+PAGE_MAX = 2500
 PAGE_DEFAULT = 365
 
 

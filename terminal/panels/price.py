@@ -25,11 +25,13 @@ from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 #: vient de `btc_dashboard2.py`, dont c'était le seul apport sur le
 #: panneau prix ; la minute et les cinq minutes l'ont rejointe pour la
 #: lecture fine d'un mouvement en cours. Les profondeurs d'historique
-#: suivent l'échelle : de quoi nourrir la MA 200 en intraday — six heures
-#: de minutes, un jour de cinq minutes —, sans tirer trente ans de
-#: mensuelles. Le pan remonte au-delà, page par page.
+#: suivent l'échelle : de quoi nourrir la MA 200 en intraday, sans tirer
+#: trente ans de mensuelles. La minute et les cinq minutes en chargent
+#: davantage — une journée et une semaine : six heures de minutes, le
+#: premier réglage, ne montraient presque rien d'une séance. Le pan
+#: remonte au-delà, page par page.
 INTERVALS = {
-    "1m": 360, "5m": 300, "15m": 300, "30m": 300, "1h": 350, "4h": 350,
+    "1m": 1440, "5m": 2016, "15m": 300, "30m": 300, "1h": 350, "4h": 350,
     "6h": 300, "12h": 300, "1d": 365, "1w": 260, "1M": 120,
 }
 DEFAULT_INTERVAL = "1d"

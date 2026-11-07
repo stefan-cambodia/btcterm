@@ -29,10 +29,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import pandas as pd  # noqa: E402
 
 from btcterm import sources  # noqa: E402
+
+#: Le vrai collecteur : `client()` le remplace pour tout le module.
+_VRAI_FETCH = sources.fetch_klines
 from btcterm.hub import MarketHub  # noqa: E402
 from btcterm.sources import generate_demo_ohlcv  # noqa: E402
 from terminal.app import create_app  # noqa: E402
-from terminal.lwc import WARMUP_BARS  # noqa: E402
+from terminal.lwc import PAGE_MAX, WARMUP_BARS  # noqa: E402
 
 #: La « base » de la fausse plateforme : 2 000 bougies horaires figées.
 #: L'horodatage est ramené à la nanoseconde, la résolution que produit
@@ -305,14 +308,39 @@ def test_api_perp_hors_ligne():
     print("  ✓ hors ligne : listes vides, jamais une erreur")
 
 
+def test_binance_ne_recoit_jamais_plus_de_mille():
+    """La minute en demande 1440 : Binance refuse au-delà de 1000. Sans
+    historique sur disque, la série est servie tronquée, pas refusée."""
+    vus = []
+
+    class Reponse:
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return []
+
+    vrai = sources._klines_http.get
+    sources._klines_http.get = (
+        lambda url, params=None, timeout=None: vus.append(params) or Reponse())
+    try:
+        _VRAI_FETCH("BTCUSDT", "1m", 1440)
+    except Exception:  # noqa: BLE001 — seule la requête compte ici
+        pass
+    finally:
+        sources._klines_http.get = vrai
+    assert vus and vus[0]["limit"] == sources.KLINES_MAX == 1000, vus
+    print("  ✓ 1440 demandées, 1000 demandées à Binance")
+
+
 def test_parametres_hostiles():
     web = client()
     assert web.get("/api/klines?interval=7m").status_code == 400
 
-    #: `limit` est borné aux limites de Binance, pas refusé.
-    assert len(get(web, interval="1h", limit=5000)["bars"]) <= 1000
+    #: `limit` est borné, pas refusé.
+    assert len(get(web, interval="1h", limit=50_000)["bars"]) <= PAGE_MAX
     assert len(get(web, interval="1h", limit=-3)["bars"]) == 1
-    print("  ✓ intervalle inconnu refusé (400), limit borné à [1, 1000]")
+    print(f"  ✓ intervalle inconnu refusé (400), limit borné à [1, {PAGE_MAX}]")
 
 
 if __name__ == "__main__":

@@ -434,7 +434,7 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         browser.wait_for("!!document.querySelector('.command-bar')", timeout=3)
         for touche in ("1", "m", "\ue007"):
             browser.press(touche)
-        minute = ("(d => d.loaded === '{0}' && d.bars >= 200"
+        minute = ("(d => d.loaded === '{0}' && d.bars >= 1000"
                   " && d.steps && d.steps[0] === {1} && d.steps[1] === {1})"
                   "(window.lwcPrice.debug())")
         check("1m charge des bougies d'une minute", browser.wait_for(
@@ -733,6 +733,27 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                 .querySelector('.js-plotly-plot');
             return gd && gd.data && gd.data.length > 0;
         """))
+        # Une figure sans gabarit Plotly perd `automargin` : la marge de
+        # 8 px coupait les graduations, sans que rien ne le signale.
+        time.sleep(1.5)
+        coupes = browser.js("""
+            const gd = document.getElementById('depth-chart')
+                .querySelector('.js-plotly-plot');
+            const cadre = gd.getBoundingClientRect();
+            const textes = gd.querySelectorAll(
+                '.xtick text, .ytick text, .g-xtitle text, .g-ytitle text');
+            const dehors = Array.from(textes).filter(t => {
+                const r = t.getBoundingClientRect();
+                return r.width && (r.left < cadre.left - 1
+                    || r.right > cadre.right + 1
+                    || r.bottom > cadre.bottom + 1);
+            });
+            return [dehors.length, gd.querySelectorAll('.xtick text').length,
+                    gd.querySelectorAll('.ytick text').length];
+        """)
+        check("graduations et titres des axes dans la figure",
+              coupes[0] == 0 and coupes[1] > 0 and coupes[2] > 0,
+              f"{coupes[0]} coupés, {coupes[1]} en x, {coupes[2]} en y")
         browser.js("""
             Array.from(document.querySelectorAll('#cell-book .cell-tab'))
                  .find(t => t.textContent === 'CARNET').click();

@@ -105,8 +105,13 @@ def build_depth_chart(books: dict, uirevision: str = "depth") -> dict:
                                  "<extra></extra>",
             })
 
+    # `automargin` : c'est le gabarit Plotly que `go.Figure` posait sans le
+    # dire qui l'activait. Sans lui, la marge de 8 px coupait les
+    # graduations du volume, et l'écart au prix perdait les siennes sous
+    # son titre — vu sur les captures du 7 novembre 2026.
     axis_common = {"gridcolor": C["grid"], "zerolinecolor": C["border"],
-                   "tickfont": {"size": 9, "color": C["muted"]}}
+                   "tickfont": {"size": 9, "color": C["muted"]},
+                   "automargin": True}
     layout = {
         "paper_bgcolor": C["panel"], "plot_bgcolor": C["panel"],
         "font": {"family": MONO, "color": C["text"], "size": 10},
