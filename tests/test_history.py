@@ -182,6 +182,28 @@ def test_le_rattrapage_ne_laisse_pas_de_trou():
     print("  ✓ trois pages de rattrapage après une longue absence, série continue")
 
 
+def test_une_trop_longue_absence_repart_du_present():
+    """Au-delà de `MAX_CATCHUP_PAGES` pages de retard, la série est oubliée
+    et repart du présent, d'une seule page.
+
+    La minute laissée un mois demandait quarante-trois pages à Binance avant
+    d'afficher quoi que ce soit. Oubliée plutôt que trouée : la plage
+    sauvegardée reste d'un seul tenant.
+    """
+    banc = Banc(1500)
+    with banc as binance:
+        h = banc.base()
+        h.latest("1h", 10)
+        binance.total += history_module.MAX_CATCHUP_PAGES * PAGE + 10
+        binance.appels.clear()
+        serie = h.latest("1h", 300)
+        assert len(binance.appels) == 1, binance.appels
+        assert len(serie) == 300
+        assert (serie["open_time"].diff().dropna() == HEURE).all()
+        assert h._bound("1h", "MIN") == DEBUT + (binance.total - PAGE) * HEURE
+    print("  ✓ trop loin derrière : une page depuis le présent, pas un trou")
+
+
 def test_vers_le_passe_une_page_en_sert_plusieurs():
     banc = Banc(2500)
     with banc as binance:

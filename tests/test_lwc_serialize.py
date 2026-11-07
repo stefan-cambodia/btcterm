@@ -166,7 +166,7 @@ def test_tous_les_intervalles_du_panneau():
         assert len(paquet["bars"]) == limit, interval
         times = [b["time"] for b in paquet["bars"]]
         assert all(a < b for a, b in zip(times, times[1:])), interval
-    print(f"  ✓ {len(INTERVALS)} intervalles convertis, du 15m au mensuel")
+    print(f"  ✓ {len(INTERVALS)} intervalles convertis, de la minute au mensuel")
 
 
 def test_le_delta_de_volume():

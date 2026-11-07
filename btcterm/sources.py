@@ -267,7 +267,7 @@ def fetch_depth(
 #: séries de démonstration : Binance parle en `15m` et `1M`, pandas en
 #: `15min` et `ME`.
 KLINE_FREQ = {
-    "15m": "15min", "30m": "30min", "1h": "h", "4h": "4h", "6h": "6h",
+    "1m": "min", "5m": "5min", "15m": "15min", "30m": "30min", "1h": "h", "4h": "4h", "6h": "6h",
     "12h": "12h", "1d": "D", "1w": "W", "1M": "ME",
 }
 
@@ -281,7 +281,7 @@ HOURS_PER_YEAR = 24 * 365
 #: Durée d'une bougie en heures, pour mettre la marche aléatoire de démo
 #: à l'échelle de l'intervalle demandé.
 KLINE_HOURS = {
-    "15m": 0.25, "30m": 0.5, "1h": 1, "4h": 4, "6h": 6,
+    "1m": 1 / 60, "5m": 5 / 60, "15m": 0.25, "30m": 0.5, "1h": 1, "4h": 4, "6h": 6,
     "12h": 12, "1d": 24, "1w": 168, "1M": 730,
 }
 

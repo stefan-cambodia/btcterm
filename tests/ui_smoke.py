@@ -134,8 +134,8 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
               not debordes, debordes or f"{sum(len(o) or 1 for _, o in cellules)} titres")
 
         print("\nBarre de titre du panneau prix")
-        check("9 intervalles proposés", browser.js(
-            "return document.querySelectorAll('#price-interval input').length;") == 9)
+        check("11 intervalles proposés, de la minute au mois", browser.js(
+            "return document.querySelectorAll('#price-interval input').length;") == 11)
         # La palette élargie a rempli la barre : si les sélecteurs débordent
         # de la largeur du panneau, les derniers deviennent inatteignables
         # dans la grille — c'est le défaut que ce contrôle guette.
@@ -428,6 +428,29 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("une commande change l'intervalle", browser.wait_for(
             "window.lwcPrice.debug().interval === '1d'"
             " && !document.querySelector('.command-bar')", timeout=8))
+        # La minute et les cinq minutes : `1m` en minuscules est la minute,
+        # `1M` le mois ; `+` et `-` passent d'un intervalle à son voisin.
+        browser.press("/")
+        browser.wait_for("!!document.querySelector('.command-bar')", timeout=3)
+        for touche in ("1", "m", "\ue007"):
+            browser.press(touche)
+        minute = ("(d => d.loaded === '{0}' && d.bars >= 200"
+                  " && d.steps && d.steps[0] === {1} && d.steps[1] === {1})"
+                  "(window.lwcPrice.debug())")
+        check("1m charge des bougies d'une minute", browser.wait_for(
+            minute.format("1m", 60), timeout=20),
+            browser.js("const d = window.lwcPrice.debug();"
+                       " return [d.loaded, d.bars, d.steps];"))
+        browser.press("+")
+        check("+ passe aux cinq minutes", browser.wait_for(
+            minute.format("5m", 300), timeout=20),
+            browser.js("const d = window.lwcPrice.debug();"
+                       " return [d.loaded, d.bars, d.steps];"))
+        browser.press("-")
+        check("- revient à la minute", browser.wait_for(
+            minute.format("1m", 60), timeout=20))
+        browser.press("7")
+        browser.wait_for("window.lwcPrice.debug().loaded === '1d'", timeout=15)
         browser.press("/")
         browser.wait_for("!!document.querySelector('.command-bar')", timeout=3)
         for touche in ("z", "z", "\ue007"):

@@ -60,6 +60,15 @@ PAGE = 1000
 #: Délai après la clôture avant de tenir une bougie pour définitive.
 SETTLE_MS = 60_000
 
+#: Rattrapage maximal vers le présent, en pages. Au-delà, la série
+#: sauvegardée de l'intervalle est oubliée et repart du présent : une
+#: minute laissée un mois demanderait quarante-trois pages à Binance avant
+#: d'afficher quoi que ce soit, pour des bougies que personne ne relira. Les
+#: intervalles longs ne l'atteignent jamais — cinq pages font sept mois
+#: d'horaire, treize ans de quotidien —, les courts dès quelques jours
+#: d'absence (trois et demi pour la minute).
+MAX_CATCHUP_PAGES = 5
+
 #: Les champs de Binance, moins `ignore` : ce qui ne serait pas gardé ici
 #: devrait être retéléchargé le jour où un panneau en aurait besoin.
 COLUMNS = ("open_time", "open", "high", "low", "close", "volume",
@@ -137,6 +146,11 @@ class KlineHistory:
     def _sync(self, interval: str) -> pd.DataFrame:
         """Rattrape Binance et rend les bougies pas encore réglées."""
         last = self._bound(interval, "MAX")
+        if last is not None and self._too_far(interval, last):
+            # Oubliée plutôt que trouée : la plage sauvegardée reste d'un
+            # seul tenant, et repart du présent.
+            self._forget(interval)
+            last = None
         while True:
             page = sources.fetch_klines(
                 self.symbol, interval, PAGE,
@@ -176,6 +190,23 @@ class KlineHistory:
             self._exhausted.add(interval)
             return False
         return True
+
+    def _too_far(self, interval: str, last_ms: int) -> bool:
+        """Vrai si rattraper `interval` demanderait plus de pages qu'on n'en
+        accorde. Un intervalle sans durée connue n'est jamais oublié."""
+        hours = sources.KLINE_HOURS.get(interval)
+        if not hours:
+            return False
+        behind = (time.time() * 1000 - last_ms) / (hours * 3_600_000)
+        return behind > MAX_CATCHUP_PAGES * PAGE
+
+    def _forget(self, interval: str) -> None:
+        with self._lock:
+            db = self._connection()
+            db.execute("DELETE FROM klines WHERE symbol = ? AND interval = ?",
+                       (self.symbol, interval))
+            db.commit()
+        self._exhausted.discard(interval)
 
     # ── Base ────────────────────────────────────────────────
 

@@ -61,6 +61,7 @@ document.addEventListener("dblclick", function (event) {
 
 const KEYS_HELP = [
     "1 à 9    intervalle, de 15m à 1M",
+    "- / +    intervalle plus fin / plus large, jusqu'à 1m",
     "E        bascule $ / €",
     "L        échelle logarithmique",
     "S        afficher ou masquer les flèches",
@@ -81,7 +82,7 @@ const KEYS_HELP = [
     "",
     "Ligne de commande",
     "un panneau       etf, perp, analyse, alertes…",
-    "un intervalle    15m, 4h, 1d, 1M…",
+    "un intervalle    1m, 5m, 4h, 1d, 1M…",
     "eur, usd, log, cvd, rsi, crsi, vol, profil, niv, carte, signaux, capture",
     "ligne, effacer   tracer une ligne, retirer toutes les lignes",
     "alerte 80000     seuil de cours, en dollars",
@@ -108,9 +109,38 @@ function otherCurrency() {
         });
 }
 
+// Les chiffres gardent les intervalles qu'ils avaient avant l'arrivée de la
+// minute et des cinq minutes : 1 reste le quart d'heure, 7 le jour, 9 le
+// mois — une main habituée ne se trompe pas. Les deux nouveaux s'atteignent
+// par `-`, qui affine pas à pas, ou par la ligne de commande.
+const KEY_INTERVALS = {"1": "15m", "2": "30m", "3": "1h", "4": "4h",
+                       "5": "6h", "6": "12h", "7": "1d", "8": "1w", "9": "1M"};
+
+function intervalLabel(value) {
+    return labels("#price-interval label")
+        .find((label) => label.textContent.trim() === value);
+}
+
+// L'intervalle voisin de celui qui est coché : `step` -1 plus fin, +1 plus
+// large ; rien au bout de la liste.
+function neighbourInterval(step) {
+    const all = labels("#price-interval label");
+    const current = all.findIndex((label) => {
+        const input = label.querySelector("input");
+        return input && input.checked;
+    });
+    return current < 0 ? null : all[current + step] || null;
+}
+
 function shortcut(key) {
-    if (key >= "1" && key <= "9") {
-        return document.querySelectorAll("#price-interval label")[key - 1];
+    if (KEY_INTERVALS[key]) {
+        return intervalLabel(KEY_INTERVALS[key]);
+    }
+    if (key === "-") {
+        return neighbourInterval(-1);
+    }
+    if (key === "+" || key === "=") {
+        return neighbourInterval(1);
     }
     switch (key.toLowerCase()) {
     case "e":

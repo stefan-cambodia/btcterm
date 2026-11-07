@@ -23,11 +23,14 @@ from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 #: Intervalles proposés, chacun avec le nombre de bougies chargées.
 #: La palette large — de la bougie de quinze minutes à la mensuelle —
 #: vient de `btc_dashboard2.py`, dont c'était le seul apport sur le
-#: panneau prix. Les profondeurs d'historique suivent l'échelle : de quoi
-#: nourrir la MA 200 en intraday, sans tirer trente ans de mensuelles.
+#: panneau prix ; la minute et les cinq minutes l'ont rejointe pour la
+#: lecture fine d'un mouvement en cours. Les profondeurs d'historique
+#: suivent l'échelle : de quoi nourrir la MA 200 en intraday — six heures
+#: de minutes, un jour de cinq minutes —, sans tirer trente ans de
+#: mensuelles. Le pan remonte au-delà, page par page.
 INTERVALS = {
-    "15m": 300, "30m": 300, "1h": 350, "4h": 350, "6h": 300,
-    "12h": 300, "1d": 365, "1w": 260, "1M": 120,
+    "1m": 360, "5m": 300, "15m": 300, "30m": 300, "1h": 350, "4h": 350,
+    "6h": 300, "12h": 300, "1d": 365, "1w": 260, "1M": 120,
 }
 DEFAULT_INTERVAL = "1d"
 
@@ -48,7 +51,7 @@ DEFAULT_EXTRAS = ["rsi", "volume", "profile"]
 def layout(title=None):
     return html.Div([
         html.Div([
-            # Titre court : la barre porte neuf intervalles, la devise,
+            # Titre court : la barre porte onze intervalles, la devise,
             # l'échelle et six cases ; « BTC/USDT » la faisait déborder de
             # 36 px à l'arrivée de NIV — la paire est au bandeau.
             title if title is not None else

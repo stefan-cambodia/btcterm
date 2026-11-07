@@ -71,7 +71,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
-| **Prix** | chandeliers de 15 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
+| **Prix** | chandeliers de 1 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
 | **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ (onglet du carnet) | 2 s |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
@@ -712,6 +712,7 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 | Touche | Effet |
 |---|---|
 | `1` à `9` | intervalle du panneau prix, de 15m à 1M |
+| `-` / `+` | intervalle plus fin / plus large — jusqu'à 1m et 5m, que les chiffres n'ont pas (`/1m`, `/5m` aussi) |
 | `E` | bascule `$` / `€` |
 | `L` | échelle logarithmique |
 | `S` | afficher ou masquer les flèches du graphique |

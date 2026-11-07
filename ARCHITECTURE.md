@@ -861,6 +861,14 @@ Le cache mémoire du hub reste devant, inchangé : le mémo du pousseur tient à
 l'identité de l'objet servi (§3.10). Seul son producteur change, et seule la
 première lecture de chaque intervalle coûte une page.
 
+Le rattrapage vers le présent est borné à `MAX_CATCHUP_PAGES` (cinq pages) :
+au-delà, la série sauvegardée de l'intervalle est oubliée et repart du présent,
+d'une page. Sans borne, la minute laissée un mois demandait quarante-trois
+pages à Binance avant d'afficher quoi que ce soit. Oubliée plutôt que trouée :
+la plage reste d'un seul tenant. Les intervalles longs ne l'atteignent jamais —
+cinq pages font sept mois d'horaire, que les alertes relisent à la minute, et
+treize ans de quotidien.
+
 La base est liée à `keep_journal` pour une raison précise : plusieurs tests
 remplacent `sources.fetch_klines` par des bougies fabriquées, et ces hubs
 construits sans journal ne doivent pas les écrire dans la vraie base — la
@@ -1275,6 +1283,15 @@ l'échelle et quatre sous-graphiques ne tiennent sur une ligne qu'au prix de
 sélecteurs en 9 px, d'un titre réduit à `BTC/USDT` et d'une devise notée `$` /
 `€`. Deux lignes voleraient de la hauteur au cours ; `ui_smoke.py` mesure donc
 que la barre tient sur une ligne et ne déborde pas de la largeur du panneau.
+La minute et les cinq minutes, ajoutées le 7 novembre 2026 pour lire un
+mouvement en cours, la faisaient déborder de 57 px. La place était ailleurs :
+Dash pose 16 px à droite de chaque option en ligne, et dix-neuf pixels
+séparaient deux libellés — trois cents sur la barre, que les réglages
+précédents, centrés sur la marge de gauche et l'espacement des lettres, ne
+voyaient pas. Dix pixels d'un seul côté lui rendent cent quatre-vingts. Les
+chiffres gardent leurs intervalles (1 le quart d'heure, 7 le jour, 9 le mois) :
+la minute et les cinq minutes s'atteignent par `-`, qui affine pas à pas, `+`
+élargissant, ou par la ligne de commande — `/1m` est la minute, `/1M` le mois.
 
 **Le perpétuel a rejoint ce côté du partage.** Même contrat que le prix,
 en plus simple : `/api/perp` sérialise financement (en % par 8 h) et open
@@ -2970,7 +2987,9 @@ d'historique pour en étalonner le seuil.
 
 - **Le quart d'heure et la demi-heure se remplissent à l'usage** — le reste est
   complété en tâche de fond (§3.14) ; ces deux-là coûteraient quatre cent
-  soixante-dix appels de plus, pour des bougies qui vieillissent vite.
+  soixante-dix appels de plus, pour des bougies qui vieillissent vite. La
+  minute et les cinq minutes aussi, à plus forte raison, et leur série est
+  oubliée après quelques jours sans lecture (§2.10).
 
 **À trancher :**
 

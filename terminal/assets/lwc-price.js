@@ -56,7 +56,8 @@
         drag: null      // la sélection en cours : {x0, y0, x1, y1, area}
     };
 
-    var INTRADAY = {"15m": 1, "30m": 1, "1h": 1, "4h": 1, "6h": 1, "12h": 1};
+    var INTRADAY = {"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1,
+                    "6h": 1, "12h": 1};
 
     //: Historique chargé à la volée : dès que le bord gauche visible
     //: approche à moins de ce nombre de bougies du début du tampon, la

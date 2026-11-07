@@ -124,7 +124,13 @@ body {
 #price-currency label,
 #price-scale label,
 #price-extras label {
-    margin-left: 3px;
+    /* Dash pose 16 px à droite de chaque option en ligne
+       (`.dash-radioitems-inline`) : dix-neuf pixels entre deux libellés,
+       trois cents sur la barre, que les réglages précédents ne voyaient
+       pas. La minute et les cinq minutes la faisaient déborder de 57 px ;
+       dix pixels d'un seul côté lui en rendent cent quatre-vingts. */
+    margin-left: 10px;
+    margin-right: 0;
     /* La case LIQ l'a fait déborder de 29 px de plus : les lettres de
        cette seule barre se resserrent, plutôt que d'y retirer un libellé. */
     letter-spacing: 0.06em;
