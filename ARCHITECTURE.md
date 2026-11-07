@@ -857,8 +857,16 @@ lecture directe.
 
 Les chandeliers passent par une connexion gardée ouverte : réduit à la fin de
 la série, l'appel ne valait plus que sa poignée de main TLS (337 ms contre
-110). Le réveil de la machine l'oublie (`reset_connections`) : morte sans
-l'avoir dit, elle ferait attendre la lecture suivante jusqu'au bout de son délai.
+110). Les autres collecteurs ont suivi le 7 novembre 2026 : une seconde session
+(`_http`) leur garde, à chacun de leurs hôtes, la connexion d'un appel à
+l'autre, quand chaque `requests.get` en ouvrait une neuve, certificats
+rechargés compris. Mesuré sur le ticker de Binance, que le bandeau relit toutes
+les cinq secondes : 251 ms et 18,8 ms de processeur par appel, 132 ms et 3,4 ms
+une fois la connexion gardée. Celle-ci ne refait pas d'essai sur une lecture
+ratée — elle doublerait l'attente des sources lentes — alors que celle des
+chandeliers en refait un. Le réveil de la machine oublie les deux
+(`reset_connections`) : mortes sans l'avoir dit, elles feraient attendre la
+lecture suivante jusqu'au bout de son délai.
 
 ### 2.11 `options` — ce que les prix d'options disent du futur
 
@@ -1115,7 +1123,12 @@ vite : une bougie journalière ne change pas quatre fois par seconde.
 
 Le fil de news est passé de l'horloge rare à l'horloge lente : il ne lit qu'une
 douzaine de lignes dans une base locale, et l'âge de la dernière collecte qu'il
-affiche doit avancer sans attendre cinq minutes.
+affiche doit avancer sans attendre cinq minutes. La liste elle-même ne repart
+vers le navigateur que si elle a changé : une empreinte (lien, score,
+sentiment de chaque ligne, `news_signature`) est gardée dans la page, et le
+callback ne renvoie que l'âge et le badge tant qu'elle tient. Douze lignes
+étaient reconstruites et redessinées toutes les deux secondes, pour une
+collecte toutes les quinze minutes.
 
 Un quatrième rythme échappe aux horloges : la **collecte des news**, toutes les
 quinze minutes, dans un thread démon du hub (§2.4). Elle ne pouvait pas vivre

@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import time
 
-from dash import Input, Output, dcc, html
+from dash import Input, Output, State, dcc, html, no_update
 
 from btcterm import newsdb
 
@@ -59,6 +59,9 @@ def layout(title=None):
         # nulle et reste plat une fois révélé.
         html.Div(id="news-fg-wrap", style=_WRAP_HIDDEN),
         html.Div(id="news-list", style={"flex": "1", "overflowY": "auto"}),
+        # L'empreinte de la liste affichée : le callback ne la renvoie que si
+        # elle a changé (`news_signature`).
+        dcc.Store(id="news-sig"),
     ], style=PANEL_STYLE)
 
 
@@ -102,17 +105,29 @@ def _age(seconds: float) -> str:
     return f"{minutes // 1440} j"
 
 
+def news_signature(rows) -> str:
+    """L'empreinte d'une liste de news : ce qui, changé, la change à l'écran."""
+    return "|".join(f"{row['url']}:{row['score']}:{row['sentiment']}"
+                    for row in rows)
+
+
 def register(app, hub):
     @app.callback(
         Output("news-list", "children"),
         Output("news-fg", "children"),
         Output("news-collecte", "children"),
+        Output("news-sig", "data"),
         # L'horloge lente plutôt que la rare : la collecte tourne sur son
         # propre rythme, et l'âge affiché doit avancer sans attendre
         # cinq minutes.
         Input("tick-slow", "n_intervals"),
+        State("news-sig", "data"),
     )
-    def _refresh(_tick):
+    def _refresh(_tick, shown):
+        """Toutes les deux secondes pour l'âge de la collecte ; la liste, elle,
+        ne repart vers le navigateur que si elle a changé. Elle était
+        reconstruite et redessinée à chaque tour — douze lignes toutes les
+        deux secondes, pour une collecte toutes les quinze minutes."""
         fear_greed = hub.fear_greed()
         if fear_greed:
             value = fear_greed["value"]
@@ -131,8 +146,11 @@ def register(app, hub):
                 f"base vide — {attente}",
                 style={"color": C["muted"], "fontFamily": MONO,
                        "fontSize": "11px", "padding": "12px"},
-            ), badge, collecte
+            ), badge, collecte, ""
 
+        signature = news_signature(rows)
+        if signature == shown:
+            return no_update, badge, collecte, no_update
         return [
             html.A([
                 html.Span(f"{row['score']:3d}", style={
@@ -146,7 +164,7 @@ def register(app, hub):
                 "padding": "3px 4px", "borderBottom": f"1px solid {C['border']}",
             })
             for row in rows
-        ], badge, collecte
+        ], badge, collecte, signature
 
     @app.callback(
         Output("news-fg-wrap", "children"),

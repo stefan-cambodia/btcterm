@@ -50,6 +50,18 @@ BINANCE_REST = "https://api.binance.com/api/v3"
 _klines_http = requests.Session()
 _klines_http.mount("https://", requests.adapters.HTTPAdapter(
     max_retries=Retry(total=1, connect=0, read=1, status=0, redirect=0)))
+#: Une session pour tous les autres collecteurs : la connexion à chaque
+#: hôte est gardée d'un appel à l'autre. Chaque `requests.get` en ouvrait
+#: une neuve — poignée de main TLS et rechargement des certificats compris :
+#: mesuré le 7 novembre 2026 sur le ticker de Binance, 251 ms et 18,8 ms de
+#: processeur par appel, contre 132 ms et 3,4 ms une fois la connexion
+#: gardée ; et le bandeau relit ce ticker toutes les cinq secondes. Pas de
+#: nouvel essai sur une lecture ratée : urllib3 écarte déjà une connexion
+#: que le serveur a fermée avant de la réutiliser, et un essai de plus
+#: doublerait l'attente des sources lentes (jusqu'à vingt secondes).
+_http = requests.Session()
+_http.mount("https://", requests.adapters.HTTPAdapter(pool_connections=32,
+                                                      pool_maxsize=16))
 FX_URL = "https://api.exchangerate-api.com/v4/latest/USD"
 #: Flux des ETF spot — la page « all data » de farside.co.uk plutôt que
 #: sa page d'accueil : celle-ci ne publie plus que les trois dernières
@@ -221,12 +233,13 @@ def reset_connections() -> None:
     la lecture suivante attendrait son délai entier avant de s'en apercevoir.
     """
     _klines_http.close()
+    _http.close()
 
 
 def fetch_ticker_24h(symbol: str = "BTCUSDT") -> dict[str, Any]:
     """Statistiques glissantes sur 24 h. Retourne `{}` en cas d'échec."""
     try:
-        response = requests.get(
+        response = _http.get(
             f"{BINANCE_REST}/ticker/24hr", params={"symbol": symbol}, timeout=6
         )
         response.raise_for_status()
@@ -239,7 +252,7 @@ def fetch_depth(
     symbol: str = "BTCUSDT", limit: int = 10
 ) -> tuple[list[tuple[float, float]], list[tuple[float, float]]]:
     """Instantané REST du carnet : `(bids, asks)` triés du meilleur au pire."""
-    response = requests.get(
+    response = _http.get(
         f"{BINANCE_REST}/depth", params={"symbol": symbol, "limit": limit}, timeout=5
     )
     response.raise_for_status()
@@ -328,7 +341,7 @@ def fetch_eur_rate() -> float:
     faisait mettre en cache une heure comme une lecture réussie, à la
     place du dernier bon taux, et sans une ligne de journal.
     """
-    response = requests.get(FX_URL, timeout=5)
+    response = _http.get(FX_URL, timeout=5)
     response.raise_for_status()
     return float(response.json()["rates"]["EUR"])
 
@@ -346,7 +359,7 @@ def fetch_chain_chart(
     `mempool-size` (en octets) ; l'unité reste celle de la source, la
     mise à l'échelle appartient à l'affichage.
     """
-    response = requests.get(
+    response = _http.get(
         f"{BLOCKCHAIN_CHARTS}/{name}",
         params={"timespan": timespan, "format": "json", "cors": "true"},
         timeout=20,
@@ -364,7 +377,7 @@ def fetch_chain_chart(
 
 
 def _deribit(method: str, params: dict, timeout: float = 10) -> Any:
-    response = requests.get(f"{DERIBIT_REST}/{method}", params=params,
+    response = _http.get(f"{DERIBIT_REST}/{method}", params=params,
                             timeout=timeout)
     response.raise_for_status()
     payload = response.json()
@@ -418,7 +431,7 @@ def fetch_yahoo_daily(symbol: str, span: str = "2y") -> pd.DataFrame:
     écartées. Une série vide lève : le cache la stockerait sinon comme une
     lecture réussie.
     """
-    response = requests.get(f"{YAHOO_CHART}/{symbol}",
+    response = _http.get(f"{YAHOO_CHART}/{symbol}",
                             params={"range": span, "interval": "1d"},
                             headers=YAHOO_HEADERS, timeout=10)
     response.raise_for_status()
@@ -448,7 +461,7 @@ def fetch_chain_stats() -> dict[str, Any]:
     Le champ `total_fees_btc` de la source est ignoré : il revient
     négatif, donc inexploitable.
     """
-    response = requests.get(BLOCKCHAIN_STATS, timeout=15)
+    response = _http.get(BLOCKCHAIN_STATS, timeout=15)
     response.raise_for_status()
     data = response.json()
 
@@ -469,7 +482,7 @@ def fetch_market_global() -> dict[str, Any]:
 
     Retourne `{}` en cas d'échec, les parts étant en pourcentage.
     """
-    response = requests.get(COINGECKO_GLOBAL, timeout=12)
+    response = _http.get(COINGECKO_GLOBAL, timeout=12)
     response.raise_for_status()
     data = response.json()["data"]
 
@@ -493,7 +506,7 @@ def fetch_funding_history(
 
     Retourne `time` / `rate`, le taux en fraction (0,0001 = 0,01 %).
     """
-    response = requests.get(
+    response = _http.get(
         f"{BINANCE_FUTURES}/fapi/v1/fundingRate",
         params={"symbol": symbol, "limit": limit},
         timeout=12,
@@ -519,7 +532,7 @@ def fetch_open_interest(
 
     Retourne `time` / `oi` (BTC) / `oi_usd`.
     """
-    response = requests.get(
+    response = _http.get(
         f"{BINANCE_FUTURES}/futures/data/openInterestHist",
         params={"symbol": symbol, "period": period, "limit": limit},
         timeout=12,
@@ -541,7 +554,7 @@ def fetch_open_interest(
 
 def fetch_bybit_perp(symbol: str = "BTCUSDT") -> dict[str, float]:
     """Financement, prix marqué et indice, open interest du perpétuel Bybit."""
-    response = requests.get(
+    response = _http.get(
         f"{BYBIT_REST}/v5/market/tickers",
         params={"category": "linear", "symbol": symbol}, timeout=8,
     )
@@ -554,7 +567,7 @@ def fetch_bybit_perp(symbol: str = "BTCUSDT") -> dict[str, float]:
 
 
 def _okx(path: str, **params: str) -> dict[str, Any]:
-    response = requests.get(f"{OKX_REST}/api/v5/{path}", params=params, timeout=8)
+    response = _http.get(f"{OKX_REST}/api/v5/{path}", params=params, timeout=8)
     response.raise_for_status()
     return response.json()["data"][0]
 
@@ -563,7 +576,7 @@ def fetch_okx_swap_contracts() -> dict[str, tuple[float, str]]:
     """La valeur de chaque contrat perpétuel d'OKX : `instId` → (`ctVal`,
     `ctValCcy`). Un contrat linéaire vaut `ctVal` unités du sous-jacent, un
     inverse `ctVal` dollars. Une table vide lève."""
-    response = requests.get(f"{OKX_REST}/api/v5/public/instruments",
+    response = _http.get(f"{OKX_REST}/api/v5/public/instruments",
                             params={"instType": "SWAP"}, timeout=15)
     response.raise_for_status()
     contracts = {item["instId"]: (float(item["ctVal"]), item["ctValCcy"])
@@ -602,7 +615,7 @@ def fetch_perp_snapshot(symbol: str = "BTCUSDT") -> dict[str, Any]:
     snapshot: dict[str, Any] = {}
     errors: list[str] = []
     try:
-        response = requests.get(
+        response = _http.get(
             f"{BINANCE_FUTURES}/fapi/v1/premiumIndex",
             params={"symbol": symbol}, timeout=8,
         )
@@ -616,7 +629,7 @@ def fetch_perp_snapshot(symbol: str = "BTCUSDT") -> dict[str, Any]:
         errors.append(f"premiumIndex : {brief_error(exc, 60)}")
 
     try:
-        response = requests.get(
+        response = _http.get(
             f"{BINANCE_FUTURES}/futures/data/globalLongShortAccountRatio",
             params={"symbol": symbol, "period": "1h", "limit": 1}, timeout=8,
         )
@@ -641,7 +654,7 @@ def fetch_m2_supply(start: str = "2013-01-01") -> pd.DataFrame:
     Retourne un DataFrame `time` / `m2` trié, tronqué à `start` : la
     série remonte à 1959, alors que le Bitcoin ne cote que depuis 2010.
     """
-    response = requests.get(M2_URL, params={"observations": "true"}, timeout=20)
+    response = _http.get(M2_URL, params={"observations": "true"}, timeout=20)
     response.raise_for_status()
 
     document = response.json()["series"]["docs"][0]
@@ -660,7 +673,7 @@ def fetch_etf_flows() -> pd.DataFrame:
     la plus haute de la page. Les montants négatifs y sont notés entre
     parenthèses selon la convention comptable.
     """
-    response = requests.get(FARSIDE_URL, headers=BROWSER_HEADERS, timeout=15)
+    response = _http.get(FARSIDE_URL, headers=BROWSER_HEADERS, timeout=15)
     response.raise_for_status()
 
     tables = pd.read_html(io.StringIO(response.text))
@@ -744,7 +757,7 @@ def fetch_cryptopanic_posts(api_key: str) -> list[dict[str, Any]]:
     if not api_key:
         return []
 
-    response = requests.get(
+    response = _http.get(
         "https://cryptopanic.com/api/v1/posts/",
         params={
             "auth_token": api_key,
@@ -772,7 +785,7 @@ def fetch_cryptopanic_posts(api_key: str) -> list[dict[str, Any]]:
 def fetch_fear_greed() -> Optional[dict[str, Any]]:
     """Indice Fear & Greed du jour, ou `None` si la source est injoignable."""
     try:
-        response = requests.get(FEAR_GREED_URL, params={"limit": 1}, timeout=8)
+        response = _http.get(FEAR_GREED_URL, params={"limit": 1}, timeout=8)
         response.raise_for_status()
         data = response.json()["data"][0]
         return {"value": int(data["value"]), "label": data["value_classification"]}
@@ -794,7 +807,7 @@ def fetch_fear_greed_history(
     l'erreur : le cache du hub préfère resservir sa série précédente
     plutôt que d'effacer la courbe à la première source injoignable.
     """
-    response = requests.get(FEAR_GREED_URL, params={"limit": days}, timeout=10)
+    response = _http.get(FEAR_GREED_URL, params={"limit": days}, timeout=10)
     response.raise_for_status()
 
     points = [

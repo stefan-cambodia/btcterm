@@ -214,8 +214,8 @@ def test_le_vide_vaut_panne():
         def raise_for_status(self): pass
         def json(self): return []
 
-    original = sources.requests.get
-    sources.requests.get = lambda *a, **k: Reponse()
+    original = sources._http.get
+    sources._http.get = lambda *a, **k: Reponse()
     try:
         for fetch in (lambda: sources.fetch_open_interest("BTCUSDT"),
                       lambda: sources.fetch_perp_snapshot("BTCUSDT")):
@@ -226,7 +226,7 @@ def test_le_vide_vaut_panne():
             else:
                 raise AssertionError("un résultat vide doit lever")
     finally:
-        sources.requests.get = original
+        sources._http.get = original
     print("  ✓ open interest vide et perpétuel sans réponse lèvent")
 
 
@@ -349,8 +349,8 @@ def test_la_panne_se_lit_en_une_ligne():
     class Panne:
         def raise_for_status(self): raise dns
         def json(self): return {}
-    original = sources.requests.get
-    sources.requests.get = lambda *a, **k: Panne()
+    original = sources._http.get
+    sources._http.get = lambda *a, **k: Panne()
     try:
         sources.fetch_perp_snapshot("BTCUSDT")
     except RuntimeError as exc:
@@ -360,7 +360,7 @@ def test_la_panne_se_lit_en_une_ligne():
     else:
         raise AssertionError("les deux endpoints en panne doivent lever")
     finally:
-        sources.requests.get = original
+        sources._http.get = original
     print("  ✓ hôte et cause, sans l'URL ni le pool")
 
 

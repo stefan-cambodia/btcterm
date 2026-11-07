@@ -221,6 +221,22 @@ def test_l_age_de_la_collecte_tient_dans_le_titre():
     assert frais.style["color"] == panneau.C["muted"]
     print("  ✓ âge court, retard dit au-delà de deux intervalles")
 
+
+def test_la_liste_ne_repart_que_si_elle_change():
+    """L'empreinte de la liste suit ce qui la change à l'écran — lien, score,
+    sentiment — et rien d'autre : la liste ne repart vers le navigateur que si
+    elle diffère de celle qu'il affiche."""
+    from terminal.panels.news import news_signature
+
+    ligne = {"url": "https://exemple/1", "score": 60, "sentiment": "bullish",
+             "title": "titre", "source": "Test"}
+    une = news_signature([ligne])
+    assert une == news_signature([dict(ligne, title="autre titre tronqué")])
+    assert une != news_signature([dict(ligne, score=61)])
+    assert une != news_signature([ligne, dict(ligne, url="https://exemple/2")])
+    assert news_signature([]) == ""
+    print("  ✓ empreinte : lien, score, sentiment")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nBase de news — {len(tests)} vérifications\n" + "─" * 60)

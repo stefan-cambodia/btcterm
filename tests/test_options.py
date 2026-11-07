@@ -230,11 +230,11 @@ def test_le_vide_vaut_panne():
         def json(self):
             return self.payload
 
-    original = sources.requests.get
+    original = sources._http.get
     try:
         for payload in ({"result": []}, {"error": {"code": 10}},
                         {"result": {"data": [], "continuation": None}}):
-            sources.requests.get = lambda *a, **k: Reponse(payload)
+            sources._http.get = lambda *a, **k: Reponse(payload)
             for fetch in (lambda: sources.fetch_deribit_summary("option"),
                           lambda: sources.fetch_dvol(30)):
                 try:
@@ -244,7 +244,7 @@ def test_le_vide_vaut_panne():
                 else:
                     raise AssertionError(f"un résultat vide doit lever : {payload}")
     finally:
-        sources.requests.get = original
+        sources._http.get = original
     print("  ✓ une chaîne ou un DVOL vides lèvent")
 
 

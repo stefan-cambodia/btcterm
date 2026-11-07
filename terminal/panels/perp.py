@@ -190,10 +190,16 @@ def _badges(snapshot: dict, open_interest, verbose: bool = False,
         children += [
             html.Span("financement " if verbose else "", style={"color": C["muted"]}),
             html.Span(f"{rate * 100:+.4f} %", style={"color": color},
-                      title="taux de financement de la période de 8 h"),
-            html.Span(f" ({annuel:+.1f} % / an)", style={"color": color},
-                      title="le même taux, annualisé"),
+                      title=("taux de financement de la période de 8 h, soit "
+                             f"{annuel:+.1f} % par an")),
         ]
+        # L'annualisé ne s'écrit qu'en plein écran : dans la grille, la ligne
+        # « portage /an » le donne juste dessous, et le titre débordait de
+        # 32 px quand Binance Futures répondait.
+        if verbose:
+            children.append(html.Span(f" ({annuel:+.1f} % / an)",
+                                      style={"color": color},
+                                      title="le même taux, annualisé"))
     # Le compte à rebours ne survit qu'en plein écran : dans la grille,
     # la barre de titre est déjà pleine, et c'est le chiffre dont on se
     # passe le plus facilement — les financements tombent à heure fixe.

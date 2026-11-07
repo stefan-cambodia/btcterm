@@ -210,14 +210,14 @@ def test_les_perpetuels_des_autres_plateformes():
         cle = next(c for c in champ if c in url)
         return Reponse({"data": [champ[cle]]})
 
-    vrai = sources.requests.get
-    sources.requests.get = faux_get
+    vrai = sources._http.get
+    sources._http.get = faux_get
     try:
         assert sources.fetch_bybit_perp()["oi_usd"] == 5356868002.9
         okx = sources.fetch_okx_perp()
         assert okx["funding_rate"] == 0.0001 and okx["index_price"] == 77661.3
     finally:
-        sources.requests.get = vrai
+        sources._http.get = vrai
     print("  ✓ champs de Bybit et d'OKX lus, ramenés au même contrat")
 
 

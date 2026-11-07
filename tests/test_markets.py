@@ -128,14 +128,14 @@ def test_le_collecteur_yahoo():
         "timestamp": [1793716200, 1793802600, 1793889000],
         "indicators": {"quote": [{"close": [7400.0, None, 7353.7]}]},
     }]}}
-    original = sources.requests.get
+    original = sources._http.get
     try:
         vus = []
 
         def faux(url, params=None, headers=None, timeout=None):
             vus.append(headers)
             return Reponse(payload)
-        sources.requests.get = faux
+        sources._http.get = faux
         frame = sources.fetch_yahoo_daily("^GSPC")
         assert list(frame["close"]) == [7400.0, 7353.7], frame
         assert [d.day for d in frame["time"]] == [3, 5], frame["time"]
@@ -144,7 +144,7 @@ def test_le_collecteur_yahoo():
         for vide in ({"chart": {"result": None}},
                      {"chart": {"result": [{"meta": {}, "timestamp": [1],
                       "indicators": {"quote": [{"close": [None]}]}}]}}):
-            sources.requests.get = lambda *a, **k: Reponse(vide)
+            sources._http.get = lambda *a, **k: Reponse(vide)
             try:
                 sources.fetch_yahoo_daily("^GSPC")
             except RuntimeError:
@@ -152,7 +152,7 @@ def test_le_collecteur_yahoo():
             else:
                 raise AssertionError(f"une série vide doit lever : {vide}")
     finally:
-        sources.requests.get = original
+        sources._http.get = original
     print("  ✓ séances sans cotation écartées, date de la place, vide qui lève")
 
 

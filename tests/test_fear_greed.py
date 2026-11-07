@@ -14,7 +14,7 @@ Trois pièges valent d'être tenus en respect :
 - le badge et les bandes du graphique doivent colorer une même valeur de
   la même façon, sans quoi le panneau se contredit à l'écran.
 
-Aucun réseau n'est touché : `requests.get` est remplacé.
+Aucun réseau n'est touché : `sources._http.get` est remplacé.
 
 Lancement :
     python tests/test_fear_greed.py
@@ -52,11 +52,11 @@ class FausseReponse:
         return self._payload
 
 
-_VRAI_GET = sources.requests.get
+_VRAI_GET = sources._http.get
 
 
 def _stub(payload=REPONSE, erreur=None):
-    """Remplace `requests.get` et retient les paramètres reçus."""
+    """Remplace `sources._http.get` et retient les paramètres reçus."""
     appels = []
 
     def get(url, params=None, timeout=None):
@@ -65,7 +65,7 @@ def _stub(payload=REPONSE, erreur=None):
             raise erreur
         return FausseReponse(payload)
 
-    sources.requests.get = get
+    sources._http.get = get
     return appels
 
 
@@ -74,7 +74,7 @@ def test_historique_remis_dans_le_sens_de_lecture():
     try:
         points = sources.fetch_fear_greed_history(90)
     finally:
-        sources.requests.get = _VRAI_GET
+        sources._http.get = _VRAI_GET
 
     assert appels[0][1] == {"limit": 90}, "la profondeur demandée doit passer"
     assert [p["value"] for p in points] == [18, 22, 65], \
@@ -91,7 +91,7 @@ def test_le_badge_est_le_dernier_point_de_la_courbe():
         assert hub.fear_greed() == {"value": 65, "label": "Greed"}
         assert len(hub.fear_greed_history()) == 3
     finally:
-        sources.requests.get = _VRAI_GET
+        sources._http.get = _VRAI_GET
     print("  ✓ le chiffre du badge et la fin de la courbe s'accordent")
 
 
@@ -103,7 +103,7 @@ def test_source_injoignable_ne_casse_rien():
         assert hub.fear_greed_history() == []
         assert hub.fear_greed() is None
     finally:
-        sources.requests.get = _VRAI_GET
+        sources._http.get = _VRAI_GET
     print("  ✓ source muette : liste vide, aucun panneau en erreur")
 
 
@@ -118,7 +118,7 @@ def test_la_serie_precedente_survit_a_une_panne():
     try:
         assert len(hub.fear_greed_history()) == 3
     finally:
-        sources.requests.get = _VRAI_GET
+        sources._http.get = _VRAI_GET
 
     horodatage, valeur = hub._cache._entries["fear_greed_history"]
     hub._cache._entries["fear_greed_history"] = (
@@ -129,7 +129,7 @@ def test_la_serie_precedente_survit_a_une_panne():
         assert hub.fear_greed() == {"value": 65, "label": "Greed"}, \
             "la série précédente doit être resservie, pas effacée"
     finally:
-        sources.requests.get = _VRAI_GET
+        sources._http.get = _VRAI_GET
     print("  ✓ panne après coup : la dernière courbe connue reste affichée")
 
 
