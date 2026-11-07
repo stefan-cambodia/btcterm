@@ -268,10 +268,21 @@ arriver dans deux messages — mais un croisement qui tient
 `CROSSED_GRACE` (2 s) lève `BookDesync`, que la boucle de reconnexion
 traite comme une panne : le carnet porte l'erreur le temps du backoff, la
 resouscription apporte un snapshot neuf. Et le moteur d'arbitrage
-(`ArbitrageEngine._evaluate`) écarte un carnet croisé comme il écarte un
+(`ArbitrageEngine._quote`) écarte un carnet croisé comme il écarte un
 carnet vieux — l'écart qu'il montre n'existe
 pas. `tests/test_orderbook.py` rejoue les deux causes et les deux
 parades, messages au format des plateformes.
+
+Le moteur a deux lectures. `evaluate` rend toutes les paires sans rien
+compter : c'est celle des panneaux. `scan` y ajoute le compteur
+« détectées » et l'historique, et n'appartient qu'au balayage du hub, une
+fois par seconde (§2.7) — le compteur se lit donc en secondes de paire
+rentable. Le panneau appelait `scan` : depuis que le pousseur rend
+l'arbitrage à chaque trame, une paire rentable y ajoutait dix par seconde
+et par onglet ouvert. Chaque balayage lit le meilleur bid et le meilleur ask
+d'un carnet une fois (`OrderBook.quote`), et non plus trois fois par paire :
+lire un meilleur prix parcourt tout un côté du carnet, et vingt paires y
+revenaient cent vingt fois. Le balayage passe de 0,19 à 0,03 ms.
 
 Le garde-fou a ensuite nommé la cause Kraken, qu'on croyait fortuite :
 cinquante-quatre resynchronisations dans le journal du service en une

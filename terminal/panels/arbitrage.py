@@ -32,7 +32,9 @@ def render(hub, currency=None):
     Fonction pure vis-à-vis du rendu, partagée entre le callback Dash et
     le pousseur WebSocket.
     """
-    opportunities = hub.engine.scan()
+    # `evaluate`, pas `scan` : le rendu ne compte rien — le compteur est
+    # celui du balayage du hub, une fois par seconde.
+    opportunities = hub.engine.evaluate()
     total = hub.engine.stats["total_opportunities"]
     badge = f"{total} détectées · {hub.connected_count}/5 connectés"
 

@@ -177,6 +177,16 @@ class OrderBook:
         with self._lock:
             return min(self.asks) if self.asks else None
 
+    def quote(self) -> tuple[Optional[float], Optional[float]]:
+        """Meilleur bid et meilleur ask, lus ensemble sous un seul verrou.
+
+        Chacun parcourt tout son côté du carnet : qui a besoin des deux, et
+        de savoir le carnet croisé, les lit ici une fois plutôt que trois.
+        """
+        with self._lock:
+            return (max(self.bids) if self.bids else None,
+                    min(self.asks) if self.asks else None)
+
     @property
     def mid(self) -> Optional[float]:
         bid, ask = self.best_bid, self.best_ask

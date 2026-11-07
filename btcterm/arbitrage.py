@@ -76,51 +76,70 @@ class ArbitrageEngine:
         self.history: list[ArbitrageOpportunity] = []
         self.stats: defaultdict[str, int] = defaultdict(int)
 
-    def scan(self) -> list[ArbitrageOpportunity]:
-        """Recalcule toutes les paires, du plus rentable au moins rentable."""
+    def evaluate(self) -> list[ArbitrageOpportunity]:
+        """Toutes les paires, de la plus rentable à la moins rentable — sans
+        rien compter : c'est la lecture des panneaux, qui la refont autant de
+        fois qu'il y a d'onglets ouverts et de trames par seconde."""
         opportunities: list[ArbitrageOpportunity] = []
-        exchanges = list(self.order_books)
+        # Chaque carnet est lu une fois, pas une fois par paire : lire son
+        # meilleur prix parcourt tout un côté, et vingt paires y revenaient
+        # cent vingt fois par balayage.
+        quotes = {name: self._quote(book)
+                  for name, book in self.order_books.items()}
 
-        for buy_ex in exchanges:
-            for sell_ex in exchanges:
-                if buy_ex == sell_ex:
+        for buy_ex, buy_quote in quotes.items():
+            for sell_ex, sell_quote in quotes.items():
+                if buy_ex == sell_ex or buy_quote is None or sell_quote is None:
                     continue
 
-                opportunity = self._evaluate(buy_ex, sell_ex)
-                if opportunity is None:
-                    continue
-
-                if opportunity.is_profitable:
-                    self.stats["total_opportunities"] += 1
-                    self.history.append(opportunity)
-                    if len(self.history) > self.history_size:
-                        self.history.pop(0)
-
-                opportunities.append(opportunity)
+                opportunity = self._evaluate(buy_ex, sell_ex,
+                                             buy_quote[1], sell_quote[0])
+                if opportunity is not None:
+                    opportunities.append(opportunity)
 
         opportunities.sort(key=lambda o: o.net_profit_pct, reverse=True)
+        return opportunities
+
+    def scan(self) -> list[ArbitrageOpportunity]:
+        """Évalue toutes les paires et compte les rentables.
+
+        Réservé au balayage du hub, une fois par seconde : le compteur
+        « détectées » et l'historique se comptent en secondes de paire
+        rentable. Appelé aussi par le panneau, ils avançaient de dix par
+        seconde et par onglet ouvert, le pousseur rendant l'arbitrage à
+        chaque trame.
+        """
+        opportunities = self.evaluate()
+        for opportunity in opportunities:
+            if opportunity.is_profitable:
+                self.stats["total_opportunities"] += 1
+                self.history.append(opportunity)
+                if len(self.history) > self.history_size:
+                    self.history.pop(0)
         self.opportunities = opportunities
         return opportunities
 
-    def _evaluate(self, buy_ex: str, sell_ex: str) -> ArbitrageOpportunity | None:
-        buy_book = self.order_books[buy_ex]
-        sell_book = self.order_books[sell_ex]
-
-        if not (buy_book.connected and sell_book.connected):
-            return None
-
-        buy_price, sell_price = buy_book.best_ask, sell_book.best_bid
-        if not (buy_price and sell_price):
+    def _quote(self, book: OrderBook) -> tuple | None:
+        """Le meilleur bid et le meilleur ask d'un carnet qui compte — l'un
+        ou l'autre pouvant manquer —, ou `None` s'il ne compte pas."""
+        if not book.connected:
             return None
 
         # Un carnet trop vieux ne dit plus rien du marché actuel.
-        if buy_book.age_ms > self.max_age_ms or sell_book.age_ms > self.max_age_ms:
+        if book.age_ms > self.max_age_ms:
             return None
 
+        bid, ask = book.quote()
         # Un carnet croisé porte un niveau fantôme : l'écart qu'il montre
         # n'existe pas. Le connecteur le resynchronise ; d'ici là, il ne
         # compte pas.
-        if buy_book.crossed or sell_book.crossed:
+        if bid is not None and ask is not None and bid >= ask:
+            return None
+        return bid, ask
+
+    def _evaluate(self, buy_ex: str, sell_ex: str, buy_price, sell_price
+                  ) -> ArbitrageOpportunity | None:
+        if not (buy_price and sell_price):
             return None
 
         if sell_price <= buy_price:

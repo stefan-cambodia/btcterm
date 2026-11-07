@@ -166,6 +166,34 @@ def test_le_moteur_ecarte_le_carnet_croise():
     print("  ✓ le moteur d'arbitrage ignore un carnet croisé")
 
 
+def test_le_rendu_ne_compte_pas_les_opportunites():
+    """Le compteur « détectées » avance au balayage du hub, pas au rendu.
+
+    Le panneau appelait `scan`, qui compte : le pousseur rendant
+    l'arbitrage à chaque trame, une paire rentable ajoutait dix au compteur
+    par seconde et par onglet ouvert, en plus du balayage du hub.
+    """
+    from btcterm.hub import MarketHub
+    from terminal.panels import arbitrage
+
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    # Kraken cote 0,9 % au-dessus : acheter Binance, revendre Kraken.
+    for name, (bid, ask) in {"Binance": (80_000, 80_001),
+                             "Kraken": (80_800, 80_801)}.items():
+        hub.books[name].replace({bid: 1}, {ask: 1})
+        hub.books[name].connected = True
+
+    for _ in range(50):
+        table, badge = arbitrage.render(hub, "USD")
+    assert hub.engine.stats["total_opportunities"] == 0, badge
+    assert "Binance" in str(table), "le rendu montre la paire sans la compter"
+
+    assert hub.engine.scan()[0].is_profitable
+    assert hub.engine.stats["total_opportunities"] == 1
+    assert arbitrage.render(hub, "USD")[1].startswith("1 détectées")
+    print("  ✓ cinquante rendus, aucun compté ; un balayage, un compté")
+
+
 def test_la_pression_acheteuse_se_lit_sur_le_spread():
     """La part des acheteurs dans le volume des niveaux affichés."""
     from btcterm.hub import MarketHub
