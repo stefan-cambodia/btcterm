@@ -34,7 +34,7 @@ from .history import KlineHistory
 from .journal import SNAPSHOT_FIELDS, Journal
 from .newsdb import NewsCollector
 from .tape import (BinanceTradeConnector, BybitTradeConnector,
-                   CoinbaseTradeConnector, TradeTape)
+                   CoinbaseTradeConnector, Trade, TradeTape)
 from .liquidations import (BybitLiquidationConnector, Liquidation,
                            LiquidationFeed, OKXLiquidationConnector)
 from . import resolver
@@ -492,6 +492,9 @@ class MarketHub:
         self.journal: Optional[Journal] = Journal() if keep_journal else None
         if self.journal is not None:
             self.liquidations.on_event = self.journal.record_liquidation
+            # Les gros ordres du ruban aussi : sans eux, chaque redémarrage
+            # effaçait l'heure en mémoire.
+            self.tape.on_large = self.journal.record_trade
 
         #: Les bougies closes sur disque (§ history). Lié au journal, et
         #: pas seulement par commodité : les tests remplacent la source par
@@ -552,6 +555,7 @@ class MarketHub:
         # l'ordre, et un événement vivant qui arriverait pendant la
         # relecture s'y retrouverait avant des plus anciens.
         self._warm_liquidations()
+        self._warm_tape()
         self._warm_alerts()
         self._connectors = [
             BinanceConnector(self.books["Binance"], symbol="btcusdt", depth=20),
@@ -601,6 +605,22 @@ class MarketHub:
             return 0
         return self.alerts.restore(
             Alert(time=row["ts"], kind=row["kind"], message=row["message"])
+            for row in rows)
+
+    def _warm_tape(self) -> int:
+        """Rend au ruban les gros ordres de la dernière heure, du journal —
+        comme les liquidations : un panneau vide après un redémarrage se
+        lit comme une panne des flux."""
+        if self.journal is None:
+            return 0
+        now = time.time()
+        try:
+            rows = self.journal.trades_between(now - self.tape.keep, now)
+        except Exception:
+            return 0
+        return self.tape.restore(
+            Trade(time=row["ts"], exchange=row["exchange"], side=row["side"],
+                  price=row["price"], quantity=row["quantity"])
             for row in rows)
 
     def _warm_liquidations(self) -> int:
@@ -1312,6 +1332,11 @@ class MarketHub:
             "pc_oi": options["pc_oi"],
             "basis90": (options["basis90"][1] * 100
                         if options["basis90"] is not None else None),
+            # La prime Coinbase des cinq dernières minutes — la cadence de
+            # l'instantané : un historique qu'aucune API gratuite ne sert.
+            "cb_premium": (premium * 100 if (premium := self.tape
+                           .coinbase_premium(self.SNAPSHOT_EVERY)) is not None
+                           else None),
         }
         if all(value is None for value in fields.values()):
             return

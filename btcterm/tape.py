@@ -21,9 +21,14 @@ instant, plutôt que supposé :
 - Coinbase : `side` est le côté du **teneur** — un « BUY » tombe au bid
   (180 contre 23 à l'ask) —, le preneur est donc de l'autre côté.
 
-Le ruban garde une heure de gros ordres (`RECORD`, 50 000 $ et plus) et,
-pour toutes les tailles, la somme achetée et vendue par minute. Il tient
-aussi l'état de chaque lien, comme le fil des liquidations.
+Le ruban garde une heure de gros ordres (`RECORD`, 100 000 $ et plus, le
+plus petit seuil du panneau) et, pour toutes les tailles, la somme achetée
+et vendue par minute, et la quantité échangée par place — de quoi tirer
+un prix moyen pondéré, et la **prime Coinbase** : l'écart du bitcoin en
+dollars sur Coinbase, la place des acheteurs américains, à celui de
+Binance en USDT. Chaque gros ordre part au journal (`on_large`), qui le
+rend au démarrage (`restore`). Le ruban tient aussi l'état de chaque lien,
+comme le fil des liquidations.
 """
 
 from __future__ import annotations
@@ -34,7 +39,7 @@ import time
 from collections import deque
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional
+from typing import Callable, Iterable, Optional
 
 from .exchanges import ExchangeConnector
 
@@ -45,8 +50,10 @@ BINANCE_TRADES_WS = "wss://stream.binance.com:9443/ws/btcusdt@aggTrade"
 COINBASE_WS = "wss://advanced-trade-ws.coinbase.com"
 BYBIT_SPOT_WS = "wss://stream.bybit.com/v5/public/spot"
 
-#: En deçà, un échange compte dans le flux mais ne s'inscrit pas au ruban.
-RECORD = 50_000.0
+#: En deçà, un échange compte dans le flux mais ne s'inscrit pas au ruban —
+#: le plus petit seuil du panneau : à 50 000 $, le ruban gardait des ordres
+#: qu'aucun seuil ne montrait.
+RECORD = 100_000.0
 #: Profondeur du ruban et du flux par minute.
 KEEP = 3600.0
 
@@ -74,7 +81,11 @@ class TradeTape:
         self.keep = keep
         self._lock = threading.Lock()
         self._large: deque[Trade] = deque(maxlen=5000)
-        #: Minute (epoch // 60) → plateforme → {"buy": $, "sell": $}.
+        #: Appelé hors verrou pour chaque gros ordre vivant : le hub y branche
+        #: le journal. Une exception n'y arrête jamais le flux.
+        self.on_large: Optional[Callable[[Trade], None]] = None
+        #: Minute (epoch // 60) → plateforme → {"buy": $, "sell": $,
+        #: "qty": BTC échangés}.
         self._minutes: dict[int, dict[str, dict[str, float]]] = {}
         #: Plateforme → (connecté, erreur).
         self.links: dict[str, tuple[bool, Optional[str]]] = {}
@@ -106,16 +117,68 @@ class TradeTape:
         if trade.price <= 0 or trade.quantity <= 0:
             return
         minute = int(trade.time // 60)
+        large = trade.notional >= self.record_min
         with self._lock:
             sides = (self._minutes.setdefault(minute, {})
-                     .setdefault(trade.exchange, {"buy": 0.0, "sell": 0.0}))
+                     .setdefault(trade.exchange,
+                                 {"buy": 0.0, "sell": 0.0, "qty": 0.0}))
             sides[trade.side] += trade.notional
-            if trade.notional >= self.record_min:
+            sides["qty"] += trade.quantity
+            if large:
                 self._large.append(trade)
             self._last[trade.exchange] = time.time()
             horizon = int((trade.time - self.keep) // 60)
             for old in [m for m in self._minutes if m < horizon]:
                 del self._minutes[old]
+        if large and self.on_large is not None:
+            try:
+                self.on_large(trade)
+            except Exception:
+                pass
+
+    def restore(self, trades: Iterable[Trade]) -> int:
+        """Rend au ruban des gros ordres **déjà journalisés**, sans les
+        réécrire : un redémarrage du service effaçait l'heure en mémoire.
+        À appeler avant d'ouvrir les connexions, dans l'ordre chronologique.
+        Le flux par minute, lui, ne se reconstruit pas — il compte toutes
+        les tailles, et le journal ne garde que les grosses."""
+        kept = 0
+        with self._lock:
+            for trade in trades:
+                if trade.price > 0 and trade.quantity > 0:
+                    self._large.append(trade)
+                    kept += 1
+        return kept
+
+    def vwap(self, exchange: str, seconds: float,
+             now: Optional[float] = None) -> Optional[float]:
+        """Prix moyen pondéré par les volumes d'une place sur la fenêtre."""
+        now = time.time() if now is None else now
+        start = int((now - seconds) // 60)
+        notional = quantity = 0.0
+        with self._lock:
+            for minute, exchanges in self._minutes.items():
+                sides = exchanges.get(exchange)
+                if minute >= start and sides:
+                    notional += sides["buy"] + sides["sell"]
+                    quantity += sides["qty"]
+        return notional / quantity if quantity > 0 else None
+
+    def coinbase_premium(self, seconds: float = 300,
+                         now: Optional[float] = None) -> Optional[float]:
+        """La prime Coinbase, en fraction : Coinbase (BTC-USD) contre
+        Binance (BTC-USDT), prix moyens pondérés de la fenêtre.
+
+        Positive, l'Amérique paie plus cher que le reste du monde — la
+        lecture usuelle d'une demande américaine. Les deux places ne cotent
+        pas la même monnaie : un USDT décoté de 0,05 % sur le dollar fait
+        +0,05 % de prime à lui seul, d'où un écart qui ne se lit qu'au-delà
+        de quelques centièmes."""
+        coinbase = self.vwap("Coinbase", seconds, now)
+        binance = self.vwap("Binance", seconds, now)
+        if coinbase is None or binance is None:
+            return None
+        return coinbase / binance - 1
 
     def large(self, min_notional: float, limit: int = 30,
               now: Optional[float] = None) -> list[Trade]:

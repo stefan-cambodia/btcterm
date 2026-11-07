@@ -136,6 +136,37 @@ def _section_liquidations(rows):
     ], style={**_EMPTY, "color": C["text"]})]
 
 
+def _section_gros_ordres(rows):
+    """Le bilan des gros ordres du ruban (§ tape) : ce que chaque côté a
+    pesé, qui l'a emporté, et l'ordre le plus gros. Le panneau RUBAN ne
+    garde qu'une heure ; le journal, la journée."""
+    if not rows:
+        return [html.Div("aucun gros ordre journalisé", style=_EMPTY)]
+    achats = [r for r in rows if r["side"] == "buy"]
+    ventes = [r for r in rows if r["side"] == "sell"]
+    total_achats = sum(r["notional"] for r in achats)
+    total_ventes = sum(r["notional"] for r in ventes)
+    solde = total_achats - total_ventes
+    gros = max(rows, key=lambda r: r["notional"])
+    sens = "achat" if gros["side"] == "buy" else "vente"
+    return [html.Div([
+        html.Span(f"achats {len(achats)} · {_montant(total_achats)}",
+                  style={"color": C["green"]}),
+        html.Span(" · ", style={"color": C["muted"]}),
+        html.Span(f"ventes {len(ventes)} · {_montant(total_ventes)}",
+                  style={"color": C["red"]}),
+        html.Span(" · solde ", style={"color": C["muted"]}),
+        html.Span(("+" if solde >= 0 else "−") + _montant(abs(solde)),
+                  style={"color": C["green"] if solde >= 0 else C["red"]},
+                  title="achats agressifs moins ventes agressives, gros "
+                        "ordres seuls"),
+        html.Span(
+            f" · le plus gros : {sens} {gros['exchange']} "
+            f"{_montant(gros['notional'])} à {_quand(gros['ts'])}",
+            style={"color": C["muted"]}),
+    ], style={**_EMPTY, "color": C["text"]})]
+
+
 def _badges_compact(journal, hub, alerts, episodes, liquidations, start, end):
     """Le titre de la grille : alertes et liquidations du jour ; épisodes,
     profondeur des instantanés et interruptions au survol."""
@@ -177,7 +208,9 @@ def render(hub, expanded: bool):
         + [html.Div("épisodes d'arbitrage", style=_HEAD)]
         + _section_episodes(episodes, limit)
         + [html.Div("liquidations", style=_HEAD)]
-        + _section_liquidations(liquidations),
+        + _section_liquidations(liquidations)
+        + [html.Div("gros ordres (100 k$ et plus)", style=_HEAD)]
+        + _section_gros_ordres(journal.trades_between(start, end)),
         style={"fontFamily": MONO, "fontSize": "11px"})
 
     # Dans la grille, le titre ne garde que les deux comptes qui changent

@@ -951,6 +951,24 @@ aurait retourné tout le ruban de Coinbase, la place des acheteurs américains.
 L'instantané qu'envoie Coinbase à l'abonnement, qui rejoue ses derniers
 échanges, est écarté : le ruban ne dit que ce qui arrive.
 
+**La mémoire du ruban.** Le ruban ne gardait qu'une heure en mémoire, et un
+redémarrage du service l'effaçait. Chaque gros ordre part désormais au journal
+(table `large_trades`, `on_large`), qui le rend au démarrage (`_warm_tape`,
+sans le réécrire) et en fait le bilan de la journée au panneau JOURNAL :
+achats, ventes, solde et ordre le plus gros. Le seuil du ruban passe au passage
+de 50 000 à 100 000 $, le plus petit seuil du panneau : entre les deux, des
+ordres étaient gardés qu'aucun seuil ne montrait.
+
+**La prime Coinbase.** Le ruban tient aussi, par minute et par place, la
+quantité échangée : de quoi tirer un prix moyen pondéré (`vwap`) et l'écart du
+bitcoin en dollars sur Coinbase — la place des acheteurs américains — à
+Binance en USDT (`coinbase_premium`), lecture usuelle de la demande
+américaine. Mesurée le 7 novembre 2026 au matin : −0,16 %. Les deux places ne
+cotent pas la même monnaie : un USDT décoté sur le dollar fait une part de
+l'écart, qui ne se lit qu'au-delà de quelques centièmes. Le titre du RUBAN la
+porte, et l'instantané de marché la note toutes les cinq minutes
+(`cb_premium`) : un historique qu'aucune API gratuite ne sert.
+
 ### 2.14 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
@@ -2560,6 +2578,11 @@ d'historique pour en étalonner le seuil.
   sans clé — DVOL contre réalisée, courbe des échéances et ailes 25 delta,
   base des futures à échéance, open interest par strike et max pain —, avec
   DVOL au bandeau.
+- ~~**Un ruban sans mémoire**~~ — un redémarrage effaçait l'heure de gros
+  ordres. Fait : ils vont au journal, reviennent au démarrage, et le panneau
+  JOURNAL en fait le bilan du jour (§2.13).
+- ~~**La demande américaine**~~ — fait : la prime Coinbase au titre du RUBAN,
+  notée toutes les cinq minutes dans les instantanés (§2.13).
 - ~~**Un seul fil de liquidations qui livre**~~ — constaté au panneau SOURCES
   le 7 novembre au matin : Binance muet depuis le Cambodge, Bybit sur dix
   paires sans rien depuis une heure. Fait : OKX en troisième source, tous ses

@@ -316,7 +316,11 @@ est la seule qui informe.
 gros échange de Binance, Coinbase et Bybit au comptant, et surtout qui l'a
 voulu — un achat au prix vendeur est un acheteur pressé. Le titre donne la
 part des achats agressifs sur cinq minutes (toutes tailles, détail par place
-au survol), la ligne dessous les montants et le seuil. Le sens du preneur ne
+au survol) et la **prime Coinbase** — l'écart du bitcoin en dollars sur
+Coinbase, la place des acheteurs américains, à Binance en USDT : positive,
+l'Amérique paie plus cher —, la ligne dessous les montants et le seuil. Les gros
+ordres vont au journal : le ruban survit à un redémarrage, et le panneau
+JOURNAL fait le bilan de la journée (achats, ventes, solde). Le sens du preneur ne
 se lit pas pareil d'une place à l'autre : il a été mesuré contre le carnet
 plutôt que supposé, et Coinbase, qui marque le côté du teneur, se lit à
 l'envers des deux autres.

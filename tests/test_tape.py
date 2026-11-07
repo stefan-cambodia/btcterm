@@ -119,6 +119,77 @@ def test_le_panneau():
     print("  ✓ flux et liens absents au titre, silence dit, million en gras")
 
 
+
+def test_la_prime_coinbase():
+    """Prix moyens pondérés par place, et leur écart : Coinbase en dollars
+    contre Binance en USDT ; rien tant qu'une des deux manque."""
+    maintenant = 1_800_000_000.0
+    ruban = TradeTape()
+    assert ruban.coinbase_premium(now=maintenant) is None
+    ruban.record(Trade(maintenant - 10, "Binance", "buy", 75_000.0, 1.0))
+    ruban.record(Trade(maintenant - 5, "Binance", "sell", 75_300.0, 2.0))
+    assert ruban.coinbase_premium(now=maintenant) is None, "Coinbase manque"
+    ruban.record(Trade(maintenant - 3, "Coinbase", "buy", 75_200.0, 1.0))
+    assert ruban.vwap("Binance", 300, now=maintenant) == 75_200.0
+    assert ruban.coinbase_premium(now=maintenant) == 0.0
+    ruban.record(Trade(maintenant - 2, "Coinbase", "sell", 75_500.0, 1.0))
+    attendu = 75_350.0 / 75_200.0 - 1
+    assert abs(ruban.coinbase_premium(now=maintenant) - attendu) < 1e-12
+    # Hors de la fenêtre : rien.
+    assert ruban.vwap("Coinbase", 60, now=maintenant + 3600) is None
+
+    from terminal.panels import tape as panneau
+    vif = TradeTape()
+    vif.record(Trade(time.time(), "Binance", "buy", 75_000.0, 2.0))
+    vif.record(Trade(time.time(), "Coinbase", "buy", 74_925.0, 2.0))
+    assert "prime CBS -0.10 %" in str(panneau.badges(vif))
+    print("  ✓ prix moyens pondérés, prime Coinbase, absente sans les deux places")
+
+
+def test_les_gros_ordres_vont_au_journal_et_en_reviennent():
+    """Chaque gros ordre vivant part au journal ; le hub les rend au ruban
+    au démarrage, sans les réécrire ; le panneau JOURNAL en fait le bilan."""
+    import tempfile
+    from types import SimpleNamespace
+    from btcterm.hub import MarketHub
+    from btcterm.journal import Journal
+    from terminal.panels.journal import render
+
+    with tempfile.TemporaryDirectory() as dossier:
+        journal = Journal(Path(dossier) / "journal.db")
+        ruban = TradeTape()
+        ruban.on_large = journal.record_trade
+        maintenant = time.time()
+        ruban.record(Trade(maintenant - 60, "Binance", "sell", 75_000.0, 4.0))
+        ruban.record(Trade(maintenant - 30, "Coinbase", "buy", 75_000.0, 2.0))
+        ruban.record(Trade(maintenant - 20, "Bybit", "buy", 75_000.0, 0.1))   # petit
+        lignes = journal.trades_between(0, maintenant)
+        assert [(r["exchange"], r["side"]) for r in lignes] == [
+            ("Binance", "sell"), ("Coinbase", "buy")], "seuls les gros partent"
+
+        # Un rappel qui lève n'arrête pas le flux.
+        casse = TradeTape()
+        casse.on_large = lambda t: 1 / 0
+        casse.record(Trade(maintenant, "Binance", "buy", 75_000.0, 5.0))
+        assert len(casse.large(0, now=maintenant)) == 1
+
+        hub = MarketHub(collect_news=False, keep_journal=False)
+        hub.journal = journal
+        hub.tape.on_large = journal.record_trade
+        assert hub._warm_tape() == 2
+        assert len(hub.tape.large(0)) == 2
+        assert len(journal.trades_between(0, maintenant + 1)) == 2, \
+            "la relecture ne doit rien réécrire"
+
+        vue, _ = render(SimpleNamespace(journal=journal), True)
+        texte = str(vue)
+        assert "gros ordres" in texte and "achats 1 · 150 k$" in texte, texte[-600:]
+        assert "ventes 1 · 300 k$" in texte and "−150 k$" in texte
+        journal.purge(days=0)
+        assert journal.trades_between(0, maintenant + 1) == []
+        journal.close()
+    print("  ✓ au journal, rendus au démarrage sans doublon, bilan du jour, purgés")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nRuban — {len(tests)} vérifications\n" + "─" * 60)
