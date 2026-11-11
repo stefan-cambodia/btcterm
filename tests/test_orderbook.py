@@ -319,6 +319,67 @@ def test_le_backoff_repart_apres_une_connexion_qui_a_tenu():
     print("  ✓ le backoff repart de zéro après une connexion qui a tenu")
 
 
+def test_okx_carnet_entier_et_suite_verifiee():
+    """OKX livre son carnet entier, puis des deltas numérotés : un numéro
+    qui ne suit pas vaut resynchronisation."""
+    from btcterm.exchanges import BookDesync, OKXConnector
+
+    book = OrderBook("OKX")
+    connector = OKXConnector(book, depth=4)
+    assert book.max_levels == 4 and ":8443" not in connector.url
+    assert connector.subscription["args"][0]["channel"] == "books"
+
+    def message(action, bids, asks, seq, prev):
+        return {"arg": {"channel": "books"}, "action": action,
+                "data": [{"bids": [[p, q, "0", "1"] for p, q in bids],
+                          "asks": [[p, q, "0", "1"] for p, q in asks],
+                          "seqId": seq, "prevSeqId": prev}]}
+
+    # Acquittement et avis de la plateforme : rien à lire, rien à lever.
+    connector._handle({"event": "subscribe", "arg": {"channel": "books"}})
+    connector._handle({"event": "notice", "msg": "port 8443 will be retired"})
+    assert book.mid is None
+
+    connector._handle(message(
+        "snapshot", [("100", "1"), ("99", "2"), ("98", "3")],
+        [("101", "1"), ("102", "2")], seq=10, prev=-1))
+    assert book.best_bid == 100 and book.best_ask == 101
+    # Un delta : une quantité changée, un niveau retiré, un niveau neuf.
+    connector._handle(message(
+        "update", [("100", "0"), ("99", "5"), ("97", "1")],
+        [("101.5", "4")], seq=12, prev=10))
+    assert book.top("bids", 5) == [(99.0, 5.0), (98.0, 3.0), (97.0, 1.0)]
+    assert book.top("asks", 5) == [(101.0, 1.0), (101.5, 4.0), (102.0, 2.0)]
+    # Un battement sans changement garde le numéro : il ne rompt rien.
+    connector._handle(message("update", [], [], seq=12, prev=12))
+    # La fenêtre borne le carnet : le cinquième niveau n'y entre pas.
+    connector._handle(message(
+        "update", [("96", "1"), ("95", "1"), ("94", "1")], [], seq=13, prev=12))
+    assert [p for p, _ in book.top("bids", 9)] == [99.0, 98.0, 97.0, 96.0]
+
+    # Un message perdu : le carnet ne vaut plus rien.
+    try:
+        connector._handle(message("update", [("99", "9")], [], seq=20, prev=17))
+    except BookDesync as exc:
+        assert "perdu" in str(exc)
+    else:
+        raise AssertionError("un numéro qui ne suit pas doit lever")
+    assert book.top("bids", 1) == [(99.0, 5.0)], "le delta douteux n'est pas appliqué"
+    # Un nouveau snapshot repart de zéro, quel que soit son numéro.
+    connector._handle(message("snapshot", [("90", "1")], [("91", "1")],
+                              seq=3, prev=-1))
+    assert book.best_bid == 90 and connector._seq == 3
+    # Et un delta sans snapshot — une reconnexion mal engagée — lève aussi.
+    neuf = OKXConnector(OrderBook("OKX"))
+    try:
+        neuf._handle(message("update", [("1", "1")], [], seq=2, prev=1))
+    except BookDesync:
+        pass
+    else:
+        raise AssertionError("un delta avant le snapshot doit lever")
+    print("  ✓ OKX : carnet entier, deltas suivis, message perdu resynchronisé")
+
+
 def test_profondeur_cadree_sur_le_carnet_median():
     """La profondeur comparée se cadre sur l'étendue médiane des carnets.
 

@@ -44,7 +44,7 @@ __all__ = ["Liquidation", "LiquidationFeed", "BybitLiquidationConnector",
 
 BINANCE_FUTURES_WS = "wss://fstream.binance.com/ws/!forceOrder@arr"
 BYBIT_LINEAR_WS = "wss://stream.bybit.com/v5/public/linear"
-OKX_PUBLIC_WS = "wss://ws.okx.com:8443/ws/v5/public"
+OKX_PUBLIC_WS = "wss://ws.okx.com/ws/v5/public"
 
 #: Le bitcoin coté en dollars, sous les noms des trois plateformes —
 #: `BTCUSDT` partout, `BTCUSD` pour l'inverse d'OKX —, échéances comprises

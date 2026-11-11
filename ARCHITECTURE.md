@@ -231,7 +231,7 @@ l'état réel de chaque flux. Les sous-classes n'implémentent que `_stream()`.
 | `CoinbaseConnector` | `level2_batch` (flux public) | snapshot puis `l2update` |
 | `CoinbaseAdvancedConnector` | `level2` (Advanced Trade) | snapshot puis deltas, même forme |
 | `BybitConnector` | `orderbook.<N>` | snapshot puis deltas |
-| `OKXConnector` | `books5` | snapshot 5 niveaux |
+| `OKXConnector` | `books` | snapshot 400 niveaux puis deltas, suite des `seqId` vérifiée |
 
 Deux plateformes cotent des paires différentes selon le flux — le flux public
 Coinbase ne connaît pas l'USDT — d'où les deux connecteurs Coinbase et le
@@ -3144,6 +3144,15 @@ journal aura quelques semaines.
   `etf_bitcoin_flows.py` en profite.
   *Les barres de défilement étaient blanches sous Firefox*, qui ignore
   `::-webkit-scrollbar` : `scrollbar-color` les met au thème.
+  Un troisième tour a regardé OKX. *Son carnet n'avait que cinq niveaux*
+  (`books5`) : cinq lignes là où les autres en montrent dix-sept, cinq
+  points dans la profondeur comparée, presque rien dans les murs. Il lit
+  désormais `books` — 400 niveaux par côté, un bitcoin de bids visible
+  devenu quatre-vingt-dix-neuf —, et vérifie la suite des `seqId` : un
+  message perdu vaut resynchronisation (§2.2). Le service au repos coûte
+  toujours 4 % d'un cœur. *Et le port 8443 allait fermer* : la plateforme
+  l'annonçait à chaque connexion, dans un avis que personne ne lisait ;
+  le carnet et le fil des liquidations passent au 443.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au

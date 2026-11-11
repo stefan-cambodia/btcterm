@@ -558,32 +558,72 @@ class BybitConnector(ExchangeConnector):
 
 
 class OKXConnector(ExchangeConnector):
-    """Canal `books5` : snapshot des 5 meilleurs niveaux à chaque message."""
+    """Canal `books` : snapshot de 400 niveaux par côté, puis deltas.
+
+    Le connecteur lisait `books5`, cinq niveaux rejoués à chaque message :
+    assez pour l'arbitrage, trop peu pour le reste — un carnet de cinq
+    lignes là où les autres en montrent dix-sept, cinq points dans la
+    profondeur comparée, presque rien dans les murs. `books` donne le
+    carnet entier de la fenêtre, tenu à jour toutes les cent millisecondes.
+
+    Chaque delta porte le numéro du message qui le précède (`prevSeqId`) :
+    un numéro qui ne suit pas dit un message perdu, donc un carnet faux,
+    et vaut resynchronisation — la resouscription apporte un snapshot neuf.
+
+    Le port 443, et non le 8443 d'origine : la plateforme annonçait à
+    chaque connexion, le 11 novembre 2026, que ce dernier « sera bientôt
+    retiré ».
+    """
 
     name = "OKX"
 
-    def __init__(self, book: OrderBook, inst_id: str = "BTC-USDT", **kwargs):
+    def __init__(self, book: OrderBook, inst_id: str = "BTC-USDT",
+                 depth: int = 400, **kwargs):
         super().__init__(book, **kwargs)
-        self.url = "wss://ws.okx.com:8443/ws/v5/public"
+        self.url = "wss://ws.okx.com/ws/v5/public"
         self.subscription = {
             "op": "subscribe",
-            "args": [{"channel": "books5", "instId": inst_id}],
+            "args": [{"channel": "books", "instId": inst_id}],
         }
+        # Le flux décrit une fenêtre de `depth` niveaux : le carnet s'y
+        # borne, comme celui de Kraken à la sienne — un niveau sorti de la
+        # fenêtre n'est plus mis à jour, et y resterait en fantôme.
+        book.max_levels = depth
+        self._seq: Optional[int] = None
 
     async def _stream(self) -> None:
         async with self._connect(self.url) as ws:
             await ws.send(json.dumps(self.subscription))
             self._mark_connected()
+            self._seq = None
 
             async for raw in ws:
                 if not self._running:
                     break
-                data = json.loads(raw)
-                for item in data.get("data", []):
-                    self.book.replace(
-                        {float(p): float(q) for p, q, *_ in item.get("bids", [])},
-                        {float(p): float(q) for p, q, *_ in item.get("asks", [])},
-                    )
+                self._handle(json.loads(raw))
+
+    def _handle(self, data: dict) -> None:
+        """Un message du canal : snapshot, delta, ou autre chose à ignorer
+        (acquittement, avis de la plateforme)."""
+        action = data.get("action")
+        for item in data.get("data", []):
+            bids = [(float(p), float(q)) for p, q, *_ in item.get("bids", [])]
+            asks = [(float(p), float(q)) for p, q, *_ in item.get("asks", [])]
+            seq, prev = item.get("seqId"), item.get("prevSeqId")
+            if action == "snapshot" or self._seq is None:
+                if action != "snapshot":
+                    raise BookDesync("delta reçu avant le snapshot")
+                self.book.replace(dict(bids), dict(asks))
+            else:
+                if prev is not None and prev != self._seq:
+                    raise BookDesync(
+                        f"message perdu ({self._seq} attendu, {prev} reçu), "
+                        "resynchronisation")
+                self.book.apply(bids, asks)
+            if seq is not None:
+                self._seq = seq
+        if action:
+            self._check_book()
 
 
 # ─────────────────────────────────────────────────────────────
