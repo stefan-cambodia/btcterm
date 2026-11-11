@@ -67,6 +67,10 @@ def prepare_price_frame(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+#: Points tracés par côté et par plateforme dans la profondeur comparée.
+DEPTH_POINTS = 250
+
+
 def depth_window(extents: list[float]) -> float | None:
     """La demi-largeur du cadre de la profondeur comparée, en % du prix.
 
@@ -126,11 +130,22 @@ def build_depth_chart(books: dict, uirevision: str = "depth") -> dict:
                 continue
             ecarts = [(p - mid) / mid * 100 for p in prices]
             courbes.append((ecarts, cumulated))
-            etendue = max(etendue, -ecarts[0], ecarts[-1])
+            # La portée d'un côté est celle de neuf niveaux sur dix : un
+            # ordre isolé à 20 % du prix, qu'un carnet entier finit par
+            # contenir, ne dit pas jusqu'où le carnet est fourni.
+            distances = sorted(abs(e) for e in ecarts)
+            etendue = max(etendue, distances[int(0.9 * (len(distances) - 1))])
+            # Un carnet entier fait mille marches par côté, pour un panneau
+            # de cinq cents pixels : une sur quatre suffit à la courbe, et
+            # la figure, repoussée chaque seconde, pesait 140 Ko. Le cumul
+            # est lu avant d'élaguer — une marche sautée ne perd pas son
+            # volume —, et les deux bouts sont gardés.
+            pas = -(-len(ecarts) // DEPTH_POINTS)
+            garde = sorted({*range(0, len(ecarts), pas), len(ecarts) - 1})
             data.append({
                 "type": "scatter",
-                "x": ecarts,
-                "y": list(cumulated),
+                "x": [round(ecarts[i], 4) for i in garde],
+                "y": [round(cumulated[i], 3) for i in garde],
                 # Une entrée de légende par plateforme, pour ses deux
                 # côtés : elle s'appelait « Binance bids » et masquait
                 # aussi les asks.

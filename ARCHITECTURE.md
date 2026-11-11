@@ -226,7 +226,7 @@ l'état réel de chaque flux. Les sous-classes n'implémentent que `_stream()`.
 
 | Connecteur | Canal | Modèle de flux |
 |---|---|---|
-| `BinanceConnector` | `<sym>@depth<N>@<vitesse>` | snapshot répété |
+| `BinanceConnector` | `<sym>@depth@<vitesse>` + REST `/api/v3/depth` | snapshot REST de 1 000 niveaux, deltas du flux accordés par `U`/`u`, relu toutes les dix minutes |
 | `KrakenConnector` | `book` | snapshot `as`/`bs` puis deltas `a`/`b` |
 | `CoinbaseConnector` | `level2_batch` (flux public) | snapshot puis `l2update` |
 | `CoinbaseAdvancedConnector` | `level2` (Advanced Trade) | snapshot puis deltas, même forme |
@@ -3153,6 +3153,20 @@ journal aura quelques semaines.
   toujours 4 % d'un cœur. *Et le port 8443 allait fermer* : la plateforme
   l'annonçait à chaque connexion, dans un avis que personne ne lisait ;
   le carnet et le fil des liquidations passent au 443.
+  Restait le plus gros marché, devenu le carnet le plus mince : *Binance
+  ne montrait que vingt niveaux*, 0,004 % du prix. Le connecteur accorde
+  désormais un snapshot REST de mille niveaux au flux des deltas, comme la
+  plateforme le prescrit — messages gardés pendant la lecture, redites
+  écartées, trou resynchronisé, snapshot en retard relu —, et le relit
+  toutes les dix minutes sans fermer le flux, un carnet local borné
+  s'amincissant du côté que le cours traverse. Kraken passe de 25 à 100
+  niveaux, Bybit de 50 à 200, chacun borné à la fenêtre de son flux. La
+  profondeur comparée se cadre à ±0,5 % et montre ce qu'elle devait :
+  165 BTC de bids chez Binance, 80 chez OKX, 45 chez Bybit, 20 chez
+  Kraken. Sa portée par carnet est celle de neuf niveaux sur dix (un ordre
+  isolé à 20 % ne cadre rien), ses courbes sont élaguées à 250 points par
+  côté — 30 Ko par seconde au lieu de 140. Coût mesuré, un onglet ouvert :
+  11 % d'un cœur contre 9,5 ; au repos, rien de mesurable.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au

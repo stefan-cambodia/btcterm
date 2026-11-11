@@ -574,9 +574,12 @@ class MarketHub:
         self._warm_tape()
         self._warm_alerts()
         self._connectors = [
-            BinanceConnector(self.books["Binance"], symbol="btcusdt", depth=20),
-            KrakenConnector(self.books["Kraken"], pair="XBT/USDT", depth=25),
-            BybitConnector(self.books["Bybit"], symbol="BTCUSDT", depth=50),
+            # Des carnets de portée comparable : la profondeur comparée et
+            # les murs ne valent que si chaque plateforme montre plus que
+            # son premier rang (§2.2).
+            BinanceConnector(self.books["Binance"], symbol="btcusdt", depth=1000),
+            KrakenConnector(self.books["Kraken"], pair="XBT/USDT", depth=100),
+            BybitConnector(self.books["Bybit"], symbol="BTCUSDT", depth=200),
             OKXConnector(self.books["OKX"], inst_id="BTC-USDT"),
             CoinbaseAdvancedConnector(self.books["Coinbase"], product="BTC-USDT"),
             self.liquidations,

@@ -33,6 +33,7 @@ traite comme une panne — resouscription, snapshot neuf, carnet propre.
 from __future__ import annotations
 
 import asyncio
+import heapq
 import json
 import logging
 import threading
@@ -148,8 +149,10 @@ class OrderBook:
         """`depth` meilleurs niveaux d'un côté, triés du meilleur au pire."""
         with self._lock:
             levels = self.bids if side == "bids" else self.asks
-            prices = sorted(levels, reverse=(side == "bids"))[:depth]
-            return [(price, levels[price]) for price in prices]
+            # Un carnet entier compte mille niveaux, et le panneau en lit
+            # dix-sept dix fois par seconde : on ne trie pas tout pour ça.
+            pick = heapq.nlargest if side == "bids" else heapq.nsmallest
+            return [(price, levels[price]) for price in pick(depth, levels)]
 
     def cumulative_depth(self, side: str) -> tuple[list[float], list[float]]:
         """Courbe de profondeur cumulée, ordonnée par prix croissant."""
@@ -332,29 +335,141 @@ class ExchangeConnector:
 
 
 class BinanceConnector(ExchangeConnector):
-    """Snapshot complet des N meilleurs niveaux, poussé à intervalle fixe.
+    """Le carnet entier : un snapshot REST, tenu à jour par le flux des deltas.
 
-    Pas de delta à gérer : chaque message remplace le carnet.
+    Le connecteur lisait `@depth20`, vingt niveaux rejoués à chaque
+    message : sur le marché le plus fourni, vingt niveaux font 0,004 % du
+    prix — le carnet le plus mince du terminal, là où il devait être le
+    plus profond, et un trait au ras de zéro dans la profondeur comparée.
+
+    Le flux `@depth` ne donne que des changements ; la plateforme prescrit
+    de les accorder à un snapshot pris à côté :
+
+    1. ouvrir le flux et garder ses messages ;
+    2. lire le snapshot (`/api/v3/depth`), qui porte son numéro
+       (`lastUpdateId`) ;
+    3. écarter les messages qu'il contient déjà (`u` ≤ ce numéro), puis
+       appliquer les autres, chacun commençant (`U`) là où le précédent
+       finit (`u`) — un trou vaut resynchronisation.
+
+    Le carnet local garde `depth` niveaux par côté, quand le marché en a
+    davantage : un niveau lointain que personne ne modifie ne sera jamais
+    redit, et un côté que le cours a traversé s'amincirait. Le snapshot
+    est donc **relu de temps en temps** (`REFRESH`), sans fermer le flux —
+    les messages continuent de s'appliquer pendant la lecture, et ceux qui
+    la suivent sont rejoués par-dessus. Une relecture qui échoue ne
+    retire rien à un carnet qui marche : elle sera retentée.
     """
 
     name = "Binance"
 
+    #: Période de relecture du snapshot, en secondes.
+    REFRESH = 600.0
+    #: Délai avant de relire un snapshot arrivé en retard sur le flux, et
+    #: nombre de retards tolérés avant de tout reprendre.
+    RETRY = 1.0
+    STALE_MAX = 5
+
     def __init__(self, book: OrderBook, symbol: str = "btcusdt",
-                 depth: int = 20, speed: str = "100ms", **kwargs):
+                 depth: int = 1000, speed: str = "100ms",
+                 fetch: Optional[Callable[[], dict]] = None, **kwargs):
         super().__init__(book, **kwargs)
-        self.url = f"wss://stream.binance.com:9443/ws/{symbol}@depth{depth}@{speed}"
+        self.url = f"wss://stream.binance.com:9443/ws/{symbol}@depth@{speed}"
+        self.snapshot_url = ("https://api.binance.com/api/v3/depth"
+                             f"?symbol={symbol.upper()}&limit={depth}")
+        book.max_levels = depth
+        self._fetch = fetch or self._fetch_snapshot
+        self._last: Optional[int] = None   # `u` du dernier message appliqué
+
+    def _fetch_snapshot(self) -> dict:
+        import requests
+        response = requests.get(self.snapshot_url, timeout=10)
+        response.raise_for_status()
+        return response.json()
 
     async def _stream(self) -> None:
+        self._last = None
         async with self._connect(self.url) as ws:
-            self._mark_connected()
-            async for raw in ws:
-                if not self._running:
-                    break
-                data = json.loads(raw)
-                self.book.replace(
-                    {float(p): float(q) for p, q in data.get("bids", [])},
-                    {float(p): float(q) for p, q in data.get("asks", [])},
-                )
+            reading: Optional[asyncio.Task] = None
+            pending: list[dict] = []
+            refresh_at = 0.0
+            stale = 0
+            try:
+                async for raw in ws:
+                    if not self._running:
+                        break
+                    event = json.loads(raw)
+                    if "u" not in event:
+                        continue
+                    # Le snapshot se demande après le premier message : pris
+                    # avant, il pourrait s'arrêter sous lui, et laisser un trou.
+                    if reading is None and time.monotonic() >= refresh_at:
+                        reading = asyncio.create_task(
+                            asyncio.to_thread(self._fetch))
+                        pending = []
+                    if reading is not None:
+                        pending.append(event)
+                    if self._last is not None:
+                        self._apply(event)
+                    if reading is not None and reading.done():
+                        first = self._last is None
+                        try:
+                            snapshot = reading.result()
+                        except Exception:
+                            if first:
+                                raise       # pas de carnet du tout : panne
+                            snapshot = None  # le carnet tient : on retentera
+                        reading = None
+                        refresh_at = time.monotonic() + self.REFRESH
+                        # Le REST sert parfois un carnet plus vieux que le
+                        # flux : s'il s'arrête avant le premier message
+                        # gardé, il laisserait un trou. Il est relu — tout
+                        # de suite s'il n'y a pas encore de carnet.
+                        if (snapshot is not None and pending and
+                                int(snapshot["lastUpdateId"]) + 1 < pending[0]["U"]):
+                            snapshot = None
+                            stale += 1
+                            if first and stale >= self.STALE_MAX:
+                                raise BookDesync(
+                                    "snapshot toujours en retard sur le flux")
+                            refresh_at = time.monotonic() + self.RETRY
+                        if snapshot is not None:
+                            stale = 0
+                            self._load(snapshot, pending)
+                            if first:
+                                self._mark_connected()
+                        pending = []
+            finally:
+                if reading is not None:
+                    reading.cancel()
+
+    def _load(self, snapshot: dict, pending: Iterable[dict]) -> None:
+        """Pose le snapshot, et rejoue par-dessus les messages qui le suivent."""
+        last = int(snapshot["lastUpdateId"])
+        self.book.replace(
+            {float(p): float(q) for p, q in snapshot.get("bids", [])},
+            {float(p): float(q) for p, q in snapshot.get("asks", [])},
+        )
+        self._last = last
+        for event in pending:
+            if event["u"] <= last:
+                continue            # déjà dans le snapshot
+            self._apply(event)
+
+    def _apply(self, event: dict) -> None:
+        """Un message de deltas, qui doit suivre le précédent sans trou."""
+        if event["U"] > self._last + 1:
+            raise BookDesync(
+                f"message perdu ({self._last + 1} attendu, {event['U']} reçu), "
+                "resynchronisation")
+        if event["u"] <= self._last:
+            return                  # redite d'un message déjà appliqué
+        self.book.apply(
+            [(float(p), float(q)) for p, q in event.get("b", [])],
+            [(float(p), float(q)) for p, q in event.get("a", [])],
+        )
+        self._last = event["u"]
+        self._check_book()
 
 
 class KrakenConnector(ExchangeConnector):
@@ -380,7 +495,7 @@ class KrakenConnector(ExchangeConnector):
         super().__init__(book, **kwargs)
         # Pas plus de niveaux que la fenêtre : `apply` élague ce qu'une
         # insertion en chasse, comme Kraken le fait de son côté.
-        book.max_levels = min(book.max_levels, depth)
+        book.max_levels = depth
         self.url = "wss://ws.kraken.com"
         self.subscription = {
             "event": "subscribe",
@@ -531,6 +646,10 @@ class BybitConnector(ExchangeConnector):
         super().__init__(book, **kwargs)
         self.url = "wss://stream.bybit.com/v5/public/spot"
         self.subscription = {"op": "subscribe", "args": [f"orderbook.{depth}.{symbol}"]}
+        # Le flux tient une fenêtre de `depth` niveaux : le carnet garde la
+        # même, ni plus (des fantômes) ni moins (un côté qui s'amincit
+        # quand le cours le traverse).
+        book.max_levels = depth
 
     async def _stream(self) -> None:
         async with self._connect(self.url) as ws:

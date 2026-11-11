@@ -20,6 +20,7 @@ Lancement :
     python tests/test_orderbook.py
 """
 
+import json
 import sys
 from pathlib import Path
 
@@ -317,6 +318,155 @@ def test_le_backoff_repart_apres_une_connexion_qui_a_tenu():
     # quatrième coupure repart donc à 2 au lieu de monter à 16.
     assert attentes[:4] == [2, 4, 2, 4], attentes
     print("  ✓ le backoff repart de zéro après une connexion qui a tenu")
+
+
+def test_binance_snapshot_accorde_au_flux():
+    """Binance : un snapshot REST, les deltas du flux par-dessus, sans trou
+    ni redite — et une relecture qui ne ferme rien."""
+    import asyncio
+
+    from btcterm.exchanges import BinanceConnector
+
+    def delta(first, last, bids=(), asks=()):
+        return {"e": "depthUpdate", "U": first, "u": last,
+                "b": [list(x) for x in bids], "a": [list(x) for x in asks]}
+
+    snapshot = {"lastUpdateId": 100,
+                "bids": [["100", "1"], ["99", "2"]],
+                "asks": [["101", "1"], ["102", "2"]]}
+    book = OrderBook("Binance")
+    connector = BinanceConnector(book, depth=500, fetch=lambda: snapshot)
+    assert book.max_levels == 500 and "@depth@100ms" in connector.url
+    assert "limit=500" in connector.snapshot_url
+
+    # Les messages gardés pendant la lecture : deux que le snapshot
+    # contient déjà, un à cheval sur son numéro, un qui le suit.
+    connector._load(snapshot, [
+        delta(90, 95, bids=[("100", "9")]),
+        delta(96, 100, bids=[("100", "8")]),
+        delta(99, 103, bids=[("100", "3")], asks=[("101", "0")]),
+        delta(104, 106, asks=[("101.5", "4")]),
+    ])
+    assert book.top("bids", 2) == [(100.0, 3.0), (99.0, 2.0)], book.top("bids", 2)
+    assert book.top("asks", 2) == [(101.5, 4.0), (102.0, 2.0)]
+    assert connector._last == 106
+
+    connector._apply(delta(107, 110, bids=[("99", "0")]))
+    assert book.top("bids", 5) == [(100.0, 3.0)]
+    connector._apply(delta(105, 110, bids=[("100", "77")]))   # redite
+    assert book.best_bid == 100 and book.top("bids", 1)[0][1] == 3.0
+    try:
+        connector._apply(delta(113, 115, bids=[("100", "5")]))
+    except BookDesync as exc:
+        assert "perdu" in str(exc)
+    else:
+        raise AssertionError("un trou dans la suite doit lever")
+    # Un snapshot plus vieux que le premier message gardé : trou aussi.
+    try:
+        connector._load(snapshot, [delta(105, 108)])
+    except BookDesync:
+        pass
+    else:
+        raise AssertionError("un snapshot trop vieux doit lever")
+
+    # Le flux entier, sur une fausse socket : le snapshot n'est demandé
+    # qu'au premier message, le lien n'est dit ouvert qu'une fois le
+    # carnet posé, et la relecture périodique garde le flux.
+    lectures = []
+    vu = [0]                               # dernier numéro livré par le flux
+
+    class Socket:
+        def __init__(self, messages):
+            self.messages = messages
+        async def __aenter__(self):
+            return self
+        async def __aexit__(self, *exc):
+            return False
+        def __aiter__(self):
+            return self
+        async def __anext__(self):
+            if not self.messages:
+                raise StopAsyncIteration
+            await asyncio.sleep(0.02)      # laisse la lecture aboutir
+            message = self.messages.pop(0)
+            vu[0] = message.get("u", vu[0])
+            return json.dumps(message)
+
+    def lire():
+        lectures.append(connector._last)
+        return {"lastUpdateId": 200 if not lectures[:-1] else lectures[-1],
+                "bids": [["100", "1"]],
+                "asks": [["101", "1"]] if not lectures[:-1] else [["101", "6"]]}
+
+    book = OrderBook("Binance")
+    connector = BinanceConnector(book, fetch=lire)
+    connector.REFRESH = 0.0                # relire dès que possible
+    connector._connect = lambda url: Socket([
+        {"result": None, "id": 1},
+        delta(198, 201, bids=[("100", "2")]),
+        delta(202, 203, bids=[("99", "1")]),
+        delta(204, 204, bids=[("98", "1")]),
+        delta(205, 206, bids=[("97", "1")]),
+        delta(207, 207, bids=[("96", "1")]),
+        delta(208, 208, bids=[("95", "1")]),
+    ])
+    assert not book.connected
+    asyncio.run(connector._stream())
+    assert book.connected and lectures[0] is None, lectures
+    assert len(lectures) >= 2, "la relecture périodique a eu lieu"
+    assert connector._last == 208
+    # Le dernier snapshot remplace le carnet ; ce qui le suit s'y ajoute.
+    prix = [p for p, _ in book.top("bids", 9)]
+    assert prix[0] == 100.0 and prix[-1] == 95.0, prix
+    assert book.top("asks", 1) == [(101.0, 6.0)], "le second snapshot est posé"
+
+    # Un snapshot en retard sur le flux est relu, pas posé : le lien ne
+    # s'ouvre qu'avec celui qui rejoint les messages gardés.
+    retards = [150, 150]
+
+    def lire_en_retard():
+        return {"lastUpdateId": retards.pop() if retards else vu[0],
+                "bids": [["100", "1"]], "asks": [["101", "1"]]}
+
+    book = OrderBook("Binance")
+    connector = BinanceConnector(book, fetch=lire_en_retard)
+    connector.REFRESH, connector.RETRY = 60.0, 0.0
+    connector._connect = lambda url: Socket(
+        [delta(n, n, bids=[(str(300 - n), "1")]) for n in range(201, 209)])
+    asyncio.run(connector._stream())
+    assert book.connected and connector._last == 208
+    assert not retards and book.best_bid == 100, book.top("bids", 20)
+
+    # Une relecture qui échoue ne retire rien à un carnet qui marche ;
+    # un premier snapshot qui échoue, lui, vaut panne.
+    essais = []
+
+    def lire_puis_tomber():
+        essais.append(1)
+        if len(essais) > 1:
+            raise OSError("lecture impossible")
+        return {"lastUpdateId": 200, "bids": [["100", "1"]], "asks": [["101", "1"]]}
+
+    book = OrderBook("Binance")
+    connector = BinanceConnector(book, fetch=lire_puis_tomber)
+    connector.REFRESH = 0.0
+    connector._connect = lambda url: Socket(
+        [delta(n, n, bids=[(str(100 - n + 200), "1")]) for n in range(201, 207)])
+    asyncio.run(connector._stream())
+    assert len(essais) >= 2 and connector._last == 206 and book.best_bid == 100
+
+    def tomber():
+        raise OSError("lecture impossible")
+
+    connector = BinanceConnector(OrderBook("Binance"), fetch=tomber)
+    connector._connect = lambda url: Socket([delta(1, 1), delta(2, 2), delta(3, 3)])
+    try:
+        asyncio.run(connector._stream())
+    except OSError:
+        pass
+    else:
+        raise AssertionError("sans premier snapshot, le flux doit tomber")
+    print("  ✓ Binance : snapshot accordé au flux, relu sans fermer, trou resynchronisé")
 
 
 def test_okx_carnet_entier_et_suite_verifiee():
