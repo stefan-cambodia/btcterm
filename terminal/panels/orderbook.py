@@ -123,10 +123,17 @@ def render_liquidity(hub, expanded: bool = False):
     l'écart qui se lit, un carnet n'étant ni plein ni vide dans l'absolu.
     """
     days = LIQUIDITY_DAYS_MAX if expanded else LIQUIDITY_DAYS
-    series, gardees, ecartees = liquidity_series(hub.book_depth_history(days))
+    history = hub.book_depth_history(days)
+    series, gardees, ecartees = liquidity_series(history)
+    # En plein écran, ce que chaque plateforme offre, empilé : les mêmes
+    # plateformes et les mêmes relevés que la somme.
+    detail_par_place = None
+    if expanded and not series.empty:
+        detail_par_place = history[history["exchange"].isin(gardees)
+                                   & history["time"].isin(series["time"])]
     figure = build_liquidity_chart(
         series, gap=getattr(hub, "SNAPSHOT_GAP", 900),
-        uirevision=f"liquidity-{days}")
+        uirevision=f"liquidity-{days}", by_exchange=detail_par_place)
     band = getattr(hub, "DEPTH_BAND", 0.1)
     if series.empty:
         return figure, html.Span(f"liquidité ±{band:g} % : en constitution",

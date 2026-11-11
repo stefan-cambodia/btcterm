@@ -3330,6 +3330,11 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   nulle avec M2 — ce qui dit surtout que l'offre suit le cours autant
   qu'elle le précède. Les libellés du titre ont été raccourcis pour que le
   sélecteur tienne dans une barre qui débordait de 87 px.
+- ~~**Une liquidité sans visage**~~ — fait : en plein écran, l'historique
+  de liquidité empile ce que chaque plateforme offre, achats et ventes
+  réunis, aux couleurs de la profondeur comparée ; quand le total baisse,
+  on voit qui s'est retiré. La grille garde ses deux courbes. Vérifié par
+  son test, pas encore à l'écran.
 - ~~**Une lecture figée de Deribit écrite au journal**~~ — le relevé
   aberrant que l'étage précédent a montré : le 10 novembre 2026, à la
   première lecture après une panne de la source (503), une base de zéro

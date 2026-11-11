@@ -226,14 +226,27 @@ def liquidity_series(history: pd.DataFrame,
             gardees, ecartees)
 
 
+#: Les couleurs des plateformes, celles de la profondeur comparée.
+EXCHANGE_COLORS = {"Binance": C["yellow"], "Kraken": C["blue"],
+                   "Bybit": C["purple"], "OKX": C["cyan"],
+                   "Coinbase": C["green"]}
+
+
 def build_liquidity_chart(series: pd.DataFrame, gap: float = 900.0,
-                          uirevision: str = "liquidity") -> dict:
+                          uirevision: str = "liquidity",
+                          by_exchange: pd.DataFrame | None = None) -> dict:
     """La liquidité à portée du prix, dans le temps : achats et ventes.
 
     La profondeur comparée dit le carnet de l'instant ; ceci dit s'il est
     plein ou vide pour lui-même — un carnet qui se vide précède souvent le
     mouvement qu'il ne pourra pas amortir. Le trait se rompt là où la
     séance s'est interrompue (`gap` secondes sans relevé).
+
+    Avec `by_exchange` — les relevés par plateforme, `time`, `exchange`,
+    `bid`, `ask`, réduits aux plateformes et aux instants de `series` —,
+    le graphique empile ce que chacune offre, achats et ventes réunis :
+    quand le total baisse, on voit qui s'est retiré. C'est la vue du plein
+    écran ; la grille garde ses deux courbes.
     """
     axis = {"gridcolor": C["grid"], "zerolinecolor": C["grid"],
             "tickfont": {"size": 9, "color": C["muted"]}, "automargin": True}
@@ -272,6 +285,34 @@ def build_liquidity_chart(series: pd.DataFrame, gap: float = 900.0,
         bids.append(round(float(bid), 2))
         asks.append(round(float(ask), 2))
         previous = moment
+    if by_exchange is not None and not by_exchange.empty:
+        # Une aire par plateforme, empilée ; les ruptures de séance sont
+        # celles de la série, rejouées à l'identique pour chacune.
+        instants = pd.to_datetime(series["time"]).tolist()
+        data = []
+        for name, rows in by_exchange.groupby("exchange", sort=False):
+            volume = dict(zip(pd.to_datetime(rows["time"]),
+                              rows["bid"] + rows["ask"]))
+            values, k = [], 0
+            for label in x:
+                if k < len(instants) and bids[len(values)] is not None:
+                    values.append(round(float(volume.get(instants[k], 0.0)), 2))
+                    k += 1
+                else:
+                    values.append(None)
+            data.append({
+                "type": "scatter", "mode": "lines", "x": x, "y": values,
+                "name": name, "stackgroup": "plateformes",
+                "connectgaps": False,
+                "line": {"color": EXCHANGE_COLORS.get(name, C["muted"]),
+                         "width": 1},
+                "hovertemplate": f"{name} %{{y:.1f}} BTC<extra></extra>"})
+        layout["showlegend"] = True
+        layout["legend"] = {"orientation": "h", "y": 1.0, "x": 0,
+                            "yanchor": "bottom", "font": {"size": 9},
+                            "bgcolor": "rgba(0,0,0,0)"}
+        layout["margin"]["t"] = 16
+        return {"data": data, "layout": layout}
     data = [
         {"type": "scatter", "mode": "lines", "x": x, "y": cote,
          "name": nom, "connectgaps": False,

@@ -709,6 +709,20 @@ def test_la_liquidite_a_une_memoire():
     assert achats["y"].count(None) == 1, "le trait se rompt sur l'heure de veille"
     assert len(achats["x"]) == 40
 
+    # ── En plein écran : ce que chaque plateforme offre, empilé.
+    gardes = history[history["exchange"].isin(gardees)
+                     & history["time"].isin(serie["time"])]
+    empile = build_liquidity_chart(serie, gap=900, by_exchange=gardes)
+    assert [t["name"] for t in empile["data"]] == ["Binance", "OKX"]
+    assert all(t["stackgroup"] == "plateformes" for t in empile["data"])
+    binance, okx = empile["data"]
+    assert len(binance["x"]) == 40 and binance["y"].count(None) == 1
+    assert {v for v in binance["y"] if v is not None} == {180.0}
+    assert {v for v in okx["y"] if v is not None} == {90.0}
+    assert [a is None for a in binance["y"]] == [a is None for a in achats["y"]], \
+        "les ruptures de séance sont celles de la somme"
+    assert empile["layout"]["showlegend"] is True
+
     # ── Le badge : le dernier relevé, et son écart à la moyenne.
     class Hub:
         SNAPSHOT_GAP, DEPTH_BAND = 900, 0.1
