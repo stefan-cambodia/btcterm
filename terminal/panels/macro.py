@@ -23,6 +23,12 @@ from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 WINDOWS = {"2A": 24, "5A": 60, "10A": 120}
 DEFAULT_WINDOW = "5A"
 
+#: La série de liquidité mise en regard du cours. M2 dit la liquidité du
+#: dollar, mensuelle et publiée avec deux mois de retard ; l'offre de
+#: stablecoins dit celle du marché lui-même, à jour de la veille — le cash
+#: avec lequel on achète du bitcoin sur les plateformes.
+SERIES = ("M2", "STB")
+
 #: Décalage appliqué à M2, en mois — l'hypothèse d'un cours qui réagit à
 #: la liquidité avec un trimestre de retard se vérifie en le bougeant.
 LAGS = (0, 1, 2, 3)
@@ -42,6 +48,14 @@ def layout(title=None):
                 # `persistence` : fenêtre et décalage survivent au
                 # rechargement — et au passage par un autre onglet de la
                 # cellule, qui reconstruit ce layout à ses défauts.
+                dcc.RadioItems(
+                    id="macro-series",
+                    options=[{"label": k, "value": k} for k in SERIES],
+                    value=SERIES[0], inline=True, className="tf-radio",
+                    persistence=True, persistence_type="local",
+                    style={"display": "inline-block", "fontSize": "9px",
+                           "marginRight": "6px"},
+                ),
                 dcc.RadioItems(
                     id="macro-window",
                     options=[{"label": k, "value": k} for k in WINDOWS],
@@ -70,8 +84,20 @@ def layout(title=None):
     ], style=PANEL_STYLE)
 
 
-def _stats_badge(stats: dict):
-    """Les deux corrélations et la croissance annuelle de M2."""
+def monthly_supply(daily):
+    """L'offre de stablecoins au format de M2 : `time` / `m2`, un point par
+    mois — le dernier relevé du mois, le mois en cours compris."""
+    if daily is None or daily.empty:
+        return daily.rename(columns={"supply": "m2"}) if daily is not None \
+            else daily
+    mois = daily.assign(mois=daily["time"].dt.to_period("M"))
+    dernier = mois.groupby("mois", as_index=False).last()
+    return dernier.assign(time=dernier["mois"].dt.to_timestamp())[
+        ["time", "supply"]].rename(columns={"supply": "m2"})
+
+
+def _stats_badge(stats: dict, label: str = "M2"):
+    """Les deux corrélations et la croissance annuelle de la série."""
     if stats["niveaux"] is None:
         return html.Span("historique insuffisant", style={"color": C["muted"]})
 
@@ -81,15 +107,21 @@ def _stats_badge(stats: dict):
         return html.Span(f"{value:+.2f}", style={"color": color})
 
     children = [
-        html.Span("r niveaux ", style={"color": C["muted"]}), colored(stats["niveaux"]),
-        html.Span(" · r variations 3M ", style={"color": C["muted"]}),
+        # Des libellés courts, le sens au survol : la rangée basse porte
+        # sept onglets, et le sélecteur de série a pris la place qui restait.
+        html.Span("r niv. ", style={"color": C["muted"]},
+                  title="corrélation des niveaux (log du cours contre la série)"),
+        colored(stats["niveaux"]),
+        html.Span(" · var. 3M ", style={"color": C["muted"]},
+                  title="corrélation des variations sur trois mois"),
         colored(stats["variations"]),
     ]
     if stats["m2_yoy"] is not None:
         children += [
-            html.Span(" · M2 ", style={"color": C["muted"]}),
-            html.Span(f"{stats['m2_yoy']:+.1f} % / an",
-                      style={"color": C["cyan"]}),
+            html.Span(" · ", style={"color": C["muted"]}),
+            html.Span(f"{stats['m2_yoy']:+.1f} %/an",
+                      style={"color": C["cyan"]},
+                      title=f"croissance de la série ({label}) sur un an"),
         ]
     return html.Span(children, style={"fontFamily": MONO})
 
@@ -101,20 +133,27 @@ def register(app, hub):
         Input("tick-rare", "n_intervals"),
         Input("macro-window", "value"),
         Input("macro-lag", "value"),
+        Input("macro-series", "value"),
         Input("maximized", "data"),
     )
-    def _refresh(_tick, window, lag, maximized):
+    def _refresh(_tick, window, lag, series, maximized):
         months = WINDOWS.get(window, WINDOWS[DEFAULT_WINDOW])
         lag = lag if lag in LAGS else 0
+        stables = series == "STB"
+        liquidity = (monthly_supply(hub.stablecoin_supply()) if stables
+                     else hub.m2_supply())
 
         frame = prepare_macro_frame(
-            hub.klines("1M", limit=120), hub.m2_supply(), lag_months=lag
+            hub.klines("1M", limit=120), liquidity, lag_months=lag
         ).tail(months)
 
-        # La révision suit la fenêtre et le décalage : changer l'un ou
-        # l'autre doit recadrer, un rafraîchissement mensuel non.
+        # La révision suit la série, la fenêtre et le décalage : changer
+        # l'un d'eux doit recadrer, un rafraîchissement mensuel non.
+        described = (dict(name="stablecoins ($)", scale=1.0, unit="Md$",
+                          empty="offre de stablecoins indisponible")
+                     if stables else {})
         return (
-            build_macro_chart(frame, uirevision=f"{window}:{lag}",
-                              maximized=(maximized == "macro")),
-            _stats_badge(macro_stats(frame)),
+            build_macro_chart(frame, uirevision=f"{series}:{window}:{lag}",
+                              maximized=(maximized == "macro"), **described),
+            _stats_badge(macro_stats(frame), "stables" if stables else "M2"),
         )

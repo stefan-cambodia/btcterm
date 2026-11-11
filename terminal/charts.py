@@ -421,7 +421,9 @@ def macro_stats(frame: pd.DataFrame) -> dict:
 
 
 def build_macro_chart(
-    frame: pd.DataFrame, uirevision: str = "macro", maximized: bool = False
+    frame: pd.DataFrame, uirevision: str = "macro", maximized: bool = False,
+    name: str = "M2 (US)", scale: float = 1000.0, unit: str = "T$",
+    empty: str = "masse monétaire indisponible",
 ) -> go.Figure:
     """Cours et masse monétaire sur deux axes, l'un logarithmique.
 
@@ -430,8 +432,13 @@ def build_macro_chart(
     L'axe des prix est logarithmique — le Bitcoin a fait ×20 quand M2
     faisait ×1,4, et en linéaire la masse monétaire serait une ligne
     plate collée au bas du cadre.
+
+    La seconde série est M2 par défaut ; `name`, `scale` (diviseur des
+    valeurs, données en milliards) et `unit` la décrivent quand c'en est
+    une autre — l'offre de stablecoins, en Md$.
     """
     fig = go.Figure()
+    court = name.split(" ")[0]
 
     if not frame.empty:
         fig.add_trace(go.Scatter(
@@ -440,10 +447,10 @@ def build_macro_chart(
             hovertemplate="BTC $%{y:,.0f}<extra></extra>",
         ))
         fig.add_trace(go.Scatter(
-            x=frame["time"], y=frame["m2"] / 1000, name="M2 (US)",
+            x=frame["time"], y=frame["m2"] / scale, name=name,
             line=dict(color=C["cyan"], width=1.8), mode="lines", yaxis="y2",
             connectgaps=False,
-            hovertemplate="M2 %{y:,.2f} T$<extra></extra>",
+            hovertemplate=f"{court} %{{y:,.2f}} {unit}<extra></extra>",
         ))
 
     axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
@@ -459,13 +466,13 @@ def build_macro_chart(
                     font=dict(size=9), bgcolor="rgba(0,0,0,0)"),
         xaxis=dict(**axis_common),
         yaxis=dict(title_text="BTC ($, log)", type="log", **axis_common),
-        yaxis2=dict(title_text="M2 (T$)", overlaying="y", side="right",
+        yaxis2=dict(title_text=f"{court} ({unit})", overlaying="y", side="right",
                     showgrid=False, tickfont=dict(size=9, color=C["cyan"])),
         uirevision=uirevision,
     )
     if frame.empty:
         fig.add_annotation(
-            text="masse monétaire indisponible", xref="paper", yref="paper",
+            text=empty, xref="paper", yref="paper",
             x=0.5, y=0.5, showarrow=False,
             font=dict(family=MONO, size=11, color=C["muted"]),
         )

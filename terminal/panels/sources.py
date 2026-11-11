@@ -48,6 +48,7 @@ FAMILIES = {
     "chain": "Séries de chaîne · blockchain.info",
     "fees": "Frais de transaction · blockstream.info",
     "m2": "Masse monétaire M2 · DBnomics",
+    "stables": "Offre de stablecoins · DefiLlama",
     "eur": "Change €/$",
     "fear_greed_history": "Fear & Greed · alternative.me",
 }

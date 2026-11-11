@@ -3318,6 +3318,18 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   mois et le put/call en open interest, chacun sur son axe ; la grille
   garde ses deux étages. L'étage se cadre sur l'essentiel de la série —
   une base lue à zéro quand Deribit rend une chaîne incomplète l'écrasait.
+- ~~**Une seule liquidité en regard du cours**~~ — le panneau MACRO ne
+  confrontait le bitcoin qu'à M2, la liquidité du dollar : mensuelle,
+  publiée avec deux mois de retard, et lointaine. Fait : un sélecteur
+  `M2 / STB` y met l'offre de stablecoins adossés au dollar — le cash avec
+  lequel on achète du bitcoin sur les plateformes —, lue chez DefiLlama
+  sans clé (source sondée avant d'être branchée : 291 Md$ le 11 novembre
+  2026, 306 un mois plus tôt), quotidienne, ramenée au mois pour ce
+  panneau. Mêmes décalages, mêmes corrélations : sur cinq ans, celle des
+  variations à trois mois vaut +0,45 avec les stablecoins quand elle est
+  nulle avec M2 — ce qui dit surtout que l'offre suit le cours autant
+  qu'elle le précède. Les libellés du titre ont été raccourcis pour que le
+  sélecteur tienne dans une barre qui débordait de 87 px.
 - ~~**Une lecture figée de Deribit écrite au journal**~~ — le relevé
   aberrant que l'étage précédent a montré : le 10 novembre 2026, à la
   première lecture après une panne de la source (503), une base de zéro

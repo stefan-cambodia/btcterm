@@ -34,7 +34,8 @@ __all__ = [
     "fetch_funding_history", "fetch_open_interest", "fetch_perp_snapshot",
     "fetch_bybit_perp", "fetch_okx_perp",
     "clean_etf_table", "fetch_market_global", "market_global", "INTERMITTENT",
-    "fetch_fee_estimates", "fee_estimates", "fetch_chain_chart", "fetch_chain_stats",
+    "fetch_fee_estimates", "fee_estimates",
+    "fetch_stablecoin_supply", "stablecoin_supply", "fetch_chain_chart", "fetch_chain_stats",
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
     "fetch_fear_greed_history", "FEAR_GREED_DAYS",
@@ -802,6 +803,40 @@ def fetch_m2_supply(start: str = "2013-01-01") -> pd.DataFrame:
     })
     df = df.dropna().sort_values("time")
     return df[df["time"] >= pd.Timestamp(start)].reset_index(drop=True)
+
+
+STABLECOINS_URL = "https://stablecoins.llama.fi/stablecoincharts/all"
+
+
+def fetch_stablecoin_supply(start: str = "2018-01-01") -> pd.DataFrame:
+    """L'offre de stablecoins adossés au dollar, en milliards de dollars.
+
+    La liquidité du marché lui-même, là où M2 dit celle du dollar : les
+    stablecoins sont le cash avec lequel on achète du bitcoin sur les
+    plateformes, et leur encours monte quand de l'argent entre. DefiLlama
+    en sert l'historique quotidien, sans clé — vérifié le 11 novembre
+    2026 : 291 Md$, contre 306 un mois plus tôt.
+
+    Retourne `time` / `supply`, un point par jour, trié.
+    """
+    response = _http.get(STABLECOINS_URL, timeout=20)
+    response.raise_for_status()
+    return stablecoin_supply(response.json(), start)
+
+
+def stablecoin_supply(rows: list, start: str = "2018-01-01") -> pd.DataFrame:
+    """La série de DefiLlama réduite au dollar ; vide, elle lève."""
+    points = [(int(row["date"]),
+               float((row.get("totalCirculatingUSD") or {}).get("peggedUSD") or 0))
+              for row in rows or [] if row.get("date")]
+    frame = pd.DataFrame(points, columns=["time", "supply"])
+    frame = frame[frame["supply"] > 0]
+    if frame.empty:
+        raise RuntimeError("DefiLlama : série de stablecoins vide")
+    frame["time"] = pd.to_datetime(frame["time"], unit="s").dt.normalize()
+    frame["supply"] = frame["supply"] / 1e9
+    frame = (frame.drop_duplicates("time", keep="last").sort_values("time"))
+    return frame[frame["time"] >= pd.Timestamp(start)].reset_index(drop=True)
 
 
 def fetch_etf_flows() -> pd.DataFrame:

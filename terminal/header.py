@@ -90,7 +90,7 @@ SOURCE_LABELS = {
     "funding": "financement", "eur": "taux de change", "ticker": "variation 24 h",
     "global": "dominance", "chain": "on-chain", "chain_stats": "on-chain",
     "fees": "frais on-chain",
-    "etf": "flux ETF", "m2": "masse monétaire",
+    "etf": "flux ETF", "m2": "masse monétaire", "stables": "stablecoins",
     "fear_greed_history": "Fear & Greed",
 }
 

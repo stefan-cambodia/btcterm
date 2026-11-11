@@ -391,6 +391,61 @@ def test_un_spread_d_un_centime_se_lit():
     print("  ✓ un spread sous le millième de pour cent garde ses chiffres")
 
 
+def test_l_offre_de_stablecoins_face_au_cours():
+    """L'offre de stablecoins se lit chez DefiLlama, se ramène au mois, et
+    prend la place de M2 dans le panneau macro."""
+    import pandas as pd
+
+    from btcterm import sources
+    from terminal.charts import build_macro_chart, macro_stats, prepare_macro_frame
+    from terminal.panels import macro
+
+    jour = 86_400
+    debut = int(pd.Timestamp("2024-01-01").timestamp())
+    lignes = [{"date": str(debut + k * jour),
+               "totalCirculatingUSD": {"peggedUSD": 2.0e11 + k * 1e8,
+                                       "peggedEUR": 5e8}}
+              for k in range(700)]
+    lignes.append({"date": str(debut + 700 * jour), "totalCirculatingUSD": {}})
+    serie = sources.stablecoin_supply(lignes)
+    assert list(serie.columns) == ["time", "supply"] and len(serie) == 700
+    assert serie["supply"].iloc[0] == 200.0, "en milliards, le dollar seul"
+    assert serie["time"].is_monotonic_increasing
+    try:
+        sources.stablecoin_supply([])
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("une série vide doit lever")
+
+    mensuel = macro.monthly_supply(serie)
+    assert list(mensuel.columns) == ["time", "m2"]
+    assert len(mensuel) == 23, len(mensuel)          # janvier 2024 → novembre 2025
+    assert mensuel["time"].iloc[0] == pd.Timestamp("2024-01-01")
+    assert mensuel["m2"].iloc[0] == serie["supply"].iloc[30], "dernier jour du mois"
+    assert macro.monthly_supply(serie.iloc[0:0]).empty
+
+    mois = pd.date_range("2024-01-01", periods=23, freq="MS")
+    cours = pd.DataFrame({"time": mois,
+                          "close": [40_000 + 1_500 * k for k in range(23)]})
+    cadre = prepare_macro_frame(cours, mensuel)
+    assert cadre["m2"].notna().all() and len(cadre) == 23
+    stats = macro_stats(cadre)
+    assert stats["niveaux"] > 0.9 and stats["m2_yoy"] > 0
+    figure = build_macro_chart(cadre, name="stablecoins ($)", scale=1.0,
+                               unit="Md$")
+    assert figure.data[1].name == "stablecoins ($)"
+    assert figure.data[1].y[0] == mensuel["m2"].iloc[0]
+    assert figure.layout.yaxis2.title.text == "stablecoins (Md$)"
+    # M2 garde ses libellés et son échelle en milliers de milliards.
+    m2 = build_macro_chart(cadre)
+    assert m2.data[1].name == "M2 (US)" and m2.layout.yaxis2.title.text == "M2 (T$)"
+    assert m2.data[1].y[0] == mensuel["m2"].iloc[0] / 1000
+    badge = str(macro._stats_badge(stats, "stables"))
+    assert "(stables) sur un an" in badge and "r niv." in badge
+    print("  ✓ stablecoins : série quotidienne ramenée au mois, à la place de M2")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCâblage du terminal — {len(tests)} vérifications\n" + "─" * 60)

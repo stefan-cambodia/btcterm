@@ -1362,6 +1362,15 @@ class MarketHub:
         except Exception:
             return pd.DataFrame(columns=["time", "m2"])
 
+    def stablecoin_supply(self) -> pd.DataFrame:
+        """L'offre de stablecoins en dollars, quotidienne, en Md$ — ou un
+        tableau vide si la source se tait et que rien n'est en cache."""
+        try:
+            return self._cache.get("stables", self.TTL_M2,
+                                   sources.fetch_stablecoin_supply)
+        except Exception:
+            return pd.DataFrame(columns=["time", "supply"])
+
     def market_global(self) -> dict:
         """Capitalisation, dominance et volume — instantané, ou `{}`."""
         try:

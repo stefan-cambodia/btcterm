@@ -1122,7 +1122,7 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
               f"{macro['series']} séries")
         check("axe des prix log, M2 à droite", macro["axes"] == "log/right",
               macro["axes"])
-        check("corrélations affichées", "r niveaux" in macro["stats"],
+        check("corrélations affichées", "r niv." in macro["stats"],
               macro["stats"][:48])
 
         print("\nPanneau options")
