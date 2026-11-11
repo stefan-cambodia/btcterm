@@ -275,6 +275,34 @@ def push_payload(hub, interval: str, limit: int) -> dict:
 #: page. La marge est tronquée après calcul, jamais renvoyée.
 WARMUP_BARS = 200
 
+
+def with_warmup(hub, interval: str, df: pd.DataFrame) -> pd.DataFrame:
+    """La page la plus récente, précédée de sa marge de calcul.
+
+    Les pages d'historique avaient leur marge, pas la première : son RSI
+    partait de zéro — 0,0 sur les trois premières bougies du 4 h, le 12
+    novembre 2026, une plongée que le plein écran montrait mi-septembre
+    au raccord des pages —, et sa MA 200 manquait sur deux cents
+    bougies. La marge vient de l'historique (`klines_history`) et non
+    d'une lecture plus longue : la clé de cache de `hub.klines` est celle
+    que le pousseur partage, elle ne change pas. Rien à précéder sur la
+    démonstration, et une marge injoignable laisse la page telle quelle.
+    """
+    if df.empty or df.attrs.get("demo"):
+        return df
+    first = pd.Timestamp(df["time"].iloc[0])
+    try:
+        before = hub.klines_history(interval, first.value // 1_000_000 - 1,
+                                    WARMUP_BARS)
+    except Exception:  # noqa: BLE001
+        return df
+    before = before[before["time"] < first] if not before.empty else before
+    if before.empty:
+        return df
+    merged = pd.concat([before, df], ignore_index=True)
+    merged.attrs = dict(df.attrs)
+    return merged
+
 #: L'export : les champs de Binance utiles hors du terminal, et un plafond
 #: bien au-delà de ce que le disque tient pour le bitcoin.
 EXPORT_COLUMNS = ("time", "open", "high", "low", "close", "volume",
@@ -315,6 +343,8 @@ def register_api(app, hub) -> None:
 
         if before is None:
             df = hub.klines(interval, limit=limit)
+            start = df["time"].iloc[0] if not df.empty else None
+            df = with_warmup(hub, interval, df)
         else:
             # endTime est inclusif sur l'heure d'ouverture : la borne à
             # `before - 1 ms` exclut la bougie que le client tient déjà.
@@ -331,6 +361,8 @@ def register_api(app, hub) -> None:
                 cutoff = pd.Timestamp(before, unit="s")
                 prepared = (prepared[prepared["time"] < cutoff]
                             .iloc[-limit:])
+            else:
+                prepared = prepared[prepared["time"] >= start]
             payload = serialize_price_frame(prepared)
 
         payload["interval"] = interval

@@ -622,7 +622,7 @@ python tests/test_analysis.py            # bilan des signaux : futur, référenc
 python tests/test_alerts.py              # alertes : seuils, fronts, cadences, carnets creux
 python tests/test_wsgi.py                # fabrique gunicorn du régime service
 python tests/test_lwc_serialize.py       # contrat de série du rendu du prix
-python tests/test_lwc_api.py             # /api/klines : pagination, repli démo
+python tests/test_lwc_api.py             # /api/klines : pagination, marge de calcul de chaque page, repli démo
 python tests/test_indicators_incremental.py  # dernier point : borné = complet
 python tests/test_prepare_price_frame.py # enrichissement du prix : colonnes, bornes
 python tests/test_resolver.py            # résolution DNS de secours, sans réseau

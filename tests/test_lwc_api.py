@@ -129,6 +129,36 @@ def test_marge_de_calcul_invisible_mais_efficace():
     print("  ✓ marge de 200 bougies : calculée, exacte, jamais renvoyée")
 
 
+def test_la_premiere_page_a_sa_marge_aussi():
+    """Le RSI de la page la plus récente partait de zéro — 0,0 sur ses
+    trois premières bougies, au raccord avec les pages plus anciennes —
+    et sa MA 200 manquait sur deux cents bougies : la marge n'était
+    posée que sur les pages d'historique."""
+    from btcterm import indicators
+
+    web = client()
+    page = get(web, interval="1h", limit=300)
+    assert len(page["bars"]) == 300, "la marge ne fuit pas"
+    debut = page["bars"][0]["time"]
+    assert page["overlays"]["ma200"][0]["time"] == debut
+
+    # Le RSI de la première bougie est celui de la série entière.
+    epoch = DB["time"].astype("int64") // 1_000_000_000
+    position = int(epoch.searchsorted(debut))
+    attendu = float(indicators.rsi(DB["close"]).iloc[position])
+    rsi = page["panes"]["rsi"][0]
+    assert rsi["time"] == debut and abs(rsi["value"] - attendu) < 1e-3, \
+        (rsi, attendu)
+
+    # Le raccord avec la page d'avant est continu : pas de saut au bord.
+    avant = get(web, interval="1h", limit=300, before=debut)
+    raccord = [p["value"] for p in avant["panes"]["rsi"][-1:]
+               + page["panes"]["rsi"][:1]]
+    serie = indicators.rsi(DB["close"]).iloc[position - 1:position + 1]
+    assert all(abs(a - b) < 1e-3 for a, b in zip(raccord, serie)), raccord
+    print("  ✓ première page : RSI et MA 200 justes dès la première bougie")
+
+
 def test_repli_demo_par_le_meme_endpoint():
     web = client(fetch=panne_reseau)
     page = get(web, interval="1h")

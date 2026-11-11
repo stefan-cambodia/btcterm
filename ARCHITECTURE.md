@@ -1381,6 +1381,17 @@ commence toujours là où elle s'arrête. Et un recalage silencieux — retour
 d'onglet, reconnexion du canal, repli poll — ne remplace que la fin du
 tampon : le passé remonté reste, et la vue posée dedans avec lui.
 
+Chaque page est calculée après une marge de deux cents bougies
+(`WARMUP_BARS`), tronquée avant l'envoi : la MA 200 y est juste dès la
+première bougie, et les lissages exponentiels du RSI y ont convergé. La
+page la plus récente en a manqué jusqu'au 12 novembre 2026 — seules les
+pages antérieures l'avaient. Son RSI partait de zéro (0,0 sur les trois
+premières bougies du 4 h), et le plein écran montrait mi-septembre, au
+raccord des pages, une plongée du RSI que le cours ne justifiait pas ; les
+signaux de ce début de page en étaient faussés. `with_warmup` la prend
+désormais à l'historique, sans toucher à la clé de cache que le pousseur
+partage.
+
 C'est le cours qu'on vient lire en séance d'analyse ; les oscillateurs
 l'accompagnent, ils ne le concurrencent pas. Son pane porte un facteur
 d'étirement de 300 contre 70 par oscillateur coché, et tout ce qu'on
@@ -3381,6 +3392,11 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   Python 3.11, qui écrit « +0 », et `test_terminal_wiring.py` refuse un
   format signé qui ne la porterait pas. Les gabarits de survol de Plotly,
   qui suivent d3, restent hors de la règle.
+- ~~**Un RSI à zéro au raccord des pages**~~ — fait le 12 novembre 2026
+  (§3.2) : la page la plus récente du panneau prix n'avait pas la marge
+  de calcul des pages anciennes ; son RSI partait de zéro et sa MA 200
+  manquait sur deux cents bougies. Les signaux de ce début de page
+  bougent en conséquence : ce sont les anciens qui étaient faux.
 - ~~**Un panneau POSITION qui répondait « saisir un capital » à tout**~~ —
   vérifié à la demande de l'utilisateur, au clavier dans Firefox : les
   calculs sont justes (valeur, résultat, distance au stop, multiple de
