@@ -106,6 +106,7 @@ import pandas as pd
 
 from . import indicators as ind
 from . import macrocal, newsdb
+from .journal import liquidity_totals
 
 __all__ = ["Alert", "AlertEngine", "DEFAULT_CONFIG",
            "COOLDOWN", "HYSTERESIS_PCT", "SLOW_EVERY"]
@@ -146,6 +147,8 @@ DEFAULT_CONFIG: dict = {
     "dvol_jump_pts": 6.0,
     #: déplacement du skew 25 delta à un mois sur 24 h, en points.
     "skew_shift_pts": 2.0,
+    #: carnets creux : liquidité à tant de % sous sa moyenne de 24 h.
+    "liquidity_drop_pct": 40.0,
     #: bip sonore côté navigateur — le moteur l'ignore, le client le lit.
     "sound": True,
 }
@@ -176,6 +179,13 @@ EVENT_LEAD = 1800.0
 SKEW_POINTS = 3
 SKEW_FRESH = 1800.0
 
+#: La liquidité se lit en médiane de trois relevés pris dans la demi-heure,
+#: contre la moyenne d'une journée qui compte au moins six heures de
+#: relevés (§ `_check_liquidity`).
+LIQUIDITY_POINTS = 3
+LIQUIDITY_FRESH = 1800.0
+LIQUIDITY_MIN_POINTS = 72
+
 #: L'alerte de tendance lit le journalier : assez de bougies pour sa MA 200.
 TREND_WINDOW = 200
 TREND_LIMIT = 365
@@ -188,7 +198,7 @@ class Alert:
     time: float
     kind: str      #: price | liq | funding | news | arb
                    #:   | trend | rsi | signal | dominance | etf | chain
-                   #:   | vol | skew
+                   #:   | vol | skew | depth
     message: str
 
 
@@ -209,7 +219,8 @@ def normalize_config(data) -> dict:
     for key in ("liq_burst_musd", "funding_pct", "news_score", "arb_net_pct",
                 "ma200_gap_pct", "rsi_overbought", "rsi_oversold",
                 "dominance_shift_pts", "etf_flow_musd", "mempool_mb",
-                "block_minutes", "dvol_jump_pts", "skew_shift_pts"):
+                "block_minutes", "dvol_jump_pts", "skew_shift_pts",
+                "liquidity_drop_pct"):
         value = data.get(key)
         if isinstance(value, (int, float)) and value > 0:
             config[key] = float(value)
@@ -326,7 +337,8 @@ class AlertEngine:
                          self._check_technical, self._check_trend,
                          self._check_event, self._check_dominance,
                          self._check_etf, self._check_chain,
-                         self._check_volatility, self._check_skew):
+                         self._check_volatility, self._check_skew,
+                         self._check_liquidity):
                 try:
                     rule(hub, opportunities, config, now)
                 except Exception:
@@ -652,6 +664,46 @@ class AlertEngine:
             self._fire("skew",
                        f"skew 25Δ {delta:+.1f} pt en 24 h "
                        f"({latest:+.1f}) : {sens}", now)
+
+    def _check_liquidity(self, hub, _opps, config, now) -> None:
+        """Les carnets qui se vident : la liquidité loin sous sa moyenne.
+
+        Le volume offert à portée du prix, plateformes réunies (§ hub.
+        _flush_depth), contre sa propre moyenne de la journée : un carnet
+        creux n'amortit pas le mouvement qui vient. Trois gardes. La
+        moyenne demande six heures de relevés, sans quoi elle ne décrit
+        que l'heure d'ouverture du terminal. Le présent est la médiane de
+        trois relevés pris dans la demi-heure — une plateforme en
+        resynchronisation ne vide pas le marché. Et la somme ne porte que
+        sur les plateformes présentes toute la journée
+        (`liquidity_totals`) : une plateforme qui se tait sort du compte
+        au lieu de creuser le total.
+        """
+        history = hub.book_depth_history(days=1)
+        if history is None or history.empty:
+            return
+        totals, _kept, _dropped = liquidity_totals(
+            history[["time", "exchange", "bid", "ask"]]
+            .itertuples(index=False))
+        if len(totals) < LIQUIDITY_MIN_POINTS:
+            return
+        volumes = [bid + ask for _, bid, ask in totals]
+        recents = sorted(
+            bid + ask for moment, bid, ask in totals[-LIQUIDITY_POINTS:]
+            if pd.Timestamp(moment).timestamp() >= now - LIQUIDITY_FRESH)
+        if len(recents) < LIQUIDITY_POINTS:
+            return
+        latest = recents[len(recents) // 2]
+        mean = sum(volumes) / len(volumes)
+        if mean <= 0:
+            return
+        drop = (1 - latest / mean) * 100
+        if self._edge("liquidity", drop >= config["liquidity_drop_pct"], now):
+            band = getattr(hub, "DEPTH_BAND", 0.1)
+            self._fire("depth",
+                       f"carnets à {drop:.0f} % sous leur moyenne de 24 h : "
+                       f"{latest:.0f} BTC à ±{band:g} % du prix, contre "
+                       f"{mean:.0f}", now)
 
     def _check_news(self, hub, _opps, config, now) -> None:
         rows = self._fetch_news()

@@ -44,7 +44,7 @@ KIND_COLORS = {"price": C["yellow"], "liq": C["red"],
                "rsi": C["cyan"], "signal": C["green"],
                "dominance": C["yellow"], "etf": C["green"],
                "chain": C["purple"], "vol": C["yellow"],
-               "skew": C["yellow"]}
+               "skew": C["yellow"], "depth": C["cyan"]}
 
 _INPUT = {
     "width": "52px", "background": C["card"], "color": C["text"],
@@ -148,6 +148,10 @@ def layout(title=None):
                 _field("skew 24 h (pts)", dcc.Input(
                     id="alert-skew", type="number", min=0.1, step="any",
                     debounce=True, value=config["skew_shift_pts"],
+                    style=_INPUT)),
+                _field("carnets creux (−%)", dcc.Input(
+                    id="alert-depth", type="number", min=5, max=95,
+                    debounce=True, value=config["liquidity_drop_pct"],
                     style=_INPUT)),
                 dcc.Checklist(
                     id="alert-signal",
@@ -277,6 +281,7 @@ def register(app, hub):
         Input("alert-block", "value"),
         Input("alert-dvol", "value"),
         Input("alert-skew", "value"),
+        Input("alert-depth", "value"),
         Input("alert-signal", "value"),
         Input("alert-trend", "value"),
         Input("alert-event", "value"),
@@ -287,7 +292,7 @@ def register(app, hub):
     )
     def _edit(_add, _dels, liq, funding, news_score, arb,
               ma200, rsi_hi, rsi_lo, dominance, etf, mempool, block,
-              dvol, skew, signal, trend, event, sound, level, stored):
+              dvol, skew, depth, signal, trend, event, sound, level, stored):
         trigger = dash.ctx.triggered_id
         # Un composant qui vient d'être monté déclenche aussi ce
         # callback (n_clicks 0, valeurs du Store) : sans valeur de
@@ -329,6 +334,7 @@ def register(app, hub):
                       "etf_flow_musd": etf, "mempool_mb": mempool,
                       "block_minutes": block, "dvol_jump_pts": dvol,
                       "skew_shift_pts": skew,
+                      "liquidity_drop_pct": depth,
                       "signal_strong": bool(signal),
                       "trend_flip": bool(trend),
                       "event_soon": bool(event),

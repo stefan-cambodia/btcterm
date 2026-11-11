@@ -3218,6 +3218,15 @@ journal aura quelques semaines.
   cent sous sa moyenne ; elle part aussi au réveil sur le téléphone. Elle
   se tait sans une heure de relevés. La règle de somme est désormais
   unique (`journal.liquidity_totals`), pour le graphique comme pour elle.
+- ~~**Un carnet qui se vide, sans alerte**~~ — fait : une règle sonne
+  (`depth`) quand la liquidité tombe à quarante pour cent sous sa moyenne
+  de 24 h, réglable au panneau ALERTES. Trois gardes : six heures de
+  relevés pour que la moyenne décrive une journée, la médiane de trois
+  relevés pris dans la demi-heure pour qu'une plateforme en
+  resynchronisation ne vide pas le marché, et la somme sur les seules
+  plateformes présentes toute la journée. Le seuil est provisoire : posé
+  le jour où l'historique commence, il est à revoir quand le journal aura
+  quelques semaines, comme celui du skew.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au

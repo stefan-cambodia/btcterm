@@ -295,7 +295,10 @@ plus de six points (réglable) au-dessus de sa clôture de la veille, ce qui
 n'est arrivé que dix jours sur l'année écoulée — et une sur ce que le journal
 garde de ce marché : le skew 25 delta qui se déplace de plus de deux points
 en 24 h (réglable, seuil encore provisoire), le message disant si ce sont les
-puts ou les calls qui se renchérissent.
+puts ou les calls qui se renchérissent — et une sur la liquidité journalisée
+des carnets : le volume offert à ±0,1 % du prix tombé à 40 % sous sa moyenne
+de 24 h (réglable, seuil provisoire lui aussi), muette tant que la journée
+ne compte pas six heures de relevés.
 Les règles sonnent sur le front montant, sous délai de garde — une condition
 qui dure ou qui clignote ne sonne pas en rafale. La cloche du bandeau compte
 la dernière heure et ouvre le panneau d'un clic, où qu'il soit rangé ; le bip et les notifications navigateur (permission
@@ -613,7 +616,7 @@ python tests/test_push.py                # pousseur WebSocket, sans navigateur
 python tests/test_journal.py             # journal : événements, épisodes, rétention, univers de capitalisation
 python tests/test_history.py             # historique du cours : disque, rattrapage, panne
 python tests/test_analysis.py            # bilan des signaux : futur, référence, sens, export
-python tests/test_alerts.py              # alertes : seuils, fronts, cadences
+python tests/test_alerts.py              # alertes : seuils, fronts, cadences, carnets creux
 python tests/test_wsgi.py                # fabrique gunicorn du régime service
 python tests/test_lwc_serialize.py       # contrat de série du rendu du prix
 python tests/test_lwc_api.py             # /api/klines : pagination, repli démo

@@ -730,6 +730,67 @@ def test_echeance_macro_annoncee():
     print("  ✓ annoncée une fois, avant, et pas rejouée au redémarrage")
 
 
+def test_carnets_creux():
+    """La liquidité loin sous sa moyenne sonne une fois ; ni une journée
+    trop courte, ni un relevé isolé, ni une plateforme qui se tait ne
+    font un carnet creux."""
+    def sonneries(e):
+        return [a for a in e.alerts if a.kind == "depth"]
+
+    def seance(now, volumes, sans_okx=()):
+        """Un relevé toutes les cinq minutes, le dernier à `now`."""
+        lignes = []
+        for k, volume in enumerate(volumes):
+            moment = pd.Timestamp(now - (len(volumes) - 1 - k) * 300, unit="s")
+            lignes.append((moment, "Binance", 0.4 * volume, 0.4 * volume))
+            if k not in sans_okx:
+                lignes.append((moment, "OKX", 0.1 * volume, 0.1 * volume))
+        return pd.DataFrame(lignes, columns=["time", "exchange", "bid", "ask"])
+
+    hub = FakeHub()
+    hub.DEPTH_BAND = 0.1
+    serie = {"df": pd.DataFrame(columns=["time", "exchange", "bid", "ask"])}
+    hub.book_depth_history = lambda days=1: serie["df"]
+
+    e = engine(liquidity_drop_pct=40.0)
+    e.evaluate(hub, now=T0)
+    assert not e.alerts, "sans relevé, silence"
+
+    # Une journée pleine, puis trois relevés à moitié : −49 % sous la moyenne.
+    e = engine(liquidity_drop_pct=40.0)
+    serie["df"] = seance(T0, [300.0] * 100 + [150.0] * 3)
+    e.evaluate(hub, now=T0)
+    assert [a.message for a in sonneries(e)] == [
+        "carnets à 49 % sous leur moyenne de 24 h : 150 BTC à ±0.1 % du "
+        "prix, contre 296"], [a.message for a in sonneries(e)]
+    # Tant que l'état dure, pas de seconde sonnerie.
+    e.evaluate(hub, now=T0 + SLOW_EVERY + 1)
+    assert len(sonneries(e)) == 1
+
+    for nom, df, quand in (
+            ("moins de six heures de relevés",
+             seance(T0, [300.0] * 40 + [150.0] * 3), T0),
+            ("un relevé isolé", seance(T0, [300.0] * 100 + [300.0, 100.0, 300.0]), T0),
+            ("sous le seuil", seance(T0, [300.0] * 100 + [200.0] * 3), T0),
+            ("des relevés vieux d'une heure",
+             seance(T0, [300.0] * 100 + [150.0] * 3), T0 + 3600)):
+        e = engine(liquidity_drop_pct=40.0)
+        serie["df"] = df
+        e.evaluate(hub, now=quand)
+        assert not sonneries(e), nom
+
+    # OKX se tait sur un cinquième de la journée : il sort de la somme,
+    # et son absence ne creuse rien.
+    e = engine(liquidity_drop_pct=15.0)
+    serie["df"] = seance(T0, [300.0] * 103, sans_okx=range(80, 103))
+    e.evaluate(hub, now=T0)
+    assert not sonneries(e), "une plateforme absente n'est pas un carnet creux"
+
+    assert normalize_config({"liquidity_drop_pct": 25})["liquidity_drop_pct"] == 25.0
+    assert normalize_config({"liquidity_drop_pct": 0})["liquidity_drop_pct"] == 40.0
+    print("  ✓ carnets creux : moyenne d'une journée, médiane de trois relevés")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nMoteur d'alertes — {len(tests)} vérifications\n" + "─" * 60)
