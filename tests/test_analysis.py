@@ -499,6 +499,43 @@ def test_le_bandeau_24_h():
 
 
 
+def test_le_panneau_position_dit_ce_qui_manque():
+    """Chaque empêchement a son message, et un stop franchi se dit."""
+    from terminal.fx import DOLLARS
+    from terminal.panels import position as panneau
+
+    gap = panneau.size_gap
+    assert gap(10_000, 1, 2, 2_000.0, 74_000.0) is None
+    assert "capital et un risque" in gap(None, 1, 2, 2_000.0, 74_000.0)
+    assert "capital et un risque" in gap(10_000, 0, 2, 2_000.0, 74_000.0)
+    assert "100 %" in gap(10_000, 150, 2, 2_000.0, 74_000.0)
+    assert "multiple d'ATR" in gap(10_000, 1, None, 2_000.0, 74_000.0)
+    assert "multiple d'ATR" in gap(10_000, 1, 0, 2_000.0, 74_000.0)
+    assert "cours indisponible" in gap(10_000, 1, 2, 2_000.0, None)
+    assert "ATR journalier indisponible" in gap(10_000, 1, 2, None, 74_000.0)
+    assert "ATR journalier" in str(panneau.render_size(
+        None, "long", DOLLARS, gap(10_000, 1, 2, None, 74_000.0)))
+    assert "cours indisponible" in str(panneau.render_state(
+        None, DOLLARS, "cours indisponible : la position ne se suit pas"))
+
+    # Un multiple qui pousserait le stop d'un long sous zéro ne propose rien.
+    geante = analysis.position_size(10_000, 1, 80_000.0, 74_000.0)
+    assert "sous zéro" in str(panneau.render_size(geante, "long", DOLLARS))
+    assert "154,000.00 $" in str(panneau.render_size(geante, "short", DOLLARS))
+
+    # Un short dont le stop est sous le cours : il aurait déjà joué.
+    franchi = analysis.position_state("short", 0.5, 70_000.0, 73_600.0,
+                                      stop=65_000.0)
+    rendu = str(panneau.render_state(franchi, DOLLARS))
+    assert "stop franchi" in rendu and "jusqu'au stop" not in rendu
+    assert "de 11.68 %" in rendu, rendu
+    sain = analysis.position_state("short", 0.5, 70_000.0, 73_600.0,
+                                   stop=80_000.0)
+    rendu = str(panneau.render_state(sain, DOLLARS))
+    assert "jusqu'au stop" in rendu and "stop franchi" not in rendu
+    print("  ✓ position : chaque empêchement dit, stop franchi nommé")
+
+
 def test_niveaux_cles():
     """Veille, semaine et mois passés, ouvertures en cours — en UTC, la
     semaine partant du lundi ; un niveau partagé n'en fait qu'un, et une

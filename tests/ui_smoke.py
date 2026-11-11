@@ -770,8 +770,12 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                     courbes: gd.data.length,
                     noms: Array.from(new Set(gd.data.map(t => t.name)))};
         """)
-        check("cadre symétrique que la moitié des courbes remplit",
-              0 < cadre["demi"] <= 2 and cadre["dedans"] * 2 >= cadre["courbes"],
+        # Le cadre est l'étendue médiane **des carnets**, arrondie d'une
+        # fois et demie au plus : la moitié d'entre eux y porte au moins
+        # un côté aux deux tiers — soit un quart des courbes à mi-cadre,
+        # au pire. Exiger la moitié des courbes échouait à tort.
+        check("cadre symétrique que les carnets remplissent",
+              0 < cadre["demi"] <= 2 and cadre["dedans"] * 4 >= cadre["courbes"],
               f"±{cadre['demi']:g} %, {cadre['dedans']}/{cadre['courbes']} courbes")
         check("la légende nomme les plateformes, pas leurs côtés",
               not any("bids" in nom or "asks" in nom for nom in cadre["noms"]),
@@ -1135,7 +1139,13 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("l'onglet ouvre le panneau", browser.wait_for(
             "!!document.querySelector('#options-chart .js-plotly-plot')",
             timeout=20))
-        time.sleep(4)
+        # La condition, pas un délai : quatre secondes fixes lisaient un
+        # titre encore vide quand Deribit traînait — ou que la machine
+        # sortait de veille au milieu du passage.
+        browser.wait_for(
+            "(t => t.includes('DVOL') || t.includes('indisponible'))"
+            "(document.getElementById('options-badges')?.textContent || '')",
+            timeout=30)
         badges = browser.js(
             "return document.getElementById('options-badges').textContent;")
         check("DVOL au bandeau, ou l'absence de Deribit dite",

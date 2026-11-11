@@ -3333,8 +3333,31 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Une liquidité sans visage**~~ — fait : en plein écran, l'historique
   de liquidité empile ce que chaque plateforme offre, achats et ventes
   réunis, aux couleurs de la profondeur comparée ; quand le total baisse,
-  on voit qui s'est retiré. La grille garde ses deux courbes. Vérifié par
-  son test, pas encore à l'écran.
+  on voit qui s'est retiré. La grille garde ses deux courbes. L'empilement
+  est fait à la main, une série de traces par séance continue : celui de
+  Plotly (`stackgroup`) comblait les veilles d'une rampe en diagonale, et
+  un simple `None` rompait le trait sans rompre le remplissage — vu à
+  l'écran, les deux fois.
+- ~~**Un cadre de profondeur à moitié vide**~~ — l'arrondi 1-2-5 de
+  `depth_window` donnait un cadre de ±1 % à une étendue médiane de
+  0,51 % : la moitié de la largeur perdue. L'échelle a désormais six crans
+  par décade (1 - 1,5 - 2 - 3 - 5 - 7,5), et le cadre ne dépasse plus la
+  médiane que d'une moitié au plus. Le contrôle d'interface exigeait que
+  la moitié des courbes atteigne le mi-cadre, ce que la règle ne garantit
+  pas : il en demande un quart.
+- ~~**Un panneau POSITION qui répondait « saisir un capital » à tout**~~ —
+  vérifié à la demande de l'utilisateur, au clavier dans Firefox : les
+  calculs sont justes (valeur, résultat, distance au stop, multiple de
+  risque, taille d'après l'ATR, conversion en euros). Trois défauts de
+  parole, corrigés. Le dimensionnement disait « saisir un capital et un
+  risque » quel que soit l'empêchement : `size_gap` nomme désormais le
+  multiple d'ATR effacé, le cours absent, les bougies journalières
+  manquantes, un risque de plus de cent pour cent, et un stop que le
+  multiple pousserait sous zéro. La position disait de saisir une quantité
+  déjà saisie quand c'est le cours qui manquait. Et un stop déjà dépassé —
+  sous le cours pour un short — s'affichait « jusqu'au stop −11,7 % » : il
+  se dit « stop franchi », l'explication au survol. `ui_smoke.py` attend
+  désormais la condition du titre des options au lieu de quatre secondes.
 - ~~**Une lecture figée de Deribit écrite au journal**~~ — le relevé
   aberrant que l'étage précédent a montré : le 10 novembre 2026, à la
   première lecture après une panne de la source (503), une base de zéro

@@ -87,7 +87,10 @@ def depth_window(extents: list[float]) -> float | None:
 
     Le cadre est donc l'étendue **médiane** des carnets : la moitié
     d'entre eux le remplit au moins. Elle est arrondie au cran supérieur
-    d'une échelle 1-2-5, pour que l'axe ne tremble pas à chaque trame.
+    d'une échelle 1 - 1,5 - 2 - 3 - 5 - 7,5, pour que l'axe ne tremble pas
+    à chaque trame. L'échelle 1-2-5 d'origine était trop lâche : une
+    médiane de 0,51 % donnait un cadre de ±1 %, la moitié de la largeur
+    perdue — le contrôle d'interface l'a vu le soir même.
     """
     extents = sorted(e for e in extents if e and e > 0)
     if not extents:
@@ -96,7 +99,7 @@ def depth_window(extents: list[float]) -> float | None:
     mediane = (extents[milieu] if len(extents) % 2
                else (extents[milieu - 1] + extents[milieu]) / 2)
     decade = 10.0 ** np.floor(np.log10(mediane))
-    for cran in (1, 2, 5, 10):
+    for cran in (1, 1.5, 2, 3, 5, 7.5, 10):
         if mediane <= cran * decade * (1 + 1e-9):
             return float(cran * decade)
     return float(10 * decade)
@@ -288,25 +291,48 @@ def build_liquidity_chart(series: pd.DataFrame, gap: float = 900.0,
     if by_exchange is not None and not by_exchange.empty:
         # Une aire par plateforme, empilée ; les ruptures de séance sont
         # celles de la série, rejouées à l'identique pour chacune.
+        # L'empilement est fait ici, pas par Plotly (`stackgroup`) : le
+        # sien comble les trous, et une veille de trois heures devenait
+        # une rampe en diagonale de zéro au relevé suivant. Un simple
+        # `None` ne suffit pas non plus — le trait s'y rompt, pas le
+        # remplissage. Chaque séance continue a donc ses propres traces,
+        # une par plateforme, portant le cumul et remplies jusqu'à la
+        # précédente ; la légende n'en nomme qu'une par plateforme.
         instants = pd.to_datetime(series["time"]).tolist()
+        seances, courante, k = [], [], 0
+        for i in range(len(x)):
+            if bids[i] is None:
+                if courante:
+                    seances.append(courante)
+                courante = []
+                continue
+            courante.append((x[i], instants[k]))
+            k += 1
+        if courante:
+            seances.append(courante)
+        volumes = {
+            name: dict(zip(pd.to_datetime(rows["time"]),
+                           rows["bid"] + rows["ask"]))
+            for name, rows in by_exchange.groupby("exchange", sort=False)}
         data = []
-        for name, rows in by_exchange.groupby("exchange", sort=False):
-            volume = dict(zip(pd.to_datetime(rows["time"]),
-                              rows["bid"] + rows["ask"]))
-            values, k = [], 0
-            for label in x:
-                if k < len(instants) and bids[len(values)] is not None:
-                    values.append(round(float(volume.get(instants[k], 0.0)), 2))
-                    k += 1
-                else:
-                    values.append(None)
-            data.append({
-                "type": "scatter", "mode": "lines", "x": x, "y": values,
-                "name": name, "stackgroup": "plateformes",
-                "connectgaps": False,
-                "line": {"color": EXCHANGE_COLORS.get(name, C["muted"]),
-                         "width": 1},
-                "hovertemplate": f"{name} %{{y:.1f}} BTC<extra></extra>"})
+        for numero, seance in enumerate(seances):
+            cumul = [0.0] * len(seance)
+            for rang, (name, volume) in enumerate(volumes.items()):
+                parts = [float(volume.get(moment, 0.0)) for _, moment in seance]
+                cumul = [c + part for c, part in zip(cumul, parts)]
+                couleur = EXCHANGE_COLORS.get(name, C["muted"])
+                data.append({
+                    "type": "scatter", "mode": "lines",
+                    "x": [label for label, _ in seance],
+                    "y": [round(c, 2) for c in cumul],
+                    "customdata": [round(part, 2) for part in parts],
+                    "name": name, "legendgroup": name,
+                    "showlegend": numero == 0,
+                    "fill": "tozeroy" if rang == 0 else "tonexty",
+                    "fillcolor": couleur + "55",
+                    "line": {"color": couleur, "width": 1},
+                    "hovertemplate": f"{name} %{{customdata:.1f}} BTC"
+                                     "<extra></extra>"})
         layout["showlegend"] = True
         layout["legend"] = {"orientation": "h", "y": 1.0, "x": 0,
                             "yanchor": "bottom", "font": {"size": 9},

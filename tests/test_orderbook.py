@@ -576,12 +576,15 @@ def test_profondeur_cadree_sur_le_carnet_median():
     from terminal.charts import build_depth_chart, depth_window
 
     assert depth_window([]) is None and depth_window([0.0]) is None
-    assert depth_window([0.004, 0.057, 0.025, 0.002, 3.1]) == 0.05
-    assert depth_window([0.02, 0.5]) == 0.5, "à deux, la moyenne arrondie"
+    assert abs(depth_window([0.004, 0.057, 0.025, 0.002, 3.1]) - 0.03) < 1e-12
+    assert abs(depth_window([0.02, 0.5]) - 0.3) < 1e-12, "à deux, la moyenne arrondie"
+    # Jamais plus d'une fois et demie la médiane : le cadre colle aux carnets.
+    assert all(m <= depth_window([m]) <= 1.5 * m * (1 + 1e-9)
+               for m in (0.011, 0.051, 0.26, 0.51, 0.76, 1.6, 4.9))
     assert depth_window([0.05]) == 0.05, "un cran exact reste le sien"
     # Le cadre ne tremble pas quand l'étendue respire.
     assert len({depth_window([0.004, 0.057, e, 0.002, 3.1])
-                for e in (0.021, 0.025, 0.03, 0.04, 0.049)}) == 1
+                for e in (0.021, 0.025, 0.028, 0.03)}) == 1
 
     def carnet(pas: float, volume: float, niveaux: int = 10) -> OrderBook:
         book = OrderBook("essai")
@@ -713,14 +716,21 @@ def test_la_liquidite_a_une_memoire():
     gardes = history[history["exchange"].isin(gardees)
                      & history["time"].isin(serie["time"])]
     empile = build_liquidity_chart(serie, gap=900, by_exchange=gardes)
-    assert [t["name"] for t in empile["data"]] == ["Binance", "OKX"]
-    assert all(t["stackgroup"] == "plateformes" for t in empile["data"])
-    binance, okx = empile["data"]
-    assert len(binance["x"]) == 40 and binance["y"].count(None) == 1
-    assert {v for v in binance["y"] if v is not None} == {180.0}
-    assert {v for v in okx["y"] if v is not None} == {90.0}
-    assert [a is None for a in binance["y"]] == [a is None for a in achats["y"]], \
-        "les ruptures de séance sont celles de la somme"
+    assert not any("stackgroup" in t for t in empile["data"]), \
+        "l'empilement de Plotly comble les trous : il est fait ici"
+    # Deux séances — l'heure de veille les sépare —, deux plateformes :
+    # quatre traces, et la légende n'en nomme qu'une par plateforme.
+    assert [t["name"] for t in empile["data"]] == ["Binance", "OKX"] * 2
+    assert [t["showlegend"] for t in empile["data"]] == [True, True, False, False]
+    assert [t["fill"] for t in empile["data"]] == ["tozeroy", "tonexty"] * 2
+    assert sum(len(t["x"]) for t in empile["data"][::2]) == 39
+    assert all(None not in t["y"] for t in empile["data"]), \
+        "une séance est continue : la rupture est entre les traces"
+    binance, okx = empile["data"][:2]
+    assert set(binance["y"]) == {180.0}
+    # OKX porte le cumul en ordonnée, et sa part au survol.
+    assert set(okx["y"]) == {270.0} and set(okx["customdata"]) == {90.0}
+    assert empile["data"][0]["x"][-1] < empile["data"][2]["x"][0]
     assert empile["layout"]["showlegend"] is True
 
     # ── Le badge : le dernier relevé, et son écart à la moyenne.

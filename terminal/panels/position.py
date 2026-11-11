@@ -78,11 +78,15 @@ def _money(value: float, fx, signed: bool = False) -> str:
     return f"{value * fx.rate:{'+' if signed else ''},.2f} {fx.unit}"
 
 
-def render_state(state: dict | None, fx):
-    """La position tenue, ou ce qu'il manque pour la calculer."""
+def render_state(state: dict | None, fx, missing: str | None = None):
+    """La position tenue, ou ce qu'il manque pour la calculer.
+
+    `missing` dit pourquoi, quand ce n'est pas la saisie : sans cours, le
+    panneau demandait une quantité et un prix d'entrée déjà saisis.
+    """
     if state is None:
-        return html.Div("saisir une quantité et un prix d'entrée pour suivre "
-                        "une position", style={"color": C["muted"]})
+        return html.Div(missing or "saisir une quantité et un prix d'entrée "
+                        "pour suivre une position", style={"color": C["muted"]})
     tone = "green" if state["pnl"] >= 0 else "red"
     lines = [
         _line("valeur", _money(state["value"], fx)),
@@ -90,22 +94,59 @@ def render_state(state: dict | None, fx):
                           f"({state['pnl_pct']:+.2f} %)", tone),
     ]
     if state["stop_pct"] is not None:
-        lines.append(_line(
-            "jusqu'au stop", f"{state['stop_pct']:.2f} % · "
-            f"{_money(state['stop_loss'], fx, True)}",
-            "red" if state["stop_pct"] <= 0 else "text"))
+        # Un stop que le cours a déjà dépassé — ou posé du mauvais côté :
+        # sous le cours pour un short, au-dessus pour un long — ne protège
+        # plus rien, et une distance négative ne le disait qu'à demi.
+        if state["stop_pct"] <= 0:
+            # Court : la ligne partage la largeur avec le dimensionnement,
+            # et une phrase y passait à la ligne en écrasant sa voisine.
+            lines.append(_line(
+                "stop franchi", f"de {-state['stop_pct']:.2f} %", "red",
+                title="le cours a dépassé ce stop : il aurait déjà joué, ou "
+                      "il est du mauvais côté — sous le cours pour un short, "
+                      "au-dessus pour un long"))
+        else:
+            lines.append(_line(
+                "jusqu'au stop", f"{state['stop_pct']:.2f} % · "
+                f"{_money(state['stop_loss'], fx, True)}"))
     if state["r"] is not None:
         lines.append(_line("multiple", f"{state['r']:+.2f} R", tone,
                            title="résultat rapporté à la perte prévue au stop"))
     return html.Div(lines)
 
 
-def render_size(size: dict | None, side: str, fx):
+def size_gap(capital, risk, multiple, atr, price) -> str | None:
+    """Ce qui empêche de dimensionner, dit pour ce que c'est — ou `None`.
+
+    Le panneau répondait « saisir un capital et un risque » à tout : à un
+    multiple d'ATR effacé, à un cours absent, à des bougies journalières
+    que Binance ne servait pas. Chaque cas a son message, et deux saisies
+    qui n'ont pas de sens ont le leur : un risque de plus de cent pour
+    cent du capital, un stop que le multiple pousserait sous zéro.
+    """
+    if not capital or not risk or capital <= 0 or risk <= 0:
+        return "saisir un capital et un risque pour dimensionner"
+    if risk > 100:
+        return "un risque de plus de 100 % du capital ne se dimensionne pas"
+    if not multiple or multiple <= 0:
+        return "saisir un multiple d'ATR pour placer le stop"
+    if not price:
+        return "cours indisponible : pas de dimensionnement"
+    if not atr:
+        return ("ATR journalier indisponible — les bougies d'un jour "
+                "manquent : pas de dimensionnement")
+    return None
+
+
+def render_size(size: dict | None, side: str, fx, missing: str | None = None):
     """La taille que permet le risque choisi."""
     if size is None:
-        return html.Div("saisir un capital et un risque pour dimensionner",
-                        style={"color": C["muted"]})
+        return html.Div(missing or "saisir un capital et un risque pour "
+                        "dimensionner", style={"color": C["muted"]})
     sign = -1 if side == "long" else 1
+    if sign < 0 and size["distance"] >= size["price"]:
+        return html.Div("à ce multiple d'ATR, le stop d'un long tomberait "
+                        "sous zéro", style={"color": C["muted"]})
     return html.Div([
         _line("perte acceptée", _money(size["risk"], fx)),
         _line("stop proposé", _money(size["price"] + sign * size["distance"], fx),
@@ -150,7 +191,10 @@ def register(app, hub):
         summary = timeframe_summary(hub.klines("1d", limit=INTERVALS["1d"]))
         atr = (summary["atr_pct"] / 100 * price
                if summary and summary["atr_pct"] and price else None)
-        size = position_size(capital, risk,
-                             atr * multiple if atr and multiple else None,
-                             price)
-        return [render_state(state, fx), render_size(size, side, fx)]
+        gap = size_gap(capital, risk, multiple, atr, price)
+        size = None if gap else position_size(capital, risk, atr * multiple,
+                                              price)
+        sans_cours = ("cours indisponible : la position ne se suit pas"
+                      if quantity and entry and not price else None)
+        return [render_state(state, fx, sans_cours),
+                render_size(size, side, fx, gap)]
