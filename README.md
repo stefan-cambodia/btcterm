@@ -84,7 +84,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Prix** | chandeliers de 1 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
 | **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ (onglet du carnet) | 2 s |
-| **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian (onglet du carnet) | 250 ms |
+| **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian et cadrées sur l'étendue médiane des carnets (onglet du carnet) | 250 ms |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Liquidations** | positions fermées de force — Binance et OKX, toutes paires, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
@@ -97,7 +97,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite, déplacement du skew (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
 | **Analyse** | tendance, écart à la MA 200, RSI, ATR et dernier signal de 15m à 1w ; au choix, bilan des signaux contre une référence, règles simples face à la détention, frais compris, ou carte des rendements mensuels ; export CSV (onglet de la macro) | 30 s |
-| **Dominance** | parts de capitalisation et leur tendance journalisée, cap totale et volume 24 h (onglet de la macro) | 5 min |
+| **Dominance** | parts de capitalisation et leur tendance journalisée — hors actifs que la source compte par intermittence —, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
 | **Marchés** | le bitcoin face au S&P 500, au Nasdaq, à l'or, au dollar et au taux à 10 ans : performance comparée en base 100 ou corrélation glissante sur 30 séances, tableau des cours, variations et corrélations à 30 et 90 séances (onglet de la macro) | 5 min |
 | **Cycle** | où en est le bitcoin depuis le halving et depuis le sommet : compte à rebours du prochain halving, cycles superposés en multiple du cours du jour du halving, multiple de Mayer et son rang, repli depuis le plus haut, moyenne de 200 semaines, Pi cycle (onglet de la macro) | 5 min |
@@ -275,7 +275,7 @@ relit après coup — dans le terminal même (panneau JOURNAL, onglet de
 l'arbitrage) ou à la ligne de commande :
 
 ```bash
-python -m btcterm.journal --heures 6             # relire la séance
+python -m btcterm.journal --heures 6             # relire la séance : couverture, liquidations, gros ordres, alertes
 python -m terminal.app --no-journal              # s'en passer
 ```
 
@@ -412,7 +412,7 @@ depuis la veille, et le clic l'y ouvre le panneau.
 
 **Calendrier** — les prochaines échéances qui font bouger le marché : décisions
 du FOMC (avec ou sans projections), inflation CPI et PCE, rapport sur l'emploi
-(NFP), chacune avec son compte à rebours et son heure locale. Aucune API
+(NFP), chacune avec son compte à rebours, son jour et son heure dans le fuseau de la machine. Aucune API
 publique satisfaisante n'existe pour ces dates ; elles sont transcrites à la
 main dans `btcterm/macrocal.py` depuis les calendriers officiels — la Fed, le
 BLS et le BEA publient leurs dates un à deux ans à l'avance ; la liste court
@@ -602,15 +602,15 @@ L'installation n'est d'ailleurs pas un prérequis : les scripts trouvent
 ```bash
 python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
 python tests/test_news_scoring.py        # scoring et collecte des news
-python tests/test_liquidations.py        # lecture du flux de liquidations
-python tests/test_orderbook.py           # carnets : niveaux fantômes, fenêtre Kraken, resynchronisation
+python tests/test_liquidations.py        # flux de liquidations, badge de grille compté
+python tests/test_orderbook.py           # carnets : niveaux fantômes, fenêtre Kraken, cadre de la profondeur
 python tests/test_cache.py               # cache du hub : secours, fraîcheur, pannes dites
-python tests/test_macrocal.py            # calendrier macro tenu à la main
+python tests/test_macrocal.py            # calendrier macro tenu à la main, lu dans le fuseau de la machine
 python tests/test_terminal_wiring.py     # panneaux posés et branchés
 python tests/test_grid_layout.py         # rangement configurable des panneaux
 python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node)
 python tests/test_push.py                # pousseur WebSocket, sans navigateur
-python tests/test_journal.py             # journal : événements, épisodes, rétention
+python tests/test_journal.py             # journal : événements, épisodes, rétention, univers de capitalisation
 python tests/test_history.py             # historique du cours : disque, rattrapage, panne
 python tests/test_analysis.py            # bilan des signaux : futur, référence, sens, export
 python tests/test_alerts.py              # alertes : seuils, fronts, cadences

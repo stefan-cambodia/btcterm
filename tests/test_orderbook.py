@@ -319,6 +319,56 @@ def test_le_backoff_repart_apres_une_connexion_qui_a_tenu():
     print("  ✓ le backoff repart de zéro après une connexion qui a tenu")
 
 
+def test_profondeur_cadree_sur_le_carnet_median():
+    """La profondeur comparée se cadre sur l'étendue médiane des carnets.
+
+    Constaté le 11 novembre 2026 : Coinbase portait ses niveaux à 3 % du
+    prix, les autres à quelques centièmes de pour cent, et l'axe étiré
+    par le premier écrasait les quatre autres autour de zéro.
+    """
+    from terminal.charts import build_depth_chart, depth_window
+
+    assert depth_window([]) is None and depth_window([0.0]) is None
+    assert depth_window([0.004, 0.057, 0.025, 0.002, 3.1]) == 0.05
+    assert depth_window([0.02, 0.5]) == 0.5, "à deux, la moyenne arrondie"
+    assert depth_window([0.05]) == 0.05, "un cran exact reste le sien"
+    # Le cadre ne tremble pas quand l'étendue respire.
+    assert len({depth_window([0.004, 0.057, e, 0.002, 3.1])
+                for e in (0.021, 0.025, 0.03, 0.04, 0.049)}) == 1
+
+    def carnet(pas: float, volume: float, niveaux: int = 10) -> OrderBook:
+        book = OrderBook("essai")
+        for k in range(1, niveaux + 1):
+            book.bids[100_000 * (1 - pas * k / 100)] = volume
+            book.asks[100_000 * (1 + pas * k / 100)] = volume
+        return book
+
+    books = {"Serré": carnet(0.0005, 1.0), "Moyen": carnet(0.004, 0.5),
+             "Large": carnet(0.3, 3.0), "Vide": OrderBook("vide")}
+    figure = build_depth_chart(books)
+    x, y = figure["layout"]["xaxis"], figure["layout"]["yaxis"]
+    assert x["range"] == [-0.05, 0.05], x["range"]
+    # Dans le cadre : tout le carnet serré (10 BTC), tout le moyen (5), et
+    # aucun niveau du large, dont le premier est à 0,3 %.
+    assert abs(y["range"][1] - 10 * 1.08) < 1e-9, y["range"]
+    assert "1 carnet va au-delà" in x["title"]["text"], x["title"]
+    # Les courbes restent entières : le zoom arrière montre ce qui dépasse.
+    large = [t for t in figure["data"] if t["name"] == "Large"]
+    assert len(large) == 2 and max(large[1]["x"]) > 2.9
+    # Une entrée de légende par plateforme, pour ses deux côtés.
+    assert [t["name"] for t in figure["data"] if t["showlegend"]] == \
+        ["Serré", "Moyen", "Large"]
+
+    # Des carnets de même portée : rien ne dépasse, le titre ne dit rien.
+    pareils = build_depth_chart({"A": carnet(0.004, 1.0),
+                                 "B": carnet(0.004, 2.0)})
+    assert "au-delà" not in pareils["layout"]["xaxis"]["title"]["text"]
+    # Et sans aucun carnet, la figure reste vide et sans cadre imposé.
+    vide = build_depth_chart({"Vide": OrderBook("vide")})
+    assert vide["data"] == [] and "range" not in vide["layout"]["xaxis"]
+    print("  ✓ profondeur cadrée sur le carnet médian, volume ajusté au cadre")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCarnets et connecteurs — {len(tests)} vérifications\n" + "─" * 60)

@@ -9,7 +9,7 @@ attend, pas un concurrent —, d'où leur couleur distincte.
 **L'instantané vient de l'API, la tendance du journal.** CoinGecko
 réserve l'historique de ces agrégats à son offre payante ; le hub
 journalise donc un instantané toutes les cinq minutes (§ journal), et
-c'est cette accumulation locale que le panneau trace sous les barres —
+c'est cette accumulation locale que le panneau trace à côté des barres —
 une tendance qui n'existe qu'à partir du deuxième instantané et
 s'allonge séance après séance, jusqu'à couvrir l'année que l'API refuse.
 """
@@ -81,11 +81,19 @@ def register(app, hub):
         Output("dominance-badges", "children"),
         Input("tick-rare", "n_intervals"),
         Input("currency", "data"),
+        # Le plein écran change la disposition : barres et tendance côte
+        # à côte dans la grille, empilées quand la hauteur est là.
+        Input("expanded", "data"),
     )
-    def _refresh(_tick, currency):
+    def _refresh(_tick, currency, expanded):
         agregats = hub.market_global()
+        maximized = expanded == "dominance"
         return (
-            build_dominance_chart(agregats.get("shares", {}),
-                                  history=hub.market_snapshots(), top=TOP),
+            build_dominance_chart(
+                agregats.get("shares", {}), history=hub.market_snapshots(),
+                top=TOP, maximized=maximized,
+                # Une révision par disposition : le zoom posé sur l'une ne
+                # désigne pas les mêmes axes dans l'autre.
+                uirevision="dominance-max" if maximized else "dominance"),
             _badges(agregats, display(hub, currency)),
         )

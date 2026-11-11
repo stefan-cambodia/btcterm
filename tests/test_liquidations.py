@@ -272,6 +272,87 @@ def test_lien_ouvert_mais_muet():
     print("  ✓ un lien ouvert mais muet se nomme ; un lien neuf, non")
 
 
+def _texte(composant) -> str:
+    """Le texte qu'un composant Dash met à l'écran, enfants compris."""
+    if composant is None:
+        return ""
+    if isinstance(composant, (str, int, float)):
+        return str(composant)
+    if isinstance(composant, (list, tuple)):
+        return "".join(_texte(c) for c in composant)
+    return _texte(getattr(composant, "children", None))
+
+
+def test_badge_de_grille_tient_dans_sa_cellule():
+    """Dans la grille, le badge ne dépasse jamais `COMPACT_MAX` caractères.
+
+    Constaté au contrôle d'interface le 11 novembre 2026 : Binance et
+    Bybit muets ensemble, « BIN muet · BYB muet » débordait de 96 px.
+    """
+    court = panneau._montant_court
+    assert [court(v) for v in (950, 999.6, 288_400, 999_600, 1_250_000,
+                               12_540_000, 99_960_000, 125_400_000,
+                               1_250_000_000)] == \
+        ["950 $", "1 k$", "288 k$", "1.0 M$", "1.2 M$", "12.5 M$",
+         "100 M$", "125 M$", "1.2 Md$"]
+    # Sept caractères jusqu'à dix milliards en une heure — la pire journée
+    # connue du marché n'en a pas liquidé le double en vingt-quatre.
+    assert all(len(court(10 ** e * m)) <= 7
+               for e in range(0, 10) for m in (1, 2.5, 9.9, 9.996, 9.9996)
+               if 10 ** e * m < 9.9e9)
+
+    maintenant = time.time()
+
+    def fil(absents=(), muets=(), montant=0.0):
+        feed = LiquidationFeed()
+        for nom in ("Bybit", "OKX"):
+            feed.attach(nom)
+        for nom in ("Binance", "Bybit", "OKX"):
+            if nom in absents:
+                continue
+            feed.mark(nom, True)
+            if nom in muets:
+                feed.since[nom] = maintenant - 1200
+            else:
+                feed.last_seen[nom] = maintenant
+        if montant:
+            for cote in ("long", "short"):
+                feed.events.append(Liquidation(
+                    time=maintenant, symbol="ETHUSDT", side=cote,
+                    price=1.0, quantity=montant, exchange="OKX"))
+        return feed
+
+    attendus = {
+        ((), ()): None,
+        ((), ("Binance",)): "BIN muet",
+        (("Bybit",), ()): "sans BYB",
+        ((), ("Binance", "Bybit")): "2 muets",
+        (("Binance", "Bybit"), ()): "2 coupés",
+        (("Binance",), ("Bybit",)): "1 lien/3",
+    }
+    for (absents, muets), mot in attendus.items():
+        for montant in (0.0, 288_000.0, 12_540_000.0, 125_400_000.0):
+            badge = panneau._badges(fil(absents, muets, montant), verbose=False)
+            texte = _texte(badge)
+            assert len(texte) <= panneau.COMPACT_MAX, (texte, len(texte))
+            if mot is None:
+                assert "muet" not in texte and "sans" not in texte, texte
+            else:
+                assert texte.endswith(" · " + mot), texte
+            if montant:
+                assert ("1 h" in texte) == (mot is None), texte
+
+    # Le survol nomme ce que le badge ne fait que compter.
+    deux = str(panneau._badges(fil((), ("Binance", "Bybit")), verbose=False))
+    assert "lien Binance ouvert" in deux and "lien Bybit ouvert" in deux
+    assert "depuis 20 min" in deux
+    # Et le plein écran garde ses noms en toutes lettres.
+    plein = _texte(panneau._badges(fil((), ("Binance", "Bybit"))))
+    assert "Binance muet depuis 20 min" in plein and "Bybit muet" in plein
+    print("  ✓ le badge de la grille tient en "
+          f"{panneau.COMPACT_MAX} caractères, liens muets compris")
+
+
 def test_panneau_etiquette_la_plateforme():
     feed = LiquidationFeed()
     BybitLiquidationConnector(feed)._handle(message_bybit())

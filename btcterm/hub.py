@@ -1384,6 +1384,10 @@ class MarketHub:
                              if shares else None),
             "total_cap_usd": agregats.get("total_cap_usd"),
             "total_volume_usd": agregats.get("total_volume_usd"),
+            # La part retirée de la capitalisation annoncée (§ sources.
+            # INTERMITTENT) : la colonne distingue ces lignes de celles
+            # d'avant, que la lecture doit encore rebaser.
+            "cap_excluded": agregats.get("excluded") if shares else None,
             "oi_usd": float(oi["oi_usd"].iloc[-1]) if not oi.empty else None,
             #: Le taux de la période en cours — celui que la prochaine
             #: échéance réglera : rééchantillonné par tranches de 8 h,
@@ -1426,10 +1430,12 @@ class MarketHub:
         if self.journal is None:
             return pd.DataFrame(columns=columns)
         end = time.time()
-        rows = self.journal.snapshots_between(end - days * 86_400, end)
+        # Rebasés : les lignes d'avant le retrait des actifs intermittents
+        # portent des sauts de dominance qui ne sont pas du marché.
+        rows = self.journal.snapshots_rebased(end - days * 86_400, end)
         if not rows:
             return pd.DataFrame(columns=columns)
-        df = pd.DataFrame([dict(row) for row in rows])
+        df = pd.DataFrame(rows)
         df["time"] = pd.to_datetime(df.pop("ts"), unit="s")
         df["gap"] = False
         holes = df.index[df["time"].diff().dt.total_seconds() > self.SNAPSHOT_GAP]

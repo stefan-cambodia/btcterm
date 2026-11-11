@@ -125,38 +125,93 @@ def _badges(feed, fx=DOLLARS, verbose: bool = True):
     ] + sans + muets, style={"fontFamily": MONO})
 
 
+#: Caractères que le badge de la grille peut porter. La cellule de
+#: l'arbitrage laisse 214 px à côté de ses quatre onglets, et un caractère
+#: du badge en prend 6,6 (9 px, espacement compris) : trente-deux tiennent,
+#: pas un de plus. Les formes ci-dessous sont comptées pour ne jamais les
+#: dépasser, et `tests/test_liquidations.py` les recompte.
+COMPACT_MAX = 32
+
+
+def _montant_court(valeur: float, unit: str = "$") -> str:
+    """Montant en sept caractères au plus, pour le badge de la grille :
+    une décimale sous cent, aucune au-delà — et aucune pour les milliers,
+    où elle ne dit rien."""
+    if valeur < 999.5:
+        return f"{valeur:.0f} {unit}"
+    if valeur < 999_500:
+        return f"{valeur / 1e3:.0f} k{unit}"
+    for seuil, suffixe in ((1e6, "M"), (1e9, "Md")):
+        reduit = valeur / seuil
+        if reduit < 99.95:
+            return f"{reduit:.1f} {suffixe}{unit}"
+        if reduit < 999.5:
+            return f"{reduit:.0f} {suffixe}{unit}"
+    return f"{valeur / 1e9:.0f} Md{unit}"
+
+
+def _alerte_compacte(feed):
+    """L'état des liens en huit caractères au plus, ou rien.
+
+    Un seul lien en défaut se nomme par son sigle. Plusieurs ne tiennent
+    pas côte à côte — « BIN muet · BYB muet » débordait de 96 px le
+    11 novembre 2026, Binance et Bybit se taisant ensemble — et se
+    comptent : le survol les nomme, et le panneau SOURCES les détaille.
+    """
+    absents = feed.missing()
+    muets = feed.silent(SILENCE)
+    if not absents and not muets:
+        return None
+    detail = " ; ".join(
+        [f"lien {name} non établi" for name in absents]
+        + [f"lien {name} ouvert, rien reçu depuis {int(age // 60)} min"
+           for name, age in muets])
+    sigle = lambda name: EXCHANGE_TAG.get(name, name[:3].upper())
+    if len(absents) + len(muets) == 1:
+        texte = (f"sans {sigle(absents[0])}" if absents
+                 else f"{sigle(muets[0][0])} muet")
+    elif not absents:
+        texte = f"{len(muets)} muets"
+    elif not muets:
+        texte = f"{len(absents)} coupés"
+    else:
+        # Des liens tombés et d'autres muets : on dit ce qui livre encore.
+        vifs = len(feed.links) - len(absents) - len(muets)
+        texte = f"{vifs} lien/{len(feed.links)}"
+    return html.Span(texte, title=detail,
+                     style={"color": C["red"] if absents else C["yellow"]})
+
+
 def _badges_compact(feed, fx=DOLLARS):
     """La version de la grille : totaux de l'heure en abrégé, liens absents
-    ou muets par leur sigle."""
+    ou muets en un seul mot — le tout en `COMPACT_MAX` caractères."""
     if not feed.connected:
         return html.Span("flux coupé", style={"color": C["red"]},
                          title=feed.error or "aucun lien ne tient")
-    alertes = [html.Span(f" · sans {EXCHANGE_TAG.get(name, name)}",
-                         style={"color": C["red"]},
-                         title=f"lien {name} non établi")
-               for name in feed.missing()]
-    alertes += [html.Span(f" · {EXCHANGE_TAG.get(name, name)} muet",
-                          style={"color": C["yellow"]},
-                          title=f"lien {name} ouvert, rien reçu depuis "
-                                f"{int(age // 60)} min")
-                for name, age in feed.silent(SILENCE)]
+    alerte = _alerte_compacte(feed)
+    queue = ([html.Span(" · ", style={"color": C["muted"]}), alerte]
+             if alerte is not None else [])
     totals = feed.totals(WINDOW)
     if not totals["count"]:
         return html.Span([html.Span("aucune en 1 h",
-                                    style={"color": C["muted"]})] + alertes,
+                                    style={"color": C["muted"]})] + queue,
                          style={"fontFamily": MONO})
     detail = fx.title(
         f"sur une heure : longs {_montant(totals['long'] * fx.rate, fx.unit)}, "
         f"shorts {_montant(totals['short'] * fx.rate, fx.unit)}, dont BTC "
         f"{_montant(totals['btc'] * fx.rate, fx.unit)}")
-    return html.Span([
-        html.Span("1 h · ", style={"color": C["muted"]}),
-        html.Span(f"{fx.warning}L {_montant(totals['long'] * fx.rate, fx.unit)}",
-                  style={"color": C["red"]}),
+    # Avec une alerte, le rappel de la fenêtre cède sa place : le survol
+    # la redit, et un lien qui se tait compte plus qu'un « 1 h ».
+    tete = ([] if alerte is not None
+            else [html.Span("1 h · ", style={"color": C["muted"]})])
+    return html.Span(tete + [
+        html.Span(f"{fx.warning}L "
+                  f"{_montant_court(totals['long'] * fx.rate, fx.unit)}",
+                  style={"color": C["red"]}, title=detail),
         html.Span(" · ", style={"color": C["muted"]}),
-        html.Span(f"S {_montant(totals['short'] * fx.rate, fx.unit)}",
-                  style={"color": C["green"]}),
-    ] + alertes, style={"fontFamily": MONO}, title=detail)
+        html.Span(f"S {_montant_court(totals['short'] * fx.rate, fx.unit)}",
+                  style={"color": C["green"]}, title=detail),
+    ] + queue, style={"fontFamily": MONO})
 
 
 def _prix(valeur: float) -> str:

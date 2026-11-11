@@ -29,7 +29,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from btcterm.arbitrage import ArbitrageOpportunity  # noqa: E402
 from btcterm.hub import MarketHub  # noqa: E402
-from btcterm.journal import DB_PATH, GRACE, Journal  # noqa: E402
+from btcterm.journal import (  # noqa: E402
+    DB_PATH, GRACE, Journal, rebase_universe, resume)
 from btcterm.liquidations import LiquidationFeed  # noqa: E402
 from test_liquidations import message  # noqa: E402
 
@@ -450,6 +451,157 @@ def test_cablage_du_hub():
     sans = MarketHub(collect_news=False, keep_journal=False)
     assert sans.journal is None and sans.liquidations.on_event is None
     print("  ✓ journal branché par défaut, débrayable, jamais créé à vide")
+
+
+def test_univers_de_capitalisation_tenu():
+    """Un actif que la source compte par intermittence ne fait plus sauter
+    la dominance : retiré à la collecte, et rebasé à la lecture pour les
+    lignes écrites avant.
+
+    Constaté au journal le 11 novembre 2026 : quatre-vingt-sept sauts de
+    0,4 à 0,7 point en deux mois et demi, le bitcoin immobile.
+    """
+    from btcterm import sources
+
+    # ── À la collecte : l'actif sort du total, les parts se recalculent.
+    brut = {"total_market_cap": {"usd": 2.5e12}, "total_volume": {"usd": 8e10},
+            "market_cap_change_percentage_24h_usd": -1.0, "updated_at": 1,
+            "market_cap_percentage": {"btc": 59.4, "eth": 10.0, "usdt": 7.0,
+                                      "figr_heloc": 1.0}}
+    avec = sources.market_global(brut)
+    assert avec["excluded"] == 1.0 and "FIGR_HELOC" not in avec["shares"]
+    assert abs(avec["total_cap_usd"] - 2.475e12) < 1
+    assert abs(avec["shares"]["BTC"] - 60.0) < 1e-9, avec["shares"]
+    del brut["market_cap_percentage"]["figr_heloc"]
+    brut["total_market_cap"]["usd"] = 2.475e12
+    brut["market_cap_percentage"]["btc"] = 60.0
+    sans = sources.market_global(brut)
+    assert sans["excluded"] == 0 and sans["shares"]["BTC"] == 60.0
+    assert abs(sans["total_cap_usd"] - avec["total_cap_usd"]) < 1, \
+        "avec ou sans l'actif, le même univers"
+
+    # ── À la lecture : une séance d'avant, l'actif entrant puis sortant.
+    def ligne(ts, btc_cap, autres, actif=0.0, tenu=None):
+        total = btc_cap + autres + actif
+        return {"ts": ts, "btc_dominance": 100 * btc_cap / total,
+                "stable_share": 100 * 0.25e12 / total,
+                "total_cap_usd": total, "cap_excluded": tenu, "oi_usd": 1.0}
+
+    btc, autres, actif = 1.5e12, 1.0e12, 0.028e12
+    seance = [ligne(300 * k, btc * (1 + 0.0004 * k), autres * (1 + 0.0005 * k),
+                    actif if 10 <= k < 20 else 0.0) for k in range(30)]
+    assert max(abs(b["btc_dominance"] - a["btc_dominance"])
+               for a, b in zip(seance, seance[1:])) > 0.6, "le saut est là"
+    rebasee = rebase_universe(seance)
+    assert max(abs(b["btc_dominance"] - a["btc_dominance"])
+               for a, b in zip(rebasee, rebasee[1:])) < 0.02, "et n'y est plus"
+    assert rebasee[5] == seance[5], "une ligne sans l'actif ne bouge pas"
+    juste = ligne(300 * 15, btc * 1.006, autres * 1.0075)
+    for champ in ("btc_dominance", "stable_share", "total_cap_usd"):
+        assert abs(rebasee[15][champ] / juste[champ] - 1) < 2e-4, champ
+    assert rebasee[15]["oi_usd"] == 1.0, "le reste de la ligne est intact"
+    assert seance[15]["btc_dominance"] < 59.5, "l'entrée n'est pas modifiée"
+
+    # Une séance qui finit avec l'actif, suivie de lignes tenues : la
+    # couture est un pas sortant, et tout ce qui la précède est rebasé.
+    couture = ([ligne(300 * k, btc, autres, actif) for k in range(6)]
+               + [ligne(300 * k, btc, autres, tenu=1.1) for k in range(6, 9)])
+    rebasee = rebase_universe(couture)
+    assert all(abs(r["btc_dominance"] - 60.0) < 1e-6 for r in rebasee), \
+        [round(r["btc_dominance"], 3) for r in rebasee]
+    # Entre deux lignes tenues, plus rien ne se corrige — même un marché
+    # qui décroche pour de bon.
+    krach = [ligne(0, btc, autres, tenu=0.0),
+             ligne(300, btc * 0.97, autres * 0.90, tenu=0.0)]
+    assert rebase_universe(krach) == krach
+
+    # Ce que le marché fait vraiment n'est pas un changement d'univers :
+    # les autres capitalisations qui perdent 1 % de plus que le bitcoin,
+    # ou 3 % de plus après une nuit de sommeil dans le même sens qu'un
+    # pas déjà vu, restent ce qu'elles sont.
+    marche = [ligne(0, btc, autres), ligne(300, btc * 0.99, autres * 0.98)]
+    assert rebase_universe(marche) == marche
+    nuit = (seance[:25]
+            + [ligne(300 * 24 + 30_000, btc * 1.01, autres * 0.98)])
+    assert rebase_universe(nuit)[-1] == nuit[-1]
+    assert rebase_universe([]) == []
+
+    # ── Dans le journal : la colonne s'écrit, s'ajoute à une base
+    # ancienne, et la lecture rebasée ne rend que la fenêtre demandée.
+    with tempfile.TemporaryDirectory() as tmp:
+        journal = Journal(Path(tmp) / "journal.db")
+        for row in couture:
+            champs = {k: v for k, v in row.items() if k != "ts"}
+            journal.record_market_snapshot(1_000_000 + row["ts"], **champs)
+        lues = journal.snapshots_between(0, 2_000_000)
+        assert lues[0]["cap_excluded"] is None and lues[-1]["cap_excluded"] == 1.1
+        assert lues[0]["btc_dominance"] < 59.5, "la base garde ce qui fut écrit"
+        fenetre = journal.snapshots_rebased(1_000_000 + 600, 2_000_000)
+        assert len(fenetre) == len(couture) - 2
+        assert all(abs(r["btc_dominance"] - 60.0) < 1e-6 for r in fenetre)
+
+        hub = MarketHub(collect_news=False, keep_journal=False)
+        hub.journal = journal
+        frame = hub.market_snapshots(days=1e5)
+        assert abs(frame["btc_dominance"].dropna() - 60.0).max() < 1e-6
+        journal.close()
+    print("  ✓ l'actif intermittent retiré à la collecte, rebasé à la lecture")
+
+
+def test_relecture_en_ligne_de_commande():
+    """La commande relit ce que le journal tient — gros ordres et
+    interruptions compris — et date ses heures au-delà d'un jour."""
+    from types import SimpleNamespace as N
+
+    with tempfile.TemporaryDirectory() as tmp:
+        journal = Journal(Path(tmp) / "journal.db")
+        assert resume(journal, 24, now=1e9)[0].startswith(
+            "Couverture : aucun instantané"), "un journal vide le dit"
+        assert not journal.path.exists(), "relire a créé la base"
+
+        maintenant = time.time()
+        # Deux heures de service, un trou de quatre heures, puis une heure
+        # jusqu'à maintenant : un instantané toutes les cinq minutes.
+        for debut, fin in ((-7 * 3600, -5 * 3600), (-3600, 0)):
+            for ecart in range(debut, fin + 1, 300):
+                journal.record_market_snapshot(
+                    maintenant + ecart,
+                    btc_dominance=58.0 if ecart < -4 * 3600 else 60.0)
+        # Un instantané ancien, hors fenêtre : il date l'historique mais
+        # ne doit pas entrer dans la dominance de la séance.
+        journal.record_market_snapshot(maintenant - 40 * 86400,
+                                       btc_dominance=50.0)
+        for cote, montant, ecart in (("buy", 300_000, -1800),
+                                     ("sell", 100_000, -1200),
+                                     ("buy", 150_000, -30 * 3600)):
+            journal.record_trade(N(time=maintenant + ecart, exchange="Binance",
+                                   side=cote, price=1.0, quantity=montant,
+                                   notional=float(montant)))
+        journal.record_alert(N(time=maintenant - 600, kind="price",
+                               message="seuil franchi"))
+        journal.record_alert(N(time=maintenant - 30 * 3600, kind="news",
+                               message="d'hier"))
+
+        jour = "\n".join(resume(journal, 8, now=maintenant))
+        assert "Couverture : 3 h 00 sur 8 h — 2 interruptions" in jour, jour
+        assert "la plus longue de 4 h 00" in jour, jour
+        assert ("Gros ordres : 2 — achats 1 · 300,000 $ · ventes 1 · "
+                "100,000 $ · solde +200,000 $") in jour, jour
+        assert "le plus gros : achat Binance 300,000 $" in jour
+        assert "Alertes : 1" in jour and "d'hier" not in jour
+        heure = time.strftime("%H:%M", time.localtime(maintenant - 600))
+        assert f"  {heure}  [  price]  seuil franchi" in jour, jour
+        assert "de 58.0 à 60.0 % sur la fenêtre" in jour, \
+            "la dominance d'il y a quarante jours n'est pas celle de la séance"
+
+        # Au-delà d'un jour, « 06:04 » ne désigne plus aucun matin.
+        long = "\n".join(resume(journal, 48, now=maintenant))
+        date = time.strftime("%d/%m %H:%M",
+                             time.localtime(maintenant - 30 * 3600))
+        assert f"  {date}  [   news]  d'hier" in long, long
+        assert "Gros ordres : 3" in long
+        journal.close()
+    print("  ✓ couverture, gros ordres et dates : la commande suit le journal")
 
 
 def _textes(node, found=None):

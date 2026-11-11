@@ -9,6 +9,15 @@ panneau dit jusqu'où court la liste, une liste épuisée devant se voir.
 
 Les heures affichées sont celles de la machine : les publications sont
 définies en heure de New York, et c'est le socle qui fait la conversion.
+**Les jours aussi.** Le panneau écrivait le jour de New York à côté de
+l'heure locale : vu de Phnom Penh, le FOMC du mercredi 9 décembre 2026,
+14 h à New York, s'affichait « mer. 9 déc. 02:00 » — un jour trop tôt,
+il tombe le jeudi 10 à 2 h. Et le CPI de la veille au soir restait
+« auj. », en rouge, toute la matinée du lendemain, New York n'ayant pas
+changé de date. Tout se compte désormais dans le fuseau de la machine :
+le jour écrit, le compte à rebours, et « aujourd'hui » ; une publication
+dont l'heure est passée reste listée jusqu'à minuit, mais se dit passée,
+et le titre passe à la suivante.
 """
 
 from __future__ import annotations
@@ -48,8 +57,17 @@ def layout(title=None):
     ], style=PANEL_STYLE)
 
 
-def _countdown(days: int) -> tuple[str, str]:
-    """Texte et couleur du compte à rebours : l'imminent doit ressortir."""
+def _countdown(when: dt.datetime, now: dt.datetime) -> tuple[str, str]:
+    """Texte et couleur du compte à rebours : l'imminent doit ressortir.
+
+    `when` et `now` sont dans le même fuseau, celui de la machine : les
+    jours se comptent d'une date locale à l'autre, pas en tranches de
+    vingt-quatre heures — une publication de demain matin est « demain »
+    dès ce soir.
+    """
+    if when <= now:
+        return "passé", C["muted"]
+    days = (when.date() - now.date()).days
     if days <= 0:
         return "auj.", C["red"]
     if days == 1:
@@ -57,11 +75,23 @@ def _countdown(days: int) -> tuple[str, str]:
     return f"J-{days}", C["text"] if days <= 7 else C["muted"]
 
 
-def _row(event: macrocal.MacroEvent, today: dt.date):
-    when = event.when_utc.astimezone()
-    date_txt = (f"{_JOURS[event.date.weekday()]} {event.date.day:2d} "
-                f"{_MOIS[event.date.month - 1]:5s} {when:%H:%M}")
-    countdown, color = _countdown(event.days_until(today))
+def _local(event: macrocal.MacroEvent, now: dt.datetime) -> dt.datetime:
+    """L'heure de la publication dans le fuseau de `now`."""
+    return event.when_utc.astimezone(now.tzinfo)
+
+
+def listed(now: dt.datetime, limit: int = ROWS) -> list[macrocal.MacroEvent]:
+    """Les événements du jour local et des suivants, dans l'ordre."""
+    events = [e for e in macrocal.EVENTS if _local(e, now).date() >= now.date()]
+    return events[:limit]
+
+
+def _row(event: macrocal.MacroEvent, now: dt.datetime):
+    when = _local(event, now)
+    date_txt = (f"{_JOURS[when.weekday()]} {when.day:2d} "
+                f"{_MOIS[when.month - 1]:5s} {when:%H:%M}")
+    countdown, color = _countdown(when, now)
+    passe = when <= now
     return html.Div([
         html.Span(date_txt, style={"color": C["muted"], "marginRight": "10px",
                                    "whiteSpace": "pre"}),
@@ -76,17 +106,21 @@ def _row(event: macrocal.MacroEvent, today: dt.date):
     ], style={
         "fontFamily": MONO, "fontSize": "11px", "color": C["text"],
         "padding": "3px 4px", "borderBottom": f"1px solid {C['border']}",
-    })
+        # Une publication passée reste lisible, mais ne retient plus l'œil.
+        **({"opacity": "0.55"} if passe else {}),
+    }, title=f"{event.date:%d/%m/%Y} à {event.time_ny:%H:%M}, heure de New York")
 
 
-def _badges(today: dt.date):
-    """FOMC et CPI en compte à rebours : les deux rendez-vous qui pèsent."""
+def _badges(now: dt.datetime):
+    """FOMC et CPI en compte à rebours : les deux rendez-vous qui pèsent —
+    le prochain de chaque famille, celui dont l'heure n'est pas passée."""
     children = []
     for kind in ("FOMC", "CPI"):
-        event = macrocal.next_of(kind, today)
+        event = next((e for e in macrocal.EVENTS
+                      if e.kind == kind and e.when_utc > now), None)
         if event is None:
             continue
-        countdown, color = _countdown(event.days_until(today))
+        countdown, color = _countdown(_local(event, now), now)
         if children:
             children.append(html.Span(" · ", style={"color": C["muted"]}))
         children += [
@@ -122,24 +156,30 @@ def _footer(today: dt.date):
                          for kind, end in ends.items()))
 
 
+def render(now: dt.datetime | None = None):
+    """La liste et le titre, vus de `now` — une date avec son fuseau, celui
+    de la machine par défaut. Pure : c'est ce que les tests appellent."""
+    now = now if now is not None else dt.datetime.now().astimezone()
+    events = listed(now)
+    if not events:
+        body = html.Div(
+            "liste de dates épuisée — compléter btcterm/macrocal.py",
+            style={"color": C["red"], "fontFamily": MONO,
+                   "fontSize": "11px", "padding": "12px"})
+    else:
+        body = html.Div([_row(e, now) for e in events]
+                        + [_footer(now.date())])
+    return body, _badges(now)
+
+
 def register(app, hub):
     @app.callback(
         Output("cal-list", "children"),
         Output("cal-next", "children"),
-        # L'horloge rare suffit largement : les dates ne changent pas, et
-        # un compte à rebours en jours n'a besoin d'avancer qu'une fois
-        # par jour.
+        # L'horloge rare suffit : les dates ne changent pas, et cinq
+        # minutes de retard à dire une publication passée ne trompent
+        # personne.
         Input("tick-rare", "n_intervals"),
     )
     def _refresh(_tick):
-        today = dt.datetime.now(macrocal.NEW_YORK).date()
-        events = macrocal.upcoming(today, limit=ROWS)
-        if not events:
-            body = html.Div(
-                "liste de dates épuisée — compléter btcterm/macrocal.py",
-                style={"color": C["red"], "fontFamily": MONO,
-                       "fontSize": "11px", "padding": "12px"})
-        else:
-            body = html.Div([_row(e, today) for e in events]
-                            + [_footer(today)])
-        return body, _badges(today)
+        return render()

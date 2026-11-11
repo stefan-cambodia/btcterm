@@ -33,7 +33,7 @@ __all__ = [
     "fetch_eur_rate", "fetch_m2_supply",
     "fetch_funding_history", "fetch_open_interest", "fetch_perp_snapshot",
     "fetch_bybit_perp", "fetch_okx_perp",
-    "fetch_market_global", "fetch_chain_chart", "fetch_chain_stats",
+    "fetch_market_global", "market_global", "INTERMITTENT", "fetch_chain_chart", "fetch_chain_stats",
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
     "fetch_fear_greed_history", "FEAR_GREED_DAYS",
@@ -149,6 +149,18 @@ OHLCV_COLUMNS = ["open", "high", "low", "close", "volume"]
 #: concurrence faite au Bitcoin. Partagé entre le graphique de dominance
 #: et l'instantané que le hub journalise.
 STABLES = {"USDT", "USDC", "DAI", "FDUSD", "TUSD", "USDE", "PYUSD"}
+
+#: Actifs que CoinGecko compte **par intermittence** dans la capitalisation
+#: totale. Constaté au journal le 11 novembre 2026 : quatre-vingt-six fois
+#: en deux mois et demi, la capitalisation totale a gagné ou perdu 1,1 %
+#: d'un instantané au suivant — 29 Md$ — pendant que celle du bitcoin ne
+#: bougeait pas, et la dominance sautait de 0,65 point pour rien : près de
+#: la moitié du seuil de l'alerte de glissement. L'écart est la taille de
+#: `FIGR_HELOC`, un fonds de prêts immobiliers mis en jetons, que la source
+#: range tantôt parmi les dix premières capitalisations, tantôt nulle part.
+#: Il n'entre donc jamais dans les agrégats du terminal : ni lui ni son
+#: clignotement ne disent quoi que ce soit du marché.
+INTERMITTENT = {"FIGR_HELOC"}
 
 # Un User-Agent de navigateur est nécessaire : farside.co.uk renvoie une
 # page vide aux clients qui s'annoncent comme des scripts.
@@ -518,13 +530,29 @@ def fetch_market_global() -> dict[str, Any]:
     """
     response = _http.get(COINGECKO_GLOBAL, timeout=12)
     response.raise_for_status()
-    data = response.json()["data"]
+    return market_global(response.json()["data"])
 
+
+def market_global(data: dict) -> dict[str, Any]:
+    """Les agrégats de CoinGecko, ramenés à un univers qui ne clignote pas.
+
+    Les actifs d'`INTERMITTENT` sont retirés de la capitalisation totale
+    et les parts recalculées sur ce qui reste ; `excluded` dit la part
+    retirée, en pourcentage de la capitalisation annoncée — zéro quand la
+    source ne les comptait pas. La variation sur 24 h reste celle de la
+    source, qui ne dit pas sur quel univers elle l'a calculée.
+    """
+    shares = {k.upper(): float(v)
+              for k, v in data["market_cap_percentage"].items()}
+    excluded = sum(shares.pop(name) for name in list(shares)
+                   if name in INTERMITTENT)
+    keep = 1 - excluded / 100
     return {
-        "total_cap_usd": float(data["total_market_cap"]["usd"]),
+        "total_cap_usd": float(data["total_market_cap"]["usd"]) * keep,
         "total_volume_usd": float(data["total_volume"]["usd"]),
         "cap_change_24h": float(data.get("market_cap_change_percentage_24h_usd", 0)),
-        "shares": {k.upper(): float(v) for k, v in data["market_cap_percentage"].items()},
+        "shares": {name: part / keep for name, part in shares.items()},
+        "excluded": excluded,
         "updated_at": int(data.get("updated_at", 0)),
     }
 

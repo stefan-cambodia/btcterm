@@ -27,7 +27,7 @@ from btcterm.sources import STABLES
 from .theme import C, MONO
 
 __all__ = ["VOL_BINS", "prepare_price_frame",
-           "build_depth_chart", "prepare_macro_frame", "macro_stats",
+           "build_depth_chart", "depth_window", "prepare_macro_frame", "macro_stats",
            "build_macro_chart", "build_dominance_chart",
            "build_chain_chart", "build_fear_greed_chart",
            "fear_greed_color", "FEAR_GREED_ZONES",
@@ -67,12 +67,42 @@ def prepare_price_frame(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def depth_window(extents: list[float]) -> float | None:
+    """La demi-largeur du cadre de la profondeur comparée, en % du prix.
+
+    Les carnets ne portent pas la même distance : mesuré le 11 novembre
+    2026, 0,004 % pour les vingt niveaux de Binance, 0,03 % pour Bybit,
+    0,06 % pour Kraken — et 3 % pour Coinbase, dont les cent niveaux
+    s'étalent sur un marché peu fourni. Un axe cadré sur le plus étendu
+    écrasait les quatre autres dans quelques pixels autour de zéro, et la
+    comparaison, raison d'être du panneau, ne se lisait plus.
+
+    Le cadre est donc l'étendue **médiane** des carnets : la moitié
+    d'entre eux le remplit au moins. Elle est arrondie au cran supérieur
+    d'une échelle 1-2-5, pour que l'axe ne tremble pas à chaque trame.
+    """
+    extents = sorted(e for e in extents if e and e > 0)
+    if not extents:
+        return None
+    milieu = len(extents) // 2
+    mediane = (extents[milieu] if len(extents) % 2
+               else (extents[milieu - 1] + extents[milieu]) / 2)
+    decade = 10.0 ** np.floor(np.log10(mediane))
+    for cran in (1, 2, 5, 10):
+        if mediane <= cran * decade * (1 + 1e-9):
+            return float(cran * decade)
+    return float(10 * decade)
+
+
 def build_depth_chart(books: dict, uirevision: str = "depth") -> dict:
     """Profondeur cumulée superposée, une couleur par plateforme.
 
     Les carnets sont recentrés en pourcentage d'écart au prix médian : les
     plateformes ne cotent pas exactement le même prix, et les superposer
-    en valeur absolue rendrait la comparaison illisible.
+    en valeur absolue rendrait la comparaison illisible. Le cadre est
+    celui que la moitié des carnets couvre (`depth_window`), et le volume
+    s'y ajuste ; les courbes restent entières, un zoom arrière ou un
+    glissement montre ce qui dépasse.
 
     La figure est un dictionnaire brut, pas un `go.Figure` : Dash comme
     l'encodeur JSON de Plotly la prennent telle quelle, et c'est la
@@ -82,20 +112,29 @@ def build_depth_chart(books: dict, uirevision: str = "depth") -> dict:
     """
     palette = [C["yellow"], C["blue"], C["purple"], C["cyan"], C["green"]]
     data = []
+    courbes = []        # (écarts, cumuls) de chaque côté tracé
+    etendues = []       # la plus grande distance au prix médian, par carnet
 
     for (name, book), color in zip(books.items(), palette):
         mid = book.mid
         if mid is None:
             continue
+        etendue = 0.0
         for side in ("bids", "asks"):
             prices, cumulated = book.cumulative_depth(side)
             if not prices:
                 continue
+            ecarts = [(p - mid) / mid * 100 for p in prices]
+            courbes.append((ecarts, cumulated))
+            etendue = max(etendue, -ecarts[0], ecarts[-1])
             data.append({
                 "type": "scatter",
-                "x": [(p - mid) / mid * 100 for p in prices],
+                "x": ecarts,
                 "y": list(cumulated),
-                "name": f"{name} {side}",
+                # Une entrée de légende par plateforme, pour ses deux
+                # côtés : elle s'appelait « Binance bids » et masquait
+                # aussi les asks.
+                "name": name,
                 "line": {"color": color, "width": 1.4, "dash": "solid",
                          "shape": "hv"},
                 "fill": "tozeroy",
@@ -105,6 +144,7 @@ def build_depth_chart(books: dict, uirevision: str = "depth") -> dict:
                 "hovertemplate": f"{name} · %{{x:.3f}} %<br>%{{y:.3f}} BTC"
                                  "<extra></extra>",
             })
+        etendues.append(etendue)
 
     # `automargin` : c'est le gabarit Plotly que `go.Figure` posait sans le
     # dire qui l'activait. Sans lui, la marge de 8 px coupait les
@@ -113,6 +153,26 @@ def build_depth_chart(books: dict, uirevision: str = "depth") -> dict:
     axis_common = {"gridcolor": C["grid"], "zerolinecolor": C["border"],
                    "tickfont": {"size": 9, "color": C["muted"]},
                    "automargin": True}
+    xaxis = {"title": {"text": "écart au prix médian (%)"}, **axis_common}
+    yaxis = {"title": {"text": "volume cumulé (BTC)"}, **axis_common}
+
+    cadre = depth_window(etendues)
+    if cadre is not None:
+        # Le volume suit le cadre : l'échelle automatique de Plotly
+        # regarde toute la courbe, et les trente bitcoins qu'un carnet
+        # cumule à 2 % du prix aplatiraient ce qui s'échange à 0,02 %.
+        sommet = max((volume for ecarts, cumuls in courbes
+                      for ecart, volume in zip(ecarts, cumuls)
+                      if abs(ecart) <= cadre), default=0.0)
+        xaxis["range"] = [-cadre, cadre]
+        if sommet > 0:
+            yaxis["range"] = [0, sommet * 1.08]
+        hors = sum(1 for e in etendues if e > cadre)
+        if hors:
+            xaxis["title"]["text"] += (
+                f" · cadre ±{cadre:g} %, {hors} carnet"
+                f"{'s vont' if hors > 1 else ' va'} au-delà")
+
     layout = {
         "paper_bgcolor": C["panel"], "plot_bgcolor": C["panel"],
         "font": {"family": MONO, "color": C["text"], "size": 10},
@@ -124,9 +184,8 @@ def build_depth_chart(books: dict, uirevision: str = "depth") -> dict:
         "hoverlabel": {"bgcolor": "#1a2035", "bordercolor": C["border"],
                        "font": {"color": C["text"], "size": 10}},
         "uirevision": uirevision,
-        "xaxis": {"title": {"text": "écart au prix médian (%)"},
-                  **axis_common},
-        "yaxis": {"title": {"text": "volume cumulé (BTC)"}, **axis_common},
+        "xaxis": xaxis,
+        "yaxis": yaxis,
     }
     return {"data": data, "layout": layout}
 
@@ -261,8 +320,9 @@ def build_dominance_chart(
     history: pd.DataFrame | None = None,
     top: int = 8,
     uirevision: str = "dominance",
+    maximized: bool = False,
 ) -> go.Figure:
-    """Parts de capitalisation en barres, tendance journalisée en dessous.
+    """Parts de capitalisation en barres, tendance journalisée à côté.
 
     CoinGecko réserve l'historique de ces agrégats à son offre payante :
     l'instantané vient de l'API, la tendance vient du journal local
@@ -271,21 +331,48 @@ def build_dominance_chart(
     garde sa couleur, les stablecoins la leur — leur part ne dit pas la
     même chose que celle d'un concurrent —, et tout ce qui n'entre pas
     dans le classement est regroupé, pour que les barres somment à cent.
+
+    **Dans la grille, côte à côte.** Le panneau y est large et bas — 950 px
+    sur 170 dans la rangée du bas — et deux graphiques empilés s'y
+    partageaient cent pixels : une barre sur deux perdait son nom, le
+    titre de l'axe des barres s'écrivait sur la tendance, la légende sur
+    les graduations. En plein écran, la hauteur est là, et ils s'empilent.
+
+    **Chaque courbe a son échelle.** Sur un axe commun de 0 à 60, la
+    dominance du Bitcoin (vers 59 %) et la part des stablecoins (vers
+    8 %) étaient deux traits plats, en haut et en bas : un point de
+    dominance, qui est un mouvement, y valait un pixel. Le Bitcoin se lit
+    à gauche, les stablecoins à droite, chacun cadré sur ce qu'il a
+    parcouru, et les graduations portent la couleur de leur courbe.
     """
     trend = (history is not None and not history.empty
              and history["btc_dominance"].notna().sum() >= 2)
-    if trend:
-        fig = make_subplots(rows=2, cols=1, row_heights=[0.60, 0.40],
-                            vertical_spacing=0.16)
-        bar_target = dict(row=1, col=1)
+    if trend and maximized:
+        fig = make_subplots(rows=2, cols=1, row_heights=[0.5, 0.5],
+                            vertical_spacing=0.14,
+                            specs=[[{}], [{"secondary_y": True}]])
+        bar_target, trend_target = dict(row=1, col=1), dict(row=2, col=1)
+    elif trend:
+        fig = make_subplots(rows=1, cols=2, column_widths=[0.42, 0.58],
+                            horizontal_spacing=0.07,
+                            specs=[[{}, {"secondary_y": True}]])
+        bar_target, trend_target = dict(row=1, col=1), dict(row=1, col=2)
     else:
         fig = go.Figure()
-        bar_target = {}
+        bar_target = trend_target = {}
+
+    axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
+                       tickfont=dict(size=9, color=C["muted"]))
+    bar_x = dict(ticksuffix=" %", **axis_common)
+    if maximized or not trend:
+        bar_x["title_text"] = "part de la capitalisation (%)"
+        bar_x["ticksuffix"] = ""
 
     if not shares:
         fig.add_annotation(
             text="agrégats de marché indisponibles", xref="paper", yref="paper",
-            x=0.5, y=0.85 if trend else 0.5, showarrow=False,
+            x=(0.5 if maximized or not trend else 0.2),
+            y=(0.85 if trend and maximized else 0.5), showarrow=False,
             font=dict(family=MONO, size=11, color=C["muted"]),
         )
     else:
@@ -310,9 +397,13 @@ def build_dominance_chart(
             cliponaxis=False, showlegend=False,
             hovertemplate="%{y} · %{x:.2f} %<extra></extra>",
         ), **bar_target)
+        # La plus longue barre garde la place de son étiquette, qui
+        # sinon déborde sur la tendance voisine.
+        bar_x["range"] = [0, max(parts) * 1.2]
 
-    axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
-                       tickfont=dict(size=9, color=C["muted"]))
+    # Chaque barre garde son nom : l'axe en sautait un sur deux dès que
+    # le panneau manquait de hauteur.
+    bar_y = dict(tickmode="linear", dtick=1, **axis_common)
 
     if trend:
         # Les lignes de rupture (`gap`, § hub.market_snapshots) restent :
@@ -322,42 +413,42 @@ def build_dominance_chart(
         fig.add_trace(go.Scatter(
             x=btc["time"], y=btc["btc_dominance"], name="BTC",
             mode="lines", line=dict(color=C["yellow"], width=1.6),
-            hovertemplate="BTC %{y:.1f} %<extra></extra>",
-        ), row=2, col=1)
+            hovertemplate="BTC %{y:.2f} %<extra></extra>",
+        ), secondary_y=False, **trend_target)
         stables = history[history["stable_share"].notna() | rupture]
         if stables["stable_share"].notna().any():
             fig.add_trace(go.Scatter(
                 x=stables["time"], y=stables["stable_share"],
                 name="stables", mode="lines",
                 line=dict(color=C["blue"], width=1.4),
-                hovertemplate="stables %{y:.1f} %<extra></extra>",
-            ), row=2, col=1)
-        fig.update_xaxes(title_text="part de la capitalisation (%)",
-                         row=1, col=1, **axis_common)
-        fig.update_yaxes(row=1, col=1, **axis_common)
-        fig.update_xaxes(row=2, col=1, **axis_common)
-        fig.update_yaxes(title_text="dominance (%)", row=2, col=1,
-                         **axis_common)
+                hovertemplate="stables %{y:.2f} %<extra></extra>",
+            ), secondary_y=True, **trend_target)
+        fig.update_xaxes(**bar_x, **bar_target)
+        fig.update_yaxes(**bar_y, **bar_target)
+        fig.update_xaxes(**axis_common, **trend_target)
+        titre = dict(size=9)
+        fig.update_yaxes(
+            title_text="BTC %", title_font=dict(color=C["yellow"], **titre),
+            title_standoff=2, secondary_y=False, **trend_target,
+            **{**axis_common, "tickfont": dict(size=9, color=C["yellow"])})
+        fig.update_yaxes(
+            title_text="stables %", title_font=dict(color=C["blue"], **titre),
+            title_standoff=2, showgrid=False, secondary_y=True,
+            **trend_target,
+            **{**axis_common, "tickfont": dict(size=9, color=C["blue"])})
         fig.update_layout(
-            showlegend=True,
-            legend=dict(orientation="h", y=0.36, x=0, yanchor="bottom",
-                        font=dict(size=9), bgcolor="rgba(0,0,0,0)"),
+            showlegend=False,
             hovermode="x unified",
             hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
                             font_color=C["text"], font_size=10),
         )
     else:
-        fig.update_layout(
-            showlegend=False,
-            xaxis=dict(title_text="part de la capitalisation (%)",
-                       **axis_common),
-            yaxis=dict(**axis_common),
-        )
+        fig.update_layout(showlegend=False, xaxis=bar_x, yaxis=bar_y)
 
     fig.update_layout(
         paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
         font=dict(family=MONO, color=C["text"], size=10),
-        margin=dict(l=8, r=42, t=6, b=4),
+        margin=dict(l=8, r=8 if trend else 42, t=6, b=4),
         bargap=0.25,
         uirevision=uirevision,
     )

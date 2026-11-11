@@ -124,6 +124,72 @@ def test_le_mois_de_reference_passe_l_annee():
     print("  ✓ CPI de janvier 2027 sur décembre ; NFP 2027 le vendredi")
 
 
+def _texte(composant) -> str:
+    if composant is None:
+        return ""
+    if isinstance(composant, (str, int, float)):
+        return str(composant)
+    if isinstance(composant, (list, tuple)):
+        return "".join(_texte(c) for c in composant)
+    return _texte(getattr(composant, "children", None))
+
+
+def test_panneau_dans_le_fuseau_de_la_machine():
+    """Le panneau écrit le jour, l'heure et le compte à rebours dans un
+    seul fuseau, celui de la machine.
+
+    Constaté le 11 novembre 2026 depuis Phnom Penh (UTC+7) : le FOMC du
+    9 décembre s'écrivait « mer. 9 déc. 02:00 », jour de New York et
+    heure locale, et le CPI de la veille au soir restait « auj. ».
+    """
+    from zoneinfo import ZoneInfo
+
+    from terminal.panels import calendar as panneau
+
+    phnom_penh = ZoneInfo("Asia/Phnom_Penh")
+    # Le lendemain matin du CPI du 10 novembre (13:30 UTC, 20:30 locales).
+    matin = dt.datetime(2026, 11, 11, 10, 17, tzinfo=phnom_penh)
+    corps, titre = panneau.render(matin)
+    lignes = [_texte(ligne) for ligne in corps.children[:-1]]
+    assert "CPI" not in lignes[0] and "PCE" in lignes[0], lignes[0]
+    assert not any("passé" in l or "auj." in l for l in lignes), lignes[:2]
+    assert _texte(titre) == "FOMC J-29 · CPI J-29", _texte(titre)
+    fomc = next(l for l in lignes if "FOMC" in l)
+    assert fomc.startswith("jeu. 10 déc.  02:00"), fomc
+    assert "J-29" in fomc
+
+    # Le soir même, une heure après la publication : encore listée,
+    # mais dite passée, et le titre regarde déjà la suivante.
+    soir = dt.datetime(2026, 11, 10, 21, 30, tzinfo=phnom_penh)
+    corps, titre = panneau.render(soir)
+    premiere = _texte(corps.children[0])
+    assert premiere.startswith("mar. 10 nov.  20:30") and "passé" in premiere
+    assert corps.children[0].style.get("opacity"), "une ligne passée s'efface"
+    assert "CPI J-30" in _texte(titre), _texte(titre)
+
+    # Une heure avant : aujourd'hui, en rouge.
+    avant = dt.datetime(2026, 11, 10, 19, 30, tzinfo=phnom_penh)
+    corps, titre = panneau.render(avant)
+    assert "auj." in _texte(corps.children[0])
+    assert "CPI auj." in _texte(titre)
+    # Et la veille au soir : demain, même à moins de vingt-quatre heures.
+    veille = dt.datetime(2026, 11, 9, 23, 0, tzinfo=phnom_penh)
+    assert "demain" in _texte(panneau.render(veille)[0].children[0])
+
+    # À New York, rien ne change : jour et heure de la source.
+    new_york = dt.datetime(2026, 11, 10, 7, 0, tzinfo=macrocal.NEW_YORK)
+    corps, _ = panneau.render(new_york)
+    lignes = [_texte(ligne) for ligne in corps.children[:-1]]
+    assert lignes[0].startswith("mar. 10 nov.  08:30") and "auj." in lignes[0]
+    assert next(l for l in lignes if "FOMC" in l).startswith(
+        "mer.  9 déc.  14:00")
+
+    # Une liste épuisée se dit toujours.
+    fin = dt.datetime(2028, 6, 1, 12, 0, tzinfo=phnom_penh)
+    assert "épuisée" in _texte(panneau.render(fin)[0])
+    print("  ✓ jour, heure et compte à rebours dans le fuseau de la machine")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCalendrier macro — {len(tests)} vérifications\n" + "─" * 60)

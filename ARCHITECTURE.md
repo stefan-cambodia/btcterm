@@ -492,7 +492,16 @@ Deux pièges justifient que ce soit du code et non un simple tableau :
   américaine ne commence ni ne finit avec l'européenne : deux fois par
   an, le décalage avec Bruxelles change pendant deux à trois semaines.
   `when_utc` convertit via `zoneinfo`, et le panneau affiche l'heure de
-  la machine.
+  la machine — **et son jour**. Il écrivait le jour de New York à côté de
+  l'heure locale : vu d'un fuseau en avance d'une demi-journée, le FOMC du
+  mercredi 9 décembre 2026 s'affichait « mer. 9 déc. 02:00 » quand il tombe
+  le jeudi 10 à 2 h, et le CPI de la veille au soir restait « auj. », en
+  rouge, toute la matinée du lendemain. Jour écrit, compte à rebours et
+  « aujourd'hui » se comptent désormais dans le fuseau de la machine ; une
+  publication dont l'heure est passée reste listée jusqu'à minuit, mais se
+  dit passée, et le titre regarde la suivante
+  (`terminal/panels/calendar.py::render`, pur, que `test_macrocal.py`
+  appelle depuis Phnom Penh et depuis New York).
 - **L'épuisement.** Une liste tenue à la main finit par se périmer ;
   plutôt que de se taire, le panneau affiche l'horizon de la liste et
   prévient quand il approche — le pendant du fil de news qui affiche
@@ -561,7 +570,44 @@ commande :
 
 ```bash
 python -m btcterm.journal --heures 6
+python -m btcterm.journal --heures 96    # au-delà d'un jour, les heures sont datées
 ```
+
+La commande suit ce que le journal a appris à tenir (`resume`, que les
+tests appellent sur une base d'essai) : elle ouvre sur la **couverture** —
+ce que la fenêtre a vraiment vu, interruptions comptées, sans quoi un
+total de liquidations sur 96 h en vaut 28 —, donne le bilan des gros
+ordres comme le panneau JOURNAL, et lit la dominance sur la fenêtre
+demandée plutôt que sur tout l'historique.
+
+**Un univers de capitalisation qui ne clignote pas.** Constaté le
+11 novembre 2026, en donnant à la tendance de dominance une échelle où
+elle se lit : quatre-vingt-sept fois en deux mois et demi, la
+capitalisation totale gagnait ou perdait 1,1 % d'un instantané au suivant
+— 29 Md$ — sans que celle du bitcoin bouge, et la dominance sautait de
+0,4 à 0,7 point pour rien, près de la moitié du seuil de l'alerte de
+glissement (§2.8). L'écart est la taille de `FIGR_HELOC`, un fonds de
+prêts mis en jetons que CoinGecko range par intermittence parmi ses dix
+premières capitalisations. Deux réponses, une par époque :
+
+- **à la collecte**, `sources.market_global` retire les actifs
+  d'`INTERMITTENT` du total et recalcule les parts ; la colonne
+  `cap_excluded` de l'instantané dit la part retirée (zéro quand la source
+  ne les comptait pas) ;
+- **à la lecture**, pour les lignes d'avant (`cap_excluded` à NULL),
+  `rebase_universe` reconnaît un changement d'univers à ce que le total
+  saute sans le bitcoin — l'écart entre la variation des autres
+  capitalisations et la sienne dépasse 1,5 %, quand le marché n'a jamais
+  fait plus de 1,0 % entre deux instantanés voisins — et ramène les
+  périodes écrites « avec » à l'univers « sans ». Rien n'est réécrit dans
+  la base. Après un trou de séance, un pas n'est retenu que s'il défait le
+  précédent : en quelques heures, le marché peut diverger pour de bon.
+
+Sur le journal réel, 85 des 87 sauts disparaissent ; les deux qui restent
+sont un second actif entré une fois, et un écart après trois heures de
+veille que rien ne permet de distinguer d'un vrai mouvement. `hub.
+market_snapshots` (tendance, alertes) et la synthèse lisent la série
+rebasée (`Journal.snapshots_rebased`).
 
 Le journal tient aussi la table des **alertes** (§2.8), une ligne par
 sonnerie : relire une séance, c'est aussi relire ce qui a sonné.
@@ -2617,7 +2663,10 @@ Fait :
   capitalisation totale et volume dans la barre de titre. CoinGecko réserve
   l'historique de ces agrégats à son offre payante : l'API ne donne qu'un
   instantané, mais le journal les accumule désormais (§2.7) et le panneau
-  trace sous les barres la tendance ainsi construite, séance après séance.
+  trace la tendance ainsi construite, séance après séance — à côté des
+  barres dans la grille, où le panneau est large et bas, dessous en plein
+  écran ; la dominance et la part des stablecoins y ont chacune leur
+  échelle, faute de quoi un point de dominance valait un pixel.
 - **On-chain** — hashrate et difficulté sur un an, rythme des blocs et taille du
   mempool. La source prévue, mempool.space, a dû être abandonnée : elle publie
   souvent des adresses IPv6 seules et cette machine n'a pas de route IPv6, d'où
@@ -3062,6 +3111,28 @@ journal aura quelques semaines.
   marché (3 % sur cinq jours). Fait : la session rejoue une fois la lecture
   rompue, sur une connexion neuve ; un délai dépassé ou une connexion
   refusée ne sont pas rejoués (§2.10, `tests/test_cache.py`).
+
+- ~~**Ce qui existait, relu à l'écran**~~ — le 11 novembre 2026, sans rien
+  ajouter : le contrôle d'interface et les captures, passés sur le service
+  en marche, ont montré cinq défauts de l'existant.
+  *Le titre des liquidations débordait de 96 px* dès que deux liens se
+  taisaient ensemble (« BIN muet · BYB muet ») : le badge de la grille
+  tient désormais en trente-deux caractères comptés (`COMPACT_MAX`), un
+  seul lien se nomme, plusieurs se comptent, le survol les détaille.
+  *La profondeur comparée ne comparait plus rien* : Coinbase porte ses
+  niveaux à 3 % du prix, les autres à quelques centièmes de pour cent, et
+  l'axe étiré par le premier écrasait les quatre autres autour de zéro. Le
+  cadre est l'étendue médiane des carnets, arrondie pour ne pas trembler
+  (`depth_window`), le volume s'y ajuste, les courbes restent entières
+  pour qui dézoome, et la légende nomme la plateforme plutôt que ses
+  « bids ».
+  *Le panneau DOMINANCE empilait deux graphiques dans cent pixels* : ils
+  sont côte à côte dans la grille, et chaque courbe a son échelle (§7,
+  étape 5).
+  *Le calendrier mêlait deux fuseaux* (§2.6), et *la dominance sautait
+  avec l'univers de CoinGecko* (§2.7) — ce dernier défaut n'étant devenu
+  visible qu'une fois la tendance lisible. La commande du journal dit en
+  prime sa couverture et ses gros ordres (§2.7).
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au

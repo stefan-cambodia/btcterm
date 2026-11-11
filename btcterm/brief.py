@@ -471,7 +471,7 @@ def build(hub, now: Optional[float] = None,
         elif item is not None:
             brief.items.append(item)
 
-    snapshots = (journal.snapshots_between(start - 3600, now)
+    snapshots = (journal.snapshots_rebased(start - 3600, now)
                  if journal is not None else [])
 
     add("Cours", lambda: price_item(hub.ticker()))
