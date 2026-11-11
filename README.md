@@ -621,7 +621,7 @@ python tests/test_indicators_incremental.py  # dernier point : borné = complet
 python tests/test_prepare_price_frame.py # enrichissement du prix : colonnes, bornes
 python tests/test_resolver.py            # résolution DNS de secours, sans réseau
 python tests/test_fear_greed.py          # Fear & Greed : lecture, dérivation, couleurs
-python tests/test_etf_flows.py           # flux ETF : fenêtres, cumul, classement
+python tests/test_etf_flows.py           # flux ETF : fenêtres, cumul, classement, lignes non publiées
 python tests/test_options.py             # options : sourire, max pain, base, panneau
 python tests/test_markets.py             # marchés : séances, corrélations, tableau
 python tests/test_cycle.py               # cycle : halving, repli, Mayer, panneau

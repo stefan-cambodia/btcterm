@@ -33,7 +33,7 @@ __all__ = [
     "fetch_eur_rate", "fetch_m2_supply",
     "fetch_funding_history", "fetch_open_interest", "fetch_perp_snapshot",
     "fetch_bybit_perp", "fetch_okx_perp",
-    "fetch_market_global", "market_global", "INTERMITTENT", "fetch_chain_chart", "fetch_chain_stats",
+    "clean_etf_table", "fetch_market_global", "market_global", "INTERMITTENT", "fetch_chain_chart", "fetch_chain_stats",
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
     "fetch_fear_greed_history", "FEAR_GREED_DAYS",
@@ -741,7 +741,23 @@ def fetch_etf_flows() -> pd.DataFrame:
     tables = pd.read_html(io.StringIO(response.text))
     if not tables:
         raise RuntimeError("Aucun tableau trouvé sur la page.")
-    df = max(tables, key=lambda t: t.shape[0]).copy()
+    return clean_etf_table(max(tables, key=lambda t: t.shape[0]))
+
+
+def clean_etf_table(table: pd.DataFrame) -> pd.DataFrame:
+    """Le tableau de la page, réduit à ses séances publiées.
+
+    **Une ligne n'est pas une séance.** La source pose la ligne du jour
+    avant d'avoir un seul chiffre, et garde celle des jours fériés : des
+    tirets partout, que la lecture changeait en zéros. Constaté le
+    11 novembre 2026 : la synthèse annonçait « +0 M$ le 10/11 », le
+    graphique une barre nulle, et les « cinq séances » comptaient ce zéro
+    à la place d'un vrai jour — comme seize jours fériés depuis 2024. Une
+    ligne dont plus de la moitié des fonds n'ont rien publié est écartée ;
+    les tirets isolés (un fonds pas encore lancé, un émetteur en retard
+    d'un soir) restent des zéros, et la ligne se complète d'elle-même.
+    """
+    df = table.copy()
 
     # Le site renvoie parfois des en-têtes à deux niveaux (ticker + frais).
     if isinstance(df.columns, pd.MultiIndex):
@@ -772,6 +788,10 @@ def fetch_etf_flows() -> pd.DataFrame:
             errors="coerce",
         )
 
+    funds = [c for c in df.columns[1:] if c != "Total"]
+    if funds:
+        published = df[funds].notna().sum(axis=1) * 2 >= len(funds)
+        df = df[published].reset_index(drop=True)
     return df.fillna(0.0)
 
 

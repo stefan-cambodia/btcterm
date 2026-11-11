@@ -146,6 +146,37 @@ def test_fenetres_declarees():
     print("  ✓ quatre fenêtres, la dernière sans borne")
 
 
+def test_une_ligne_sans_chiffres_n_est_pas_une_seance():
+    """La ligne du jour, posée avant d'être publiée, et celle d'un jour
+    férié ne sont pas des séances à zéro.
+
+    Constaté le 11 novembre 2026 : « +0 M$ le 10/11 » à la synthèse.
+    """
+    import pandas as pd
+
+    from btcterm.sources import clean_etf_table
+
+    brut = pd.DataFrame(
+        [["Fee", "0.25%", "0.25%", "0.20%", "0.21%", ""],
+         ["05 Nov 2026", "(105.0)", "(199.9)", "0.0", "-", "(304.9)"],
+         ["06 Nov 2026", "(403.0)", "42.8", "(20.5)", "1,020.1", "639.4"],
+         ["09 Nov 2026", "-", "-", "-", "-", "0.0"],          # férié
+         ["10 Nov 2026", "-", "-", "-", "0.0", "0.0"],        # pas publié
+         ["Total", "1.0", "2.0", "3.0", "4.0", "10.0"]],
+        columns=["Unnamed: 0", "IBIT", "FBTC", "BITB", "ARKB", "Total"])
+    propre = clean_etf_table(brut)
+    assert [f"{d:%d/%m}" for d in propre["Date"]] == ["05/11", "06/11"], propre
+    assert propre["Total"].tolist() == [-304.9, 639.4]
+    assert propre["ARKB"].tolist() == [0.0, 1020.1], \
+        "un tiret isolé reste un zéro, les milliers se lisent"
+    assert brut.shape == (6, 6) and "Unnamed: 0" in brut.columns, \
+        "le tableau reçu n'est pas modifié"
+    # Une ligne à moitié publiée reste : elle se complète dans la soirée.
+    brut.iloc[4] = ["10 Nov 2026", "55.0", "-", "-", "0.0", "55.0"]
+    assert clean_etf_table(brut)["Total"].tolist() == [-304.9, 639.4, 55.0]
+    print("  ✓ ni la ligne du jour vide ni le jour férié ne comptent pour une séance")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nFlux ETF — {len(tests)} vérifications\n" + "─" * 60)

@@ -306,6 +306,15 @@ body {
 
 /* ── Barres de défilement ──────────────────────────────────*/
 
+/* Firefox ignore les règles ::-webkit-scrollbar ci-dessous : sans ces deux
+   propriétés, ses barres gardaient les couleurs du système — une bande
+   blanche de douze pixels au bord des panneaux JOURNAL et SOURCES, vue
+   sur les captures du 11 novembre 2026. */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #1e2639 #0e1117;
+}
+
 ::-webkit-scrollbar {
     width: 6px;
     height: 6px;

@@ -3133,6 +3133,17 @@ journal aura quelques semaines.
   avec l'univers de CoinGecko* (§2.7) — ce dernier défaut n'étant devenu
   visible qu'une fois la tendance lisible. La commande du journal dit en
   prime sa couverture et ses gros ordres (§2.7).
+  Un second tour, le même jour, en a trouvé deux autres.
+  *Une ligne sans chiffres comptait pour une séance* : farside pose la
+  ligne du jour avant de la publier et garde celle des jours fériés, des
+  tirets que la lecture changeait en zéros — « +0 M$ le 10/11 » à la
+  synthèse, une barre nulle au graphique, et des « cinq séances » qui
+  comptaient ce zéro à la place d'un vrai jour. `clean_etf_table` écarte
+  une ligne dont plus de la moitié des fonds n'ont rien publié : dix-sept
+  sur 727 ce jour-là, seize jours fériés et le jour en cours ; l'export
+  `etf_bitcoin_flows.py` en profite.
+  *Les barres de défilement étaient blanches sous Firefox*, qui ignore
+  `::-webkit-scrollbar` : `scrollbar-color` les met au thème.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au
