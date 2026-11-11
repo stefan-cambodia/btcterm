@@ -200,6 +200,19 @@ def test_niveaux_cles():
     print("  ✓ niveaux clés en dollars, aucun sur la démonstration")
 
 
+def test_sante_du_terminal():
+    """`/api/health` répond toujours, et nomme ce qui ne répond pas : sur
+    un hub jamais démarré, aucun lien ne tient."""
+    reponse = client().get("/api/health")
+    assert reponse.status_code == 200
+    page = reponse.get_json()
+    assert page["ok"] is False and "Carnet Binance" in page["failing"]
+    assert set(page["sources"]) == {"Flux temps réel", "Sources REST",
+                                    "Tâches de fond"}
+    assert isinstance(page["uptime"], int) and page["boot"]
+    print("  ✓ santé : toujours 200, les liens coupés nommés")
+
+
 def test_profil_bornes_et_tranche_vide():
     web = client()
     #: Paramètres refusés : intervalle inconnu, bornes absentes ou inversées.

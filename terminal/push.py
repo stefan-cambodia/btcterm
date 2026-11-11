@@ -256,6 +256,20 @@ def register(app, hub) -> None:
     def _boot():
         return jsonify({"boot": BOOT})
 
+    @app.server.get("/api/health")
+    def _health():
+        """L'état du terminal en une requête, pour qui le surveille de
+        dehors : `ok` est faux dès qu'un lien est coupé ou qu'une source
+        est en panne, `failing` les nomme, `sources` détaille tout
+        (§ hub.sources_status). Toujours 200 : c'est le terminal qui
+        répond, même mal entouré."""
+        status = hub.sources_status()
+        failing = [row["name"] for rows in status.values() for row in rows
+                   if row["state"] in ("coupé", "panne")]
+        return jsonify({"ok": not failing, "failing": failing,
+                        "uptime": hub.uptime_seconds, "boot": BOOT,
+                        "sources": status})
+
     sock = Sock(app.server)
 
     @sock.route("/push")

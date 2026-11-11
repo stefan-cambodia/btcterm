@@ -3275,6 +3275,21 @@ journal aura quelques semaines.
   fichiers ; la liste des panneaux vient désormais de la grille
   (`demo.other_panels`), une liste écrite à la main se périmant. La
   commande du journal, elle, dit la liquidité de la fenêtre.
+- ~~**Une source en panne, sans personne pour le voir**~~ — sur le serveur
+  allumé en permanence qu'on vise, le panneau SOURCES n'a pas de lecteur :
+  un carnet coupé une heure ou Deribit muet une nuit ne se voyaient qu'au
+  retour devant l'écran. Fait : une règle `source` sonne — et part vers
+  le téléphone — quand un lien temps réel reste coupé ou une source REST
+  en panne plus d'un quart d'heure, une fois par épisode, puis au
+  rétablissement de ce qui avait sonné (`_check_sources`). Un lien muet
+  ne sonne pas : c'est l'ordinaire d'un fil de liquidations calme, et
+  l'état permanent de Binance depuis certains pays. Après un réveil de
+  la machine, les compteurs repartent de zéro. La règle est débrayée par
+  défaut — sur un portable, un réseau qui filtre une plateforme sonnerait
+  pour rien — et se coche au panneau ALERTES (case « sources ») une fois
+  le terminal sur son serveur. Pour qui surveille de dehors,
+  `/api/health` dit le même état en une requête : `ok`, `failing`, et le
+  détail du panneau SOURCES.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au

@@ -856,6 +856,10 @@ class MarketHub:
         if self.history is not None:
             self.history.close()
 
+    def woke_within(self, seconds: float) -> bool:
+        """Vrai si la machine s'est réveillée il y a moins de `seconds`."""
+        return self._sleep.woke_within(seconds)
+
     def realtime_links(self) -> list[tuple[str, bool]]:
         """Tous les liens temps réel et s'ils tiennent : carnets, fils de
         liquidations, ruban. Le bandeau ne comptait que les cinq carnets."""

@@ -301,7 +301,10 @@ en 24 h (réglable, seuil encore provisoire), le message disant si ce sont les
 puts ou les calls qui se renchérissent — et une sur la liquidité journalisée
 des carnets : le volume offert à ±0,1 % du prix tombé à 40 % sous sa moyenne
 de 24 h (réglable, seuil provisoire lui aussi), muette tant que la journée
-ne compte pas six heures de relevés.
+ne compte pas six heures de relevés — et une sur le terminal lui-même : un
+lien temps réel coupé ou une source en panne depuis plus d'un quart d'heure,
+puis son rétablissement (case « sources », décochée par défaut ; `curl localhost:8050/api/health`
+dit le même état à un outil de surveillance).
 Les règles sonnent sur le front montant, sous délai de garde — une condition
 qui dure ou qui clignote ne sonne pas en rafale. La cloche du bandeau compte
 la dernière heure et ouvre le panneau d'un clic, où qu'il soit rangé ; le bip et les notifications navigateur (permission

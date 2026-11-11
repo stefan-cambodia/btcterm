@@ -791,6 +791,93 @@ def test_carnets_creux():
     print("  ✓ carnets creux : moyenne d'une journée, médiane de trois relevés")
 
 
+def test_sources_en_defaut():
+    """Un lien coupé ou une source en panne qui dure sonne une fois, puis
+    au rétablissement ; un lien muet ne sonne pas, un réveil remet les
+    compteurs à zéro, et la règle se débraye."""
+    from btcterm.alerts import SOURCE_DOWN_AFTER
+
+    def sonneries(e):
+        return [a.message for a in e.alerts if a.kind == "source"]
+
+    etat = {"Carnet Kraken": ("ok", ""), "Liquidations Binance": ("muet", ""),
+            "options": ("ok", "")}
+    reveil = {"oui": False}
+    hub = FakeHub()
+    hub.woke_within = lambda seconds: reveil["oui"]
+
+    def statut(now=None):
+        lignes = lambda noms: [
+            {"name": nom, "state": etat[nom][0], "detail": etat[nom][1],
+             **({"since": etat[nom][2]} if len(etat[nom]) > 2 else {})}
+            for nom in noms]
+        return {"Flux temps réel": lignes(["Carnet Kraken", "Liquidations Binance"]),
+                "Sources REST": lignes(["options"])}
+
+    hub.sources_status = statut
+    pas = SLOW_EVERY + 1
+
+    e = engine(sources_down=True)
+    e.evaluate(hub, now=T0)
+    assert not sonneries(e), "tout répond, ou se tait sans être coupé"
+
+    # Kraken se coupe : rien avant le quart d'heure, une sonnerie après.
+    etat["Carnet Kraken"] = ("coupé", "timed out during opening handshake")
+    e.evaluate(hub, now=T0 + pas)
+    e.evaluate(hub, now=T0 + pas + SOURCE_DOWN_AFTER - 30)
+    assert not sonneries(e)
+    e.evaluate(hub, now=T0 + pas + SOURCE_DOWN_AFTER + pas)
+    assert sonneries(e) == [
+        "Carnet Kraken : en défaut depuis 16 min — timed out during "
+        "opening handshake"], sonneries(e)
+    e.evaluate(hub, now=T0 + 3 * SOURCE_DOWN_AFTER)
+    assert len(sonneries(e)) == 1, "un épisode, une sonnerie"
+    # Rétabli : cela se dit aussi, une fois.
+    etat["Carnet Kraken"] = ("ok", "")
+    e.evaluate(hub, now=T0 + 4 * SOURCE_DOWN_AFTER)
+    assert sonneries(e)[-1] == "Carnet Kraken : rétabli après 59 min"
+    e.evaluate(hub, now=T0 + 5 * SOURCE_DOWN_AFTER)
+    assert len(sonneries(e)) == 2
+
+    # Une source REST dit depuis quand elle est en panne : on la croit.
+    e = engine(sources_down=True)
+    etat["options"] = ("panne", "503 Service Unavailable", T0 - 1200)
+    e.evaluate(hub, now=T0)
+    assert sonneries(e) == ["options : en défaut depuis 20 min — 503 Service "
+                            "Unavailable"], sonneries(e)
+    etat["options"] = ("ok", "")
+
+    # Une coupure brève ne sonne ni à l'aller ni au retour.
+    e = engine(sources_down=True)
+    etat["Carnet Kraken"] = ("coupé", "")
+    e.evaluate(hub, now=T0)
+    etat["Carnet Kraken"] = ("ok", "")
+    e.evaluate(hub, now=T0 + 300)
+    assert not sonneries(e)
+
+    # Un réveil : tout est coupé à cet instant, et le compteur repart.
+    e = engine(sources_down=True)
+    etat["Carnet Kraken"] = ("coupé", "")
+    e.evaluate(hub, now=T0)
+    reveil["oui"] = True
+    e.evaluate(hub, now=T0 + 8 * 3600)
+    reveil["oui"] = False
+    e.evaluate(hub, now=T0 + 8 * 3600 + pas)
+    assert not sonneries(e), "huit heures de sommeil ne sont pas une panne"
+    e.evaluate(hub, now=T0 + 8 * 3600 + pas + SOURCE_DOWN_AFTER + pas)
+    assert len(sonneries(e)) == 1, "mais une coupure qui dure après le réveil, si"
+
+    # Débrayée — c'est le défaut —, elle se tait.
+    assert DEFAULT_CONFIG["sources_down"] is False
+    e = engine()
+    e.evaluate(hub, now=T0)
+    e.evaluate(hub, now=T0 + 2 * SOURCE_DOWN_AFTER)
+    assert not sonneries(e)
+    assert normalize_config({"sources_down": True})["sources_down"] is True
+    assert normalize_config({"sources_down": "oui"})["sources_down"] is False
+    print("  ✓ sources : le défaut qui dure sonne, le rétablissement aussi")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nMoteur d'alertes — {len(tests)} vérifications\n" + "─" * 60)

@@ -149,6 +149,10 @@ DEFAULT_CONFIG: dict = {
     "skew_shift_pts": 2.0,
     #: carnets creux : liquidité à tant de % sous sa moyenne de 24 h.
     "liquidity_drop_pct": 40.0,
+    #: prévenir quand une source ou un lien temps réel reste en défaut.
+    #: Débrayée par défaut : sur un portable, un réseau qui filtre une
+    #: plateforme sonnerait pour rien ; à cocher sur le serveur.
+    "sources_down": False,
     #: bip sonore côté navigateur — le moteur l'ignore, le client le lit.
     "sound": True,
 }
@@ -186,6 +190,11 @@ LIQUIDITY_POINTS = 3
 LIQUIDITY_FRESH = 1800.0
 LIQUIDITY_MIN_POINTS = 72
 
+#: Durée au-delà de laquelle une source en défaut sonne, et délai après un
+#: réveil de la machine pendant lequel rien ne se compte (§ `_check_sources`).
+SOURCE_DOWN_AFTER = 900.0
+SOURCE_WAKE_GRACE = 120.0
+
 #: L'alerte de tendance lit le journalier : assez de bougies pour sa MA 200.
 TREND_WINDOW = 200
 TREND_LIMIT = 365
@@ -198,7 +207,7 @@ class Alert:
     time: float
     kind: str      #: price | liq | funding | news | arb
                    #:   | trend | rsi | signal | dominance | etf | chain
-                   #:   | vol | skew | depth
+                   #:   | vol | skew | depth | source
     message: str
 
 
@@ -231,7 +240,8 @@ def normalize_config(data) -> dict:
             < config["rsi_overbought"] <= 100):
         config["rsi_overbought"] = DEFAULT_CONFIG["rsi_overbought"]
         config["rsi_oversold"] = DEFAULT_CONFIG["rsi_oversold"]
-    for key in ("sound", "signal_strong", "trend_flip", "event_soon"):
+    for key in ("sound", "signal_strong", "trend_flip", "event_soon",
+                "sources_down"):
         if isinstance(data.get(key), bool):
             config[key] = data[key]
     levels = []
@@ -259,6 +269,8 @@ class AlertEngine:
         self._lock = threading.Lock()
         #: État des règles à front montant : clé → {active, last}.
         self._rules: dict[str, dict] = {}
+        #: Sources vues en défaut : nom → {since, rung} (§ `_check_sources`).
+        self._down: dict[str, dict] = {}
         #: Armement des seuils de prix : (level, dir) → bool.
         self._armed: dict[tuple[float, str], bool] = {}
         #: Titres déjà vus ; la première lecture arme sans sonner.
@@ -338,7 +350,7 @@ class AlertEngine:
                          self._check_event, self._check_dominance,
                          self._check_etf, self._check_chain,
                          self._check_volatility, self._check_skew,
-                         self._check_liquidity):
+                         self._check_liquidity, self._check_sources):
                 try:
                     rule(hub, opportunities, config, now)
                 except Exception:
@@ -704,6 +716,52 @@ class AlertEngine:
                        f"carnets à {drop:.0f} % sous leur moyenne de 24 h : "
                        f"{latest:.0f} BTC à ±{band:g} % du prix, contre "
                        f"{mean:.0f}", now)
+
+    def _check_sources(self, hub, _opps, config, now) -> None:
+        """Une source ou un lien temps réel qui reste en défaut.
+
+        Sur le serveur allumé en permanence qu'on vise, personne ne
+        regarde le panneau SOURCES : un carnet coupé depuis une heure, ou
+        Deribit en panne toute une nuit, ne se voyaient qu'au retour
+        devant l'écran. Sonne ce qui est « coupé » (un lien temps réel)
+        ou « en panne » (une source REST, une tâche de fond) depuis plus
+        de `SOURCE_DOWN_AFTER` — une fois par épisode, et une seconde fois
+        au rétablissement de ce qui avait sonné. Un lien « muet » ne sonne
+        pas : c'est l'état ordinaire d'un fil de liquidations calme, et
+        permanent pour Binance depuis certains pays. Après un réveil de
+        la machine, les compteurs repartent de zéro : tout est coupé à
+        cet instant, et rien de cela n'est une panne.
+        """
+        if not config["sources_down"]:
+            self._down.clear()
+            return
+        woke = getattr(hub, "woke_within", None)
+        if woke is not None and woke(SOURCE_WAKE_GRACE):
+            self._down.clear()
+            return
+        down: dict[str, tuple[str, Optional[float]]] = {}
+        for rows in hub.sources_status(now).values():
+            for row in rows:
+                if row["state"] in ("coupé", "panne"):
+                    down[row["name"]] = (row.get("detail") or "",
+                                         row.get("since"))
+        for name in list(self._down):
+            if name not in down:
+                entry = self._down.pop(name)
+                if entry["rung"]:
+                    minutes = (now - entry["since"]) / 60
+                    self._fire("source",
+                               f"{name} : rétabli après {minutes:.0f} min", now)
+        for name, (detail, since) in down.items():
+            entry = self._down.setdefault(
+                name, {"since": since if since is not None else now,
+                       "rung": False})
+            if not entry["rung"] and now - entry["since"] >= SOURCE_DOWN_AFTER:
+                entry["rung"] = True
+                minutes = (now - entry["since"]) / 60
+                self._fire("source",
+                           f"{name} : en défaut depuis {minutes:.0f} min"
+                           + (f" — {detail[:80]}" if detail else ""), now)
 
     def _check_news(self, hub, _opps, config, now) -> None:
         rows = self._fetch_news()

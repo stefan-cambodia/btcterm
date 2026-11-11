@@ -44,7 +44,8 @@ KIND_COLORS = {"price": C["yellow"], "liq": C["red"],
                "rsi": C["cyan"], "signal": C["green"],
                "dominance": C["yellow"], "etf": C["green"],
                "chain": C["purple"], "vol": C["yellow"],
-               "skew": C["yellow"], "depth": C["cyan"]}
+               "skew": C["yellow"], "depth": C["cyan"],
+               "source": C["red"]}
 
 _INPUT = {
     "width": "52px", "background": C["card"], "color": C["text"],
@@ -172,6 +173,12 @@ def layout(title=None):
                     inline=True, className="tf-check",
                     style={"fontSize": "9px", "display": "inline-block"}),
                 dcc.Checklist(
+                    id="alert-sources",
+                    options=[{"label": "sources", "value": "on"}],
+                    value=["on"] if config["sources_down"] else [],
+                    inline=True, className="tf-check",
+                    style={"fontSize": "9px", "display": "inline-block"}),
+                dcc.Checklist(
                     id="alert-sound", options=[{"label": "son", "value": "on"}],
                     value=["on"] if config["sound"] else [],
                     inline=True, className="tf-check",
@@ -285,6 +292,7 @@ def register(app, hub):
         Input("alert-signal", "value"),
         Input("alert-trend", "value"),
         Input("alert-event", "value"),
+        Input("alert-sources", "value"),
         Input("alert-sound", "value"),
         State("alert-price-input", "value"),
         State("alert-config", "data"),
@@ -292,7 +300,8 @@ def register(app, hub):
     )
     def _edit(_add, _dels, liq, funding, news_score, arb,
               ma200, rsi_hi, rsi_lo, dominance, etf, mempool, block,
-              dvol, skew, depth, signal, trend, event, sound, level, stored):
+              dvol, skew, depth, signal, trend, event, sources_down, sound,
+              level, stored):
         trigger = dash.ctx.triggered_id
         # Un composant qui vient d'être monté déclenche aussi ce
         # callback (n_clicks 0, valeurs du Store) : sans valeur de
@@ -338,6 +347,7 @@ def register(app, hub):
                       "signal_strong": bool(signal),
                       "trend_flip": bool(trend),
                       "event_soon": bool(event),
+                      "sources_down": bool(sources_down),
                       "sound": bool(sound)}
             config = normalize_config(merged)
 
