@@ -271,6 +271,32 @@ def test_le_portage_dans_la_meme_unite():
     assert carry({}, opt.futures_curve([])) == []
     print("  ✓ portage : financement annualisé et base, une plateforme muette absente")
 
+def test_un_future_au_prix_de_l_indice_ne_cote_pas():
+    """Au sortir d'une panne, Deribit marque ses futures au prix de
+    l'indice : ce n'est pas une base nulle, c'est une absence de cotation."""
+    import pandas as pd
+
+    from btcterm import options as opt
+
+    maintenant = pd.Timestamp("2026-11-10 09:43", tz="UTC")
+    def future(nom, marque, indice=74_000.0):
+        return {"instrument_name": nom, "mark_price": marque,
+                "estimated_delivery_price": indice}
+
+    saine = opt.futures_curve([future("BTC-29JAN27", 74_900.0),
+                               future("BTC-26MAR27", 75_600.0)], now=maintenant)
+    assert len(saine) == 2 and saine.attrs["pinned"] == 0
+    assert (saine["annualized"] > 0.04).all()
+    figee = opt.futures_curve([future("BTC-29JAN27", 74_000.0),
+                               future("BTC-26MAR27", 74_000.0)], now=maintenant)
+    assert figee.empty and figee.attrs["pinned"] == 2
+    mixte = opt.futures_curve([future("BTC-29JAN27", 74_000.0),
+                               future("BTC-26MAR27", 75_600.0)], now=maintenant)
+    assert len(mixte) == 1 and mixte.attrs["pinned"] == 1
+    assert opt.summary(opt.option_chain([]), figee)["basis90"] is None
+    print("  ✓ futures figés à l'indice écartés, et comptés")
+
+
 def test_l_historique_des_options():
     """Ce que seul le journal garde se trace : volatilité et skew dans la
     grille ; en plein écran, la base et le put/call en plus."""

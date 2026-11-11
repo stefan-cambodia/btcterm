@@ -237,9 +237,19 @@ def futures_curve(rows: Iterable[dict], now: Optional[pd.Timestamp] = None,
     `annualized` (fraction par an, base × 365 / jours). Le perpétuel n'a
     pas d'échéance : sa base, c'est le financement, que le panneau
     perpétuel montre déjà.
+
+    **Un future coté au prix de l'indice ne cote pas.** Le 10 novembre
+    2026, à la première lecture après une panne de Deribit (503), tous
+    les futures portaient un prix marqué égal à l'indice, au centime : une
+    base de zéro s'est écrite au journal entre deux relevés à 5,7 %/an,
+    avec un skew de −6 quand il valait −3,5 avant et après. Ces lignes
+    sont écartées, et leur nombre rendu dans `attrs["pinned"]` : une
+    courbe vide pour cette raison dit que la source n'a pas encore repris
+    ses cotations (§ hub.record_market_snapshot).
     """
     now = pd.Timestamp.now(tz="UTC") if now is None else now
     records = []
+    pinned = 0
     for row in rows:
         parsed = parse_instrument(row.get("instrument_name", ""))
         if parsed is None or parsed[2] != "F":
@@ -251,13 +261,18 @@ def futures_curve(rows: Iterable[dict], now: Optional[pd.Timestamp] = None,
         days = (parsed[0] - now).total_seconds() / 86_400
         if days < min_days:
             continue
+        if float(mark) == float(index):
+            pinned += 1
+            continue
         basis = float(mark) / float(index) - 1.0
         records.append({"expiry": parsed[0], "days": days, "mark": float(mark),
                         "index": float(index), "basis": basis,
                         "annualized": basis * 365.0 / days})
     columns = ["expiry", "days", "mark", "index", "basis", "annualized"]
-    return (pd.DataFrame.from_records(records, columns=columns)
-            .sort_values("expiry").reset_index(drop=True))
+    curve = (pd.DataFrame.from_records(records, columns=columns)
+             .sort_values("expiry").reset_index(drop=True))
+    curve.attrs["pinned"] = pinned
+    return curve
 
 
 def front_expiry(chain: pd.DataFrame, now: Optional[pd.Timestamp] = None,

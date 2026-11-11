@@ -1431,6 +1431,12 @@ class MarketHub:
         dvol = self.dvol()
         if self._cache.stale("dvol"):
             dvol = dvol.iloc[0:0]
+        # Des futures tous cotés au prix de l'indice : Deribit sort d'une
+        # panne et n'a pas repris ses cotations (§ options.futures_curve).
+        # Ce que la chaîne dit à cet instant ne vaut pas mieux : rien du
+        # marché des options ne s'écrit pour ce relevé.
+        if futures.empty and futures.attrs.get("pinned"):
+            chain = opt.option_chain([])
         options = opt.summary(chain, futures)
 
         shares = agregats.get("shares") or {}

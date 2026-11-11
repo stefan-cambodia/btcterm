@@ -3307,6 +3307,17 @@ journal aura quelques semaines.
   mois et le put/call en open interest, chacun sur son axe ; la grille
   garde ses deux étages. L'étage se cadre sur l'essentiel de la série —
   une base lue à zéro quand Deribit rend une chaîne incomplète l'écrasait.
+- ~~**Une lecture figée de Deribit écrite au journal**~~ — le relevé
+  aberrant que l'étage précédent a montré : le 10 novembre 2026, à la
+  première lecture après une panne de la source (503), une base de zéro
+  et un skew de −6 entre deux relevés à 5,7 %/an et −3,5. Deribit marquait
+  alors tous ses futures au prix de l'indice, au centime. Fait :
+  `futures_curve` écarte un future coté au prix de l'indice — ce n'est pas
+  une base nulle, c'est une absence de cotation — et les compte
+  (`attrs["pinned"]`) ; quand ils le sont tous, l'instantané n'écrit rien
+  du marché des options pour ce relevé. La ligne du 10 novembre reste au
+  journal : l'alerte sur le skew lit déjà une médiane de trois relevés, et
+  le graphique la laisse hors cadre.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au
