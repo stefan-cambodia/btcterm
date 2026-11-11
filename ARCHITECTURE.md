@@ -104,7 +104,8 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── charts.py                  figures Plotly des autres panneaux
 │   ├── assets/                    CSS et JS servis au navigateur — dont
 │   │                              lwc-price.js et lwc-perp.js, les dessins
-│   │                              des panneaux prix et perpétuel, book.js,
+│   │                              des panneaux prix et perpétuel,
+│   │                              lwc-clock.js, leur heure locale, book.js,
 │   │                              le carnet écrit en place, et vendor/
 │   │                              (Lightweight Charts, sans CDN)
 │   └── panels/                    price · orderbook · arbitrage ·
@@ -137,6 +138,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_wsgi.py               fabrique gunicorn du régime service
 │   ├── test_lwc_serialize.py      contrat de série du rendu du prix
 │   ├── test_lwc_api.py            /api/klines : pagination, repli démo
+│   ├── test_lwc_clock.py          heure locale des graphiques (sous Node)
 │   ├── test_indicators_incremental.py  dernier point : borné = complet
 │   ├── test_prepare_price_frame.py  enrichissement du prix : le contrat
 │   ├── test_resolver.py           résolution DNS de secours, sans réseau
@@ -1234,7 +1236,8 @@ terminal/
 ├── theme.py         palette et styles partagés
 ├── charts.py        constructeurs de figures Plotly (autres panneaux)
 ├── assets/          CSS et JS — lwc-price.js et lwc-perp.js dessinent
-│                    prix et perpétuel, book.js écrit le carnet en place,
+│                    prix et perpétuel, lwc-clock.js leur donne l'heure
+│                    locale, book.js écrit le carnet en place,
 │                    vendor/ porte Lightweight Charts (aucun CDN)
 └── panels/          un module par panneau
     ├── price.py         chandeliers, indicateurs, profil de volume
@@ -1352,6 +1355,36 @@ dernier prix — comportements natifs de la bibliothèque — plus ce qu'elle
 n'offre pas : le profil de volume de la plage visible (POC et Value Area,
 recalculés quand la fenêtre bouge), les signaux, les seuils d'alerte
 (§2.8), le bandeau de démonstration (§4.3) et le zoom rectangulaire.
+
+**L'heure.** Le graphique affiche l'heure locale du navigateur, et l'UTC
+quand la case UTC de sa barre de titre est cochée ; le perpétuel suit la
+même case par le Store global `clock`, comme il suit la devise. Jusqu'au
+12 novembre 2026, ces deux graphiques étaient les seuls du terminal en UTC
+— la bougie de 04:20 à Phnom Penh s'y lisait « 21:20 », la veille — quand
+le ruban, le journal, le calendrier et les figures Plotly datent dans le
+fuseau de la machine. Lightweight Charts lit tout temps comme de l'UTC et
+n'a pas de fuseau ; sa documentation conseille de décaler les temps qu'on
+lui donne. `assets/lwc-clock.js` le fait **à l'affichage seulement** :
+le paquet garde ses temps réels — la pagination, le recalage, les mises à
+jour poussées travaillent dessus —, seuls les points posés dans les séries
+sont décalés, et les trois temps que le graphique rend sont recalés :
+la bougie sous un tracé (les lignes se gardent en heures absolues), la
+plage visible du profil de volume et celle de la carte des liquidations.
+Le décalage se prend instant par instant, une bougie d'août garde son
+heure d'été ; au passage à l'heure d'hiver, deux bougies d'une heure ou
+moins tomberaient sur le même temps affiché, ce que la bibliothèque
+refuse — l'horloge garde l'ordre strict en posant la seconde une seconde
+après la première. Les bougies d'un jour et plus ne se décalent pas :
+elles sont le jour UTC de Binance, et un fuseau à l'ouest de Greenwich
+les daterait de la veille. `tests/test_lwc_clock.py` exécute l'horloge
+sous Node à Phnom Penh, à Paris le 25 octobre 2026 et à Calcutta.
+
+L'heure locale du graphique est celle du **navigateur** ; celle des autres
+panneaux, celle de la **machine** qui sert le terminal. Les deux se
+confondent tant que le terminal tourne sur le portable. Sur un serveur
+distant, souvent réglé en UTC, il faudra donner à l'unité systemd le
+fuseau de l'utilisateur (`Environment=TZ=Asia/Phnom_Penh`), ou faire dater
+ces panneaux par le navigateur.
 Lightweight Charts ne zoome qu'à la molette ; Maj + glisser trace un cadre
 sur le pane du cours, et le relâcher y ajuste la fenêtre — le temps par
 l'échelle logique, le prix par l'échelle de droite, qui quitte alors
@@ -1878,8 +1911,8 @@ depuis `docs/`.
 Le constructeur fige un paquet `/api/klines` par intervalle — mille
 bougies, enrichies après la même marge de calcul que la route, pour que
 la MA 200 soit juste dès la première — dans `docs/demo/data/`, copie
-`lwc-price.js`, la bibliothèque vendorisée et la feuille de style depuis
-`terminal/assets/`, et écrit `docs/index.html` avec la configuration
+`lwc-clock.js`, `lwc-price.js`, la bibliothèque vendorisée et la feuille
+de style depuis `terminal/assets/`, et écrit `docs/index.html` avec la configuration
 (thème, police, profondeurs de page) que le vrai panneau reçoit de son
 Store. Dans la page, `docs/demo/shim.js` détourne `fetch` **avant** le
 chargement du rendu : `/api/klines` est servi depuis le paquet figé,
@@ -3397,6 +3430,11 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   de calcul des pages anciennes ; son RSI partait de zéro et sa MA 200
   manquait sur deux cents bougies. Les signaux de ce début de page
   bougent en conséquence : ce sont les anciens qui étaient faux.
+- ~~**Un graphique en UTC dans un terminal à l'heure locale**~~ — fait le
+  12 novembre 2026, à la demande de l'utilisateur (§3.2) : le prix et le
+  perpétuel affichent l'heure locale du navigateur, la case UTC rend
+  l'UTC. Reste ouvert : sur un serveur distant, les autres panneaux
+  dateront dans le fuseau du serveur, pas dans celui du navigateur.
 - ~~**Un panneau POSITION qui répondait « saisir un capital » à tout**~~ —
   vérifié à la demande de l'utilisateur, au clavier dans Firefox : les
   calculs sont justes (valeur, résultat, distance au stop, multiple de

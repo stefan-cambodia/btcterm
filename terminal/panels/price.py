@@ -82,9 +82,16 @@ def layout(title=None):
                     style={"display": "inline-block", "fontSize": "9px",
                            "marginLeft": "8px"},
                 ),
+                # LOG et UTC partagent une case à cocher : une marge de
+                # moins dans une barre qui déborde vite. Décochée, l'heure
+                # est celle du navigateur, comme partout dans le terminal.
                 dcc.Checklist(
                     id="price-scale",
-                    options=[{"label": "LOG", "value": "log"}],
+                    options=[{"label": "LOG", "value": "log"},
+                             {"label": html.Span(
+                                 "UTC", title="heures en UTC — décoché : "
+                                 "heure locale du navigateur"),
+                              "value": "utc"}],
                     value=[], inline=True, className="tf-check",
                     persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px",
@@ -142,6 +149,7 @@ def register(app, hub):
                     interval: interval,
                     currency: currency,
                     log: (scale || []).includes('log'),
+                    utc: (scale || []).includes('utc'),
                     extras: extras || [],
                     maximized: maximized === 'price',
                 }, config);
@@ -165,6 +173,14 @@ def register(app, hub):
         "function (currency) { return currency || 'USD'; }",
         Output("currency", "data"),
         Input("price-currency", "value"),
+    )
+
+    # L'heure des graphiques, de même : le perpétuel la lit aussi.
+    app.clientside_callback(
+        "function (scale) { return (scale || []).includes('utc') "
+        "? 'utc' : 'local'; }",
+        Output("clock", "data"),
+        Input("price-scale", "value"),
     )
 
     # Repli poll : au rythme de l'horloge lente, le client recharge la

@@ -52,7 +52,8 @@ terminal en marche, réduites à 1600 px et 256 couleurs.
 navigateur : il est servi en page statique, sur un instantané figé, à
 **https://stefan-cambodia.github.io/btcterm/** — zoom (molette, ou un
 cadre avec Maj + glisser), crosshair, pan vers le passé (l'historique se
-charge en glissant), bascule $/€, échelle log, panes RSI/CRSI, profil de
+charge en glissant), bascule $/€, échelle log, heure locale ou UTC,
+panes RSI/CRSI, profil de
 volume de la plage visible. Mille bougies par
 intervalle, datées dans le bandeau ; rien n'y est en direct. La page se
 regénère par `python -m terminal.demo docs` (voir « Outils
@@ -81,7 +82,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
-| **Prix** | chandeliers de 1 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
+| **Prix** | chandeliers de 1 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), signaux, bascule `$`/`€`, échelle log, heure locale ou UTC, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
 | **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ ; dessous, le solde horaire des gros ordres et la prime Coinbase journalisés (onglet du carnet) | 2 s · 5 min |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian et cadrées sur l'étendue médiane des carnets ; dessous, l'historique journalisé de la liquidité à ±0,1 % du prix (onglet du carnet) | 250 ms · 5 min |
@@ -163,6 +164,12 @@ d'historique — de quoi nourrir la MA 200 en intraday, sans tirer trente ans de
 bougies mensuelles. La case `LOG` passe l'axe des prix en
 logarithmique — indispensable dès qu'on remonte plusieurs années, où une
 progression de 4 000 à 80 000 dollars écrase tout le début du graphique.
+
+**Heure** — le graphique du prix et celui du perpétuel sont à l'heure locale
+du navigateur, comme le reste du terminal ; la case `UTC`, à côté de `LOG`,
+les passe en UTC, et la lecture de la bougie le précise. Les bougies d'un jour
+et plus restent le jour UTC de Binance, qui ouvre à minuit UTC — 7 h à Phnom
+Penh.
 
 **Sous-graphiques optionnels** — les cases `RSI` · `CRSI` · `VOL` · `PROFIL` de
 la barre de titre du panneau prix décident de ce qui accompagne les chandeliers.
@@ -433,7 +440,8 @@ qui se tait parce qu'il est périmé doit se voir.
   et le hub qui n'ouvre qu'une connexion par plateforme pour tous les panneaux.
 - **`terminal/`** — l'application Dash : grille, thème, figures, panneaux,
   rendus Lightweight Charts du prix et du perpétuel (`lwc.py`,
-  `assets/lwc-price.js`, `assets/lwc-perp.js`).
+  `assets/lwc-price.js`, `assets/lwc-perp.js`, et `assets/lwc-clock.js` qui
+  leur donne l'heure locale).
 
 Détail complet dans [`ARCHITECTURE.md`](ARCHITECTURE.md), feuille de route en
 [§7](ARCHITECTURE.md#7-feuille-de-route-vers-le-terminal).
@@ -623,6 +631,7 @@ python tests/test_alerts.py              # alertes : seuils, fronts, cadences, c
 python tests/test_wsgi.py                # fabrique gunicorn du régime service
 python tests/test_lwc_serialize.py       # contrat de série du rendu du prix
 python tests/test_lwc_api.py             # /api/klines : pagination, marge de calcul de chaque page, repli démo
+python tests/test_lwc_clock.py           # heure locale des graphiques, UTC sur demande (nécessite Node)
 python tests/test_indicators_incremental.py  # dernier point : borné = complet
 python tests/test_prepare_price_frame.py # enrichissement du prix : colonnes, bornes
 python tests/test_resolver.py            # résolution DNS de secours, sans réseau

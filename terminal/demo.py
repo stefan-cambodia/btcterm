@@ -51,6 +51,7 @@ ASSETS_DIR = Path(__file__).resolve().parent / "assets"
 ASSETS = {
     "vendor/lightweight-charts.standalone.production.js":
         "vendor/lightweight-charts.standalone.production.js",
+    "lwc-clock.js": "lwc-clock.js",
     "lwc-price.js": "lwc-price.js",
     "terminal.css": "terminal.css",
 }
@@ -119,11 +120,13 @@ PAGE = """<!DOCTYPE html>
   avec __PANELS__. Ici, seul le panneau prix, sur __BARS__ bougies par intervalle
   figées le __DATE__ : zoom à la molette ou au cadre (Maj + glisser,
   double-clic pour la vue entière), pan à la souris (l'historique se
-  charge en glissant vers le passé), crosshair, $/€, échelle log, panes.
+  charge en glissant vers le passé), crosshair, $/€, échelle log, heure
+  locale ou UTC, panes.
 </div>
 <script src="demo/vendor/lightweight-charts.standalone.production.js"></script>
 <script>window.DEMO_CONF = __CONF__;</script>
 <script src="demo/shim.js"></script>
+<script src="demo/lwc-clock.js"></script>
 <script src="demo/lwc-price.js"></script>
 <script src="demo/page.js"></script>
 </body>

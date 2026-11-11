@@ -79,6 +79,9 @@ def _shared_stores() -> list:
         # sélecteur n'est alors pas dans la page, et ses lecteurs doivent
         # la connaître.
         dcc.Store(id="currency", storage_type="local"),
+        # L'heure des graphiques Lightweight Charts — « local » ou « utc » —,
+        # choisie par la case UTC du panneau prix : même raison.
+        dcc.Store(id="clock", storage_type="local"),
         # La position suivie : même raison, le bandeau la lit panneau replié.
         dcc.Store(id="position", storage_type="local"),
     ]

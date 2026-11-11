@@ -190,6 +190,27 @@ def test_panneau_prix_lwc_cable():
     print("  ✓ panneau prix LWC : div posé, trois relais branchés, routes servies")
 
 
+def test_l_heure_des_graphiques_est_relayee():
+    """La case UTC du panneau prix vaut pour les deux graphiques
+    Lightweight Charts : le Store global `clock` la porte au perpétuel,
+    comme `currency` la devise, même panneau prix hors de la grille."""
+    from terminal.panels import price
+
+    scale = price.layout().children[0].children[1].children[2]
+    assert scale.id == "price-scale"
+    assert [o["value"] for o in scale.options] == ["log", "utc"]
+    assert scale.value == [], "heure locale par défaut"
+    assert "clock" in APP_IDS and "clock.data" in CALLBACK_KEYS
+    perp = next(c for k, c in APP.callback_map.items()
+                if "lwc-perp-sink" in k)
+    assert {"id": "clock", "property": "data"} in perp["inputs"]
+    assets = Path(__file__).resolve().parent.parent / "terminal" / "assets"
+    assert (assets / "lwc-clock.js").exists()
+    for script in ("lwc-price.js", "lwc-perp.js"):
+        assert "btcClock" in (assets / script).read_text(), script
+    print("  ✓ case UTC relayée au perpétuel, heure locale par défaut")
+
+
 def test_entete_branche():
     for component_id in ("hdr-price", "hdr-change", "hdr-spread", "hdr-status"):
         assert component_id in APP_IDS, f"{component_id} absent de l'en-tête"

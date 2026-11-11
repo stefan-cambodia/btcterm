@@ -51,6 +51,7 @@
         drawLines: [],
         drawings: [],
         hover: null,   // dernier événement du crosshair sur une bougie
+        clock: null,   // temps réels ↔ temps affichés (assets/lwc-clock.js)
         signalsHidden: localStorage.getItem(SIGNALS_KEY) === "off",
         zoomBox: null,  // le cadre du zoom rectangulaire, caché au repos
         drag: null      // la sélection en cours : {x0, y0, x1, y1, area}
@@ -58,6 +59,40 @@
 
     var INTRADAY = {"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1,
                     "6h": 1, "12h": 1};
+
+    // ── Heure affichée ──────────────────────────────────────
+    //
+    // Heure locale du navigateur par défaut, UTC si la case l'est
+    // (cfg.utc). Le paquet garde ses temps réels ; l'horloge de
+    // lwc-clock.js décale ceux qu'on pose dans les séries, et recale ceux
+    // que le graphique rend. Jusqu'au 12 novembre 2026, le graphique était
+    // le seul du terminal en UTC : la bougie de 04:20 à Phnom Penh s'y
+    // lisait « 21:20 », la veille.
+    //
+    // Sans lwc-clock.js — une page qui ne l'aurait pas chargé —, une
+    // horloge immobile : l'UTC, plutôt qu'un graphique vide.
+    var STILL_CLOCK = {
+        shift: false,
+        add: function (t) { return t; },
+        addAll: function () { return this; },
+        shown: function (t) { return t; },
+        actual: function (t) { return t; },
+        points: function (points) { return points; }
+    };
+
+    function clock() { return state.clock || STILL_CLOCK; }
+
+    // Rebâtie à chaque versement du paquet, sur toutes ses bougies. Les
+    // bougies d'un jour et plus ne se décalent pas : elles sont le jour
+    // UTC de Binance, et un fuseau à l'ouest de Greenwich les daterait
+    // de la veille ; leur axe n'affiche pas d'heure.
+    function rebuildClock() {
+        var interval = state.packet.interval || state.cfg.interval;
+        var shift = !state.cfg.utc && !!INTRADAY[interval];
+        state.clock = window.btcClock && shift
+            ? window.btcClock.create(true).addAll(state.packet.bars)
+            : STILL_CLOCK;
+    }
 
     //: Historique chargé à la volée : dès que le bord gauche visible
     //: approche à moins de ce nombre de bougies du début du tampon, la
@@ -331,12 +366,14 @@
                                               maximumFractionDigits: 2});
     }
 
-    // Une date lue en UTC, comme l'axe du temps ; les heures n'ont de sens
-    // qu'en intraday.
+    // La date d'un temps affiché, lue comme l'axe la lit : le décalage de
+    // l'heure locale y est déjà. Les heures n'ont de sens qu'en intraday,
+    // et l'UTC s'y dit — l'heure locale est celle de tout le terminal.
     function barDate(time) {
+        var intraday = !!INTRADAY[state.cfg.interval];
         return new Date(time * 1000).toISOString()
-            .slice(0, INTRADAY[state.cfg.interval] ? 16 : 10)
-            .replace("T", " ");
+            .slice(0, intraday ? 16 : 10)
+            .replace("T", " ") + (intraday && state.cfg.utc ? " UTC" : "");
     }
 
     // La valeur d'une série sous le crosshair, ou sa dernière valeur.
@@ -622,8 +659,9 @@
             ? drawing.p0 * Math.pow(drawing.p1 / drawing.p0, progress)
             : drawing.p0 + (drawing.p1 - drawing.p0) * progress;
         if (!(end > 0)) { return null; }
-        return [{time: bars[first].time, value: drawing.p0 * rate},
-                {time: bars[last].time, value: end * rate}];
+        return [{time: clock().shown(bars[first].time),
+                 value: drawing.p0 * rate},
+                {time: clock().shown(bars[last].time), value: end * rate}];
     }
 
     function renderDrawings() {
@@ -659,8 +697,10 @@
                 Math.round(ts.coordinateToLogical(end[0])),
                 LightweightCharts.MismatchDirection.NearestLeft);
             var price = candles.coordinateToPrice(end[1]);
+            // La bougie rend son temps affiché ; la ligne se garde en
+            // temps réel, pour survivre à la bascule UTC / heure locale.
             return bar && price !== null
-                ? {time: bar.time, price: price / rate} : null;
+                ? {time: clock().actual(bar.time), price: price / rate} : null;
         }).sort(function (a, b) {
             return a && b ? a.time - b.time : 0;
         });
@@ -837,8 +877,8 @@
         var interval = state.cfg.interval;
         var seq = state.seq;
         fetch("/api/profile?interval=" + encodeURIComponent(interval)
-              + "&from=" + Math.floor(range.from)
-              + "&to=" + Math.ceil(range.to))
+              + "&from=" + Math.floor(clock().actual(range.from))
+              + "&to=" + Math.ceil(clock().actual(range.to)))
             .then(function (r) { return r.json(); })
             .then(function (profile) {
                 if (seq !== state.seq || !state.chart
@@ -1012,12 +1052,14 @@
         var bars = state.packet.bars;
         var n = bars.length;
         var step = n > 1 ? bars[n - 1].time - bars[n - 2].time : 0;
-        var to = Math.ceil(range.to) + step;
-        if (n && range.to >= bars[n - 1].time) {
+        var from = clock().actual(range.from);
+        var until = clock().actual(range.to);
+        var to = Math.ceil(until) + step;
+        if (n && until >= bars[n - 1].time) {
             to = Math.max(to, Math.ceil(Date.now() / 1000));
         }
         var seq = state.seq;
-        fetch("/api/liqmap?from=" + Math.floor(range.from) + "&to=" + to)
+        fetch("/api/liqmap?from=" + Math.floor(from) + "&to=" + to)
             .then(function (r) { return r.json(); })
             .then(function (carte) {
                 if (seq !== state.seq || !state.liqCanvas) { return; }
@@ -1254,22 +1296,26 @@
         var series = state.series;
         var theme = state.conf.theme;
         var rate = state.cfg.currency === "EUR" ? packet.eur_rate : 1;
+        rebuildClock();
+        var at = clock();
 
-        series.candles.setData(scaled(packet.bars, rate));
+        series.candles.setData(at.points(scaled(packet.bars, rate)));
         for (var name in series.lines) {
             series.lines[name].setData(
-                scaled(packet.overlays[name] || [], rate));
+                at.points(scaled(packet.overlays[name] || [], rate)));
         }
         if (series.volume) {
             series.volume.setData(packet.volume.map(function (p) {
-                return {time: p.time, value: p.value,
+                return {time: at.shown(p.time), value: p.value,
                         color: p.up ? theme.green : theme.red};
             }));
-            series.volMa.setData(packet.volume_ma);
+            series.volMa.setData(at.points(packet.volume_ma));
         }
-        if (series.rsi) { series.rsi.setData(packet.panes.rsi || []); }
-        if (series.crsi) { series.crsi.setData(packet.panes.crsi || []); }
-        if (series.cvd) { series.cvd.setData(cvdPoints()); }
+        if (series.rsi) { series.rsi.setData(at.points(packet.panes.rsi || [])); }
+        if (series.crsi) {
+            series.crsi.setData(at.points(packet.panes.crsi || []));
+        }
+        if (series.cvd) { series.cvd.setData(at.points(cvdPoints())); }
         series.markers.setMarkers(markersFrom(packet.signals || []));
         renderDrawings();
 
@@ -1302,7 +1348,7 @@
         if (state.signalsHidden) { return []; }
         return signals.map(function (s) {
             return {
-                time: s.time,
+                time: clock().shown(s.time),
                 position: s.value > 0 ? "belowBar" : "aboveBar",
                 shape: s.value > 0 ? "arrowUp" : "arrowDown",
                 color: s.value === 2 ? theme.buy
@@ -1562,7 +1608,8 @@
                 refetch(true);
                 return;
             }
-            if (rebuilt || previous.currency !== cfg.currency) {
+            if (rebuilt || previous.currency !== cfg.currency
+                    || !previous.utc !== !cfg.utc) {
                 fillSeries();
                 if (rebuilt) { state.chart.timeScale().fitContent(); }
                 return;
@@ -1635,31 +1682,37 @@
             var series = state.series;
             var theme = state.conf.theme;
             var rate = state.cfg.currency === "EUR" ? packet.eur_rate : 1;
-            series.candles.update(scaled([update.bar], rate)[0]);
+            // La bougie qui clôture s'inscrit à l'horloge, à la suite des
+            // autres : les points qui suivent la retrouvent.
+            var at = clock();
+            at.add(update.bar.time);
+            function one(point) { return at.points([point])[0]; }
+            series.candles.update(one(scaled([update.bar], rate)[0]));
             for (name in update.overlays) {
                 if (series.lines[name]) {
                     series.lines[name].update(
-                        scaled([update.overlays[name]], rate)[0]);
+                        one(scaled([update.overlays[name]], rate)[0]));
                 }
             }
             if (series.volume && update.volume) {
                 series.volume.update({
-                    time: update.volume.time, value: update.volume.value,
+                    time: at.shown(update.volume.time),
+                    value: update.volume.value,
                     color: update.volume.up ? theme.green : theme.red
                 });
                 if (update.volume_ma) {
-                    series.volMa.update(update.volume_ma);
+                    series.volMa.update(one(update.volume_ma));
                 }
             }
             if (series.rsi && update.panes.rsi) {
-                series.rsi.update(update.panes.rsi);
+                series.rsi.update(one(update.panes.rsi));
             }
             if (series.crsi && update.panes.crsi) {
-                series.crsi.update(update.panes.crsi);
+                series.crsi.update(one(update.panes.crsi));
             }
             if (series.cvd && update.panes.delta) {
                 var cvd = cvdPoints();
-                series.cvd.update(cvd[cvd.length - 1]);
+                series.cvd.update(one(cvd[cvd.length - 1]));
             }
 
             // Le signal de la bougie courante peut naître, changer de
@@ -1746,6 +1799,11 @@
                 // rapport des deux est le taux réellement appliqué.
                 packetClose: n ? state.packet.bars[n - 1].close : null,
                 firstTime: n ? state.packet.bars[0].time : null,
+                // Le temps réel de la dernière bougie, et celui que
+                // l'axe affiche : leur écart est le décalage appliqué.
+                lastTime: n ? state.packet.bars[n - 1].time : null,
+                lastShown: last ? last.time : null,
+                utc: !!state.cfg.utc,
                 exhausted: state.exhausted,
                 backfillRetry: !!state.backfillTimer,
                 steps: steps(data),
@@ -1843,7 +1901,8 @@
         },
 
         // Pour le smoke : où se trouve à l'écran un point d'une série, ce que
-        // tout recadrage change.
+        // tout recadrage change. `time` est un temps affiché — celui des
+        // points de `drawLines`.
         screen: function (time, value) {
             return {x: state.chart.timeScale().timeToCoordinate(time),
                     y: state.series.candles.priceToCoordinate(value)};

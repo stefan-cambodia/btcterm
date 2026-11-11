@@ -74,8 +74,9 @@ def test_le_constructeur_ecrit_ce_qu_il_annonce():
         assert (out / ".nojekyll").exists()
 
         page = (out / "index.html").read_text()
-        for ref in ("demo/terminal.css", "demo/shim.js", "demo/lwc-price.js",
-                    "demo/page.js", "demo/vendor/lightweight-charts"):
+        for ref in ("demo/terminal.css", "demo/shim.js", "demo/lwc-clock.js",
+                    "demo/lwc-price.js", "demo/page.js",
+                    "demo/vendor/lightweight-charts"):
             assert ref in page, ref
         from datetime import datetime, timezone
         attendu = datetime.fromtimestamp(1_787_000_000, timezone.utc).strftime("%d/%m/%Y")

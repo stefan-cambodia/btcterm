@@ -11,7 +11,7 @@
     var conf = window.DEMO_CONF;
     var STORE = "btcterm-demo";
     var state = load() || {interval: conf.default_interval || "1d",
-                           currency: "USD", log: false,
+                           currency: "USD", log: false, utc: false,
                            extras: ["rsi", "volume", "profile"]};
 
     function load() {
@@ -64,7 +64,8 @@
         if (window.lwcPrice) {
             window.lwcPrice.configure({
                 interval: state.interval, currency: state.currency,
-                log: state.log, extras: state.extras.slice(), maximized: false
+                log: state.log, utc: !!state.utc,
+                extras: state.extras.slice(), maximized: false
             }, conf);
         }
     }
@@ -76,8 +77,13 @@
               state.interval, function (v) { state.interval = v; apply(); });
         radio("price-currency", [{label: "$", value: "USD"}, {label: "€", value: "EUR"}],
               state.currency, function (v) { state.currency = v; apply(); });
-        check("price-scale", [{label: "LOG", value: "log"}], state.log ? ["log"] : [],
-              function (v) { state.log = v.indexOf("log") >= 0; apply(); });
+        check("price-scale", [{label: "LOG", value: "log"}, {label: "UTC", value: "utc"}],
+              (state.log ? ["log"] : []).concat(state.utc ? ["utc"] : []),
+              function (v) {
+                  state.log = v.indexOf("log") >= 0;
+                  state.utc = v.indexOf("utc") >= 0;
+                  apply();
+              });
         check("price-extras", [{label: "RSI", value: "rsi"}, {label: "CRSI", value: "crsi"},
                                {label: "VOL", value: "volume"}, {label: "PROFIL", value: "profile"}],
               state.extras, function (v) { state.extras = v; apply(); });

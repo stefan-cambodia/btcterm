@@ -261,10 +261,11 @@ def register(app, hub):
 
     app.clientside_callback(
         """
-        function (maximized, currency, config) {
+        function (maximized, currency, clock, config) {
             if (window.lwcPerp) {
                 window.lwcPerp.configure(
-                    {maximized: maximized === 'etf', currency: currency},
+                    {maximized: maximized === 'etf', currency: currency,
+                     utc: clock === 'utc'},
                     config);
             }
             return window.dash_clientside.no_update;
@@ -273,6 +274,7 @@ def register(app, hub):
         Output("lwc-perp-sink", "data"),
         Input("maximized", "data"),
         Input("currency", "data"),
+        Input("clock", "data"),
         State("lwc-perp-config", "data"),
     )
 

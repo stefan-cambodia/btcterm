@@ -625,6 +625,53 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         browser.js("document.querySelector('#price-scale input').click();")
         time.sleep(2.2)
 
+        print("\nHeure locale, UTC sur demande")
+        # Le décalage ne vaut qu'en intraday : les bougies d'un jour sont
+        # le jour UTC de Binance. L'attendu est le fuseau du navigateur
+        # lui-même, pas celui de la machine de test.
+        intervalle = browser.js("return window.lwcPrice.debug().interval;")
+        if intervalle in ("1d", "1w", "1M"):
+            browser.js("""
+                Array.from(document.querySelectorAll('#price-interval label'))
+                     .find(l => l.textContent.trim() === '4h').click();""")
+            browser.wait_for("window.lwcPrice.debug().loaded === '4h'",
+                             timeout=20)
+        sonde = """
+            const d = window.lwcPrice.debug();
+            return {decalage: d.lastShown - d.lastTime, utc: d.utc,
+                    fuseau: -new Date(d.lastTime * 1000)
+                        .getTimezoneOffset() * 60,
+                    lecture: d.readout || '',
+                    stockee: localStorage.getItem('clock')};"""
+        case_utc = """
+            const l = Array.from(document.querySelectorAll('#price-scale label'))
+                .find(e => e.textContent.trim() === 'UTC');
+            (l.querySelector('input') || l).click();"""
+        locale = browser.js(sonde)
+        check("heure locale par défaut : l'axe décalé du fuseau du navigateur",
+              not locale["utc"] and locale["decalage"] == locale["fuseau"]
+              and "UTC" not in locale["lecture"],
+              f"{locale['decalage'] / 3600:+g} h · {locale['lecture'][:16]}")
+        browser.js(case_utc)
+        browser.wait_for("window.lwcPrice.debug().utc === true", timeout=5)
+        utc = browser.js(sonde)
+        check("UTC coché : l'axe sans décalage, la lecture le dit",
+              utc["decalage"] == 0 and utc["lecture"][:20].endswith(" UTC"),
+              utc["lecture"][:20])
+        check("le choix va au Store que lit le perpétuel",
+              utc["stockee"] == '"utc"', utc["stockee"])
+        browser.js(case_utc)
+        browser.wait_for("window.lwcPrice.debug().utc === false", timeout=5)
+        check("décoché : l'heure locale revient",
+              browser.js(sonde)["decalage"] == locale["decalage"])
+        if intervalle in ("1d", "1w", "1M"):
+            browser.js("""
+                Array.from(document.querySelectorAll('#price-interval label'))
+                     .find(l => l.textContent.trim() === arguments[0]).click();""",
+                       [intervalle])
+            browser.wait_for(f"window.lwcPrice.debug().loaded === '{intervalle}'",
+                             timeout=20)
+
         print("\nZoom rectangulaire")
         # Maj + glisser sur le pane du cours : le geste que la
         # bibliothèque n'offre pas, joué à la vraie souris — c'est aussi

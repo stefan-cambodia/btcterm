@@ -13,6 +13,10 @@
 // bascule de plein écran ; poll() suit l'horloge rare (5 min) — ces
 // données bougent par tranches de 4 à 8 heures, aucun canal push n'est
 // justifié.
+//
+// L'heure suit la case UTC du panneau prix (Store `clock`) : locale par
+// défaut, par l'horloge de lwc-clock.js, qui décale les temps posés dans
+// les séries sans toucher aux données.
 (function () {
     "use strict";
 
@@ -122,16 +126,23 @@
             .then(function (packet) {
                 if (seq !== state.seq || !state.chart) { return; }
                 var theme = state.conf.theme;
+                // Une horloge pour les deux séries : elles partagent l'axe,
+                // l'ordre strict des temps affichés vaut pour leur union.
+                var at = window.btcClock && !(state.cfg && state.cfg.utc)
+                    ? window.btcClock.create(true)
+                        .addAll(packet.funding, packet.oi)
+                    : null;
+                function shown(t) { return at ? at.shown(t) : t; }
                 state.funding.setData(packet.funding.map(function (p) {
                     // Un point sans valeur est un point blanc : la
                     // séance était interrompue, la série s'y rompt.
-                    if (p.value === undefined) { return {time: p.time}; }
-                    return {time: p.time, value: p.value,
+                    if (p.value === undefined) { return {time: shown(p.time)}; }
+                    return {time: shown(p.time), value: p.value,
                             color: p.value >= 0 ? theme.green : theme.red};
                 }));
                 var rate = euros() ? packet.eur_rate : 1;
                 state.oi.setData(packet.oi.map(function (p) {
-                    return {time: p.time, value: p.value * rate};
+                    return {time: shown(p.time), value: p.value * rate};
                 }));
                 var vide = !packet.funding.length && !packet.oi.length;
                 state.note.style.display = vide ? "flex" : "none";
@@ -164,7 +175,8 @@
             state.cfg = cfg;
             state.conf = conf;
 
-            if (previous && previous.currency !== cfg.currency) {
+            if (previous && (previous.currency !== cfg.currency
+                             || !previous.utc !== !cfg.utc)) {
                 refetch(false);
             }
 
