@@ -80,7 +80,7 @@ def _badges(agregats: dict, fx=DOLLARS, change=None):
                   style={"color": C["text"]},
                   title=fx.title(
                       "capitalisation de l'ensemble des cryptomonnaies")),
-        html.Span(f" {variation:+.2f} %", style={"color": couleur},
+        html.Span(f" {variation:+z.2f} %", style={"color": couleur},
                   title=note),
         html.Span(" · vol ", style={"color": C["muted"]}),
         html.Span(f"{agregats['total_volume_usd'] * fx.rate / 1e9:.0f} "

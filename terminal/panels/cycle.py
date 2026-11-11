@@ -129,7 +129,7 @@ def rows(state: dict | None) -> list[tuple[str, str, str, str]]:
     out.append((
         "repli",
         "au sommet" if at_peak else
-        f"{state['drawdown']:+.1f} % · {_days(state['days_since_ath'])}",
+        f"{state['drawdown']:+z.1f} % · {_days(state['days_since_ath'])}",
         C["green"] if at_peak else C["red"],
         "distance au sommet, et depuis combien de temps"))
     if state["mayer"] is not None:
@@ -185,7 +185,7 @@ def badges(state: dict | None):
              html.Span(f"{halving['days_left']:.0f} j",
                        style={"color": C["cyan"]}),
              html.Span(" · sommet ", style={"color": C["muted"]}),
-             html.Span(f"{state['drawdown']:+.1f} %",
+             html.Span(f"{state['drawdown']:+z.1f} %",
                        style={"color": C["red"] if state["drawdown"] < -0.05
                               else C["green"]})]
     if state["mayer"] is not None:

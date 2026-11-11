@@ -222,6 +222,145 @@ def test_l_age_de_la_collecte_tient_dans_le_titre():
     print("  ✓ âge court, retard dit au-delà de deux intervalles")
 
 
+RSS_VALIDE = b"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0"><channel><title>t</title>
+<item><title>SEC approves spot Bitcoin ETF</title><link>https://exemple/a</link>
+<description>&lt;p&gt;regulation&lt;/p&gt;</description></item>
+</channel></rss>"""
+RSS_VIDE = b"""<?xml version="1.0"?><rss version="2.0"><channel><title>t</title>
+</channel></rss>"""
+
+
+class _Reponse:
+    def __init__(self, contenu: bytes, statut: int = 200):
+        self.content, self.status_code = contenu, statut
+        self.headers = {"content-type": "application/rss+xml"}
+
+    def raise_for_status(self):
+        import requests
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} Server Error")
+
+
+def test_un_flux_en_panne_se_dit():
+    """feedparser, à qui l'URL était confiée, rendait un flux vide sur une
+    erreur réseau, sans rien lever : un site en panne passait pour un site
+    sans nouvelles. Le flux passe par `requests`, et chaque panne se nomme ;
+    un flux bien formé mais vide n'en est pas une."""
+    import requests
+
+    def get(url, **kwargs):
+        assert kwargs.get("timeout") == sources.RSS_TIMEOUT, "un délai, toujours"
+        if url == "coupe":
+            raise requests.ConnectionError("Connection refused")
+        return {"bon": _Reponse(RSS_VALIDE), "vide": _Reponse(RSS_VIDE),
+                "503": _Reponse(b"", 503),
+                "html": _Reponse(b"<html><body>Just a moment...")}[url]
+
+    original = sources._http.get
+    sources._http.get = get
+    erreurs = {}
+    try:
+        flux = [{"name": n, "url": n} for n in ("bon", "vide", "coupe", "503", "html")]
+        articles = sources.fetch_rss_entries(
+            flux, on_error=lambda nom, exc: erreurs.setdefault(nom, str(exc)))
+    finally:
+        sources._http.get = original
+    assert [a["source"] for a in articles] == ["bon"]
+    assert articles[0]["summary"] == "regulation", "le HTML est retiré"
+    assert set(erreurs) == {"coupe", "503", "html"}, erreurs
+    assert "503" in erreurs["503"] and "illisible" in erreurs["html"]
+    print("  ✓ panne réseau, statut HTTP et page non RSS nommés ; flux vide toléré")
+
+
+def test_une_source_en_defaut_ne_met_pas_la_collecte_en_echec():
+    """Une seule lecture ratée du Fear & Greed affichait « collecte en
+    échec » en rouge, les articles arrivés : l'échec est réservé à une
+    tournée qui n'a rien pu lire, le reste se compte à part, source par
+    source — et le panneau SOURCES leur donne une ligne chacune."""
+    import time as horloge
+
+    import requests
+    from btcterm.hub import MarketHub
+    from terminal.panels import news as panneau
+
+    flux = [f["name"] for f in sources.RSS_FEEDS]
+    en_panne: set[str] = {flux[0]}
+
+    def rss(on_error=None, **kwargs):
+        for nom in en_panne & set(flux):
+            on_error(nom, requests.ConnectionError("Connection refused"))
+        return []
+
+    def indice():
+        if "Fear & Greed" in en_panne:
+            raise requests.Timeout("Read timed out")
+        return {"value": 29, "label": "Fear"}
+
+    originaux = sources.fetch_rss_entries, sources.fetch_fear_greed_now
+    sources.fetch_rss_entries, sources.fetch_fear_greed_now = rss, indice
+    try:
+        with tempfile.TemporaryDirectory() as dossier:
+            connexion = newsdb.init_db(Path(dossier) / "news.db")
+            collecteur = newsdb.NewsCollector()
+            try:
+                # Un flux et l'indice en défaut : la collecte a eu lieu.
+                en_panne.add("Fear & Greed")
+                collecteur.collect_once(connexion)
+                statut = collecteur.status
+                assert statut["error"] is None, statut["error"]
+                assert set(statut["failures"]) == {flux[0], "Fear & Greed"}
+                assert "Read timed out" in statut["failures"]["Fear & Greed"]
+                etats = collecteur.sources
+                assert set(etats) == set(flux) | {"Fear & Greed"}, \
+                    "sans clé, CryptoPanic n'est pas une source"
+                debut = etats[flux[0]]["since"]
+                assert etats[flux[0]]["ok_at"] is None and debut is not None
+                assert etats[flux[1]]["error"] is None and etats[flux[1]]["ok_at"]
+
+                badge = panneau._collecte_badge(statut)
+                assert "échec" not in str(badge) and "⚠ 2" in str(badge)
+                assert flux[0] in badge.title and "Fear & Greed" in badge.title
+
+                # Les lignes du panneau SOURCES, et la tâche restée « ok ».
+                hub = MarketHub(collect_news=False, keep_journal=False)
+                hub.collect_news, hub.news = True, collecteur
+                sections = hub.sources_status()
+                lignes = {r["name"]: r for r in sections["Sources REST"]}
+                assert lignes[f"News · {flux[0]}"]["state"] == "panne"
+                assert lignes[f"News · {flux[0]}"]["age"] is None
+                assert lignes[f"News · {flux[1]}"]["state"] == "ok"
+                tache = {r["name"]: r for r in sections["Tâches de fond"]}
+                tache = tache["Collecte des news"]
+                assert tache["state"] == "ok" and f"sans {flux[0]}" in tache["detail"]
+
+                # La panne dure : son début reste le premier constat.
+                collecteur.collect_once(connexion)
+                assert collecteur.sources[flux[0]]["since"] == debut
+
+                # Plus aucun flux : là, la collecte est en échec.
+                en_panne.update(flux)
+                collecteur.collect_once(connexion)
+                assert collecteur.status["error"].startswith("aucun flux RSS")
+                assert "échec" in str(panneau._collecte_badge(collecteur.status))
+
+                # Tout revient : plus rien en défaut.
+                en_panne.clear()
+                collecteur.collect_once(connexion)
+                assert collecteur.status["error"] is None
+                assert collecteur.status["failures"] == {}
+                assert all(e["error"] is None and e["since"] is None
+                           for e in collecteur.sources.values())
+                badge = panneau._collecte_badge(collecteur.status)
+                assert badge.children == "collecte à l'instant"
+                assert horloge.time() - collecteur.sources[flux[0]]["ok_at"] < 5
+            finally:
+                connexion.close()
+    finally:
+        sources.fetch_rss_entries, sources.fetch_fear_greed_now = originaux
+    print("  ✓ source en défaut comptée à part, échec réservé à une tournée vide")
+
+
 def test_la_liste_ne_repart_que_si_elle_change():
     """L'empreinte de la liste suit ce qui la change à l'écran — lien, score,
     sentiment — et rien d'autre : la liste ne repart vers le navigateur que si

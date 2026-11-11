@@ -883,8 +883,8 @@ def etf_issuers(frame: pd.DataFrame) -> list[str]:
 def format_flow(value: float) -> str:
     """Montant de flux, en M$ ou en Md$ selon l'ordre de grandeur."""
     if abs(value) >= 1000:
-        return f"{value / 1000:+,.1f} Md$"
-    return f"{value:+,.0f} M$"
+        return f"{value / 1000:+z,.1f} Md$"
+    return f"{value:+z,.0f} M$"
 
 
 def etf_stats(frame: pd.DataFrame, days: int | None = None) -> dict:

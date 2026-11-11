@@ -1187,18 +1187,35 @@ class MarketHub:
                 row["detail"] = info["error"] or ""
                 if info["failing_since"] is not None:
                     row["since"] = info["failing_since"]
+        # Les sources de la collecte des news, une ligne chacune : la
+        # tâche de fond ne disait que « panne » ou « ok » pour huit
+        # sources, et une seule en défaut les mettait toutes en panne.
+        if self.collect_news:
+            for name, info in self.news.sources.items():
+                families[f"news:{name}"] = {
+                    "name": f"News · {name}",
+                    "state": "panne" if info["error"] else "ok",
+                    "age": (now - info["ok_at"]) if info["ok_at"] else None,
+                    "detail": info["error"] or (
+                        "indice du jour, historisé avec les news"
+                        if name == "Fear & Greed" else
+                        "publications votées" if name == "CryptoPanic"
+                        else "flux RSS")}
         rest = sorted(families.values(),
                       key=lambda row: (-rank[row["state"]], row["name"]))
 
         tasks = []
         if self.collect_news:
             news = self.news.status
+            failures = news.get("failures") or {}
+            detail = f"{news.get('new', 0)} nouvelles au dernier passage"
+            if failures:
+                detail += f" · sans {', '.join(failures)}"
             tasks.append({
                 "name": "Collecte des news",
                 "state": "panne" if news.get("error") else "ok",
                 "age": (now - news["last_run"]) if news.get("last_run") else None,
-                "detail": news.get("error") or f"{news.get('new', 0)} nouvelles "
-                                                "au dernier passage"})
+                "detail": news.get("error") or detail})
         else:
             tasks.append({"name": "Collecte des news", "state": "inactif",
                           "age": None, "detail": "lancée sans --news"})

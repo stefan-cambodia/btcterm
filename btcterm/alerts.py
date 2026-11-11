@@ -427,7 +427,7 @@ class AlertEngine:
         if self._edge("arb", condition, now):
             self._fire("arb",
                        f"arbitrage {best.buy_exchange} → {best.sell_exchange} "
-                       f"net {best.net_profit_pct:+.3f} %", now)
+                       f"net {best.net_profit_pct:+z.3f} %", now)
 
     def _check_funding(self, hub, _opps, config, now) -> None:
         rate = hub.perp_snapshot().get("funding_rate")
@@ -436,7 +436,7 @@ class AlertEngine:
         pct = rate * 100
         if self._edge("funding", abs(pct) >= config["funding_pct"], now):
             self._fire("funding",
-                       f"financement extrême : {pct:+.4f} % / 8 h", now)
+                       f"financement extrême : {pct:+z.4f} % / 8 h", now)
 
     def _check_technical(self, hub, _opps, config, now) -> None:
         """Les trois règles relatives, sur la dernière bougie horaire close.
@@ -467,7 +467,7 @@ class AlertEngine:
             gap = (close / ma200 - 1) * 100
             if self._edge("ma200", abs(gap) >= config["ma200_gap_pct"], now):
                 self._fire("trend",
-                           f"cours à {gap:+.1f} % de la MA 200 h "
+                           f"cours à {gap:+z.1f} % de la MA 200 h "
                            f"({close:,.0f} $)", now)
 
         # RSI extrême : chaque borne a son front et son délai de garde.
@@ -570,7 +570,7 @@ class AlertEngine:
         if self._edge("dominance",
                       abs(delta) >= config["dominance_shift_pts"], now):
             self._fire("dominance",
-                       f"dominance BTC {delta:+.1f} pt en 24 h "
+                       f"dominance BTC {delta:+z.1f} pt en 24 h "
                        f"({latest:.1f} %)", now)
 
     def _check_etf(self, hub, _opps, config, now) -> None:
@@ -599,7 +599,7 @@ class AlertEngine:
         self._etf_last_date = date
         sens = "entrée" if flow >= 0 else "sortie"
         self._fire("etf",
-                   f"flux ETF du {date:%d/%m} : {sens} nette {flow:+,.0f} M$",
+                   f"flux ETF du {date:%d/%m} : {sens} nette {flow:+z,.0f} M$",
                    now)
 
     def _check_chain(self, hub, _opps, config, now) -> None:
@@ -642,7 +642,7 @@ class AlertEngine:
         if self._edge("dvol", jump >= config["dvol_jump_pts"], now):
             self._fire("vol",
                        f"volatilité implicite en hausse : DVOL {last:.1f}, "
-                       f"{jump:+.1f} points depuis la clôture d'hier", now)
+                       f"{jump:+z.1f} points depuis la clôture d'hier", now)
 
     def _check_skew(self, hub, _opps, config, now) -> None:
         """Déplacement du skew 25 delta sur vingt-quatre heures.
@@ -674,8 +674,8 @@ class AlertEngine:
             sens = ("les puts se renchérissent" if delta < 0
                     else "les calls se renchérissent")
             self._fire("skew",
-                       f"skew 25Δ {delta:+.1f} pt en 24 h "
-                       f"({latest:+.1f}) : {sens}", now)
+                       f"skew 25Δ {delta:+z.1f} pt en 24 h "
+                       f"({latest:+z.1f}) : {sens}", now)
 
     def _check_liquidity(self, hub, _opps, config, now) -> None:
         """Les carnets qui se vident : la liquidité loin sous sa moyenne.

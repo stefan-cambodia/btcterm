@@ -109,7 +109,7 @@ def _summary_row(interval: str, state: dict | None):
     return html.Tr([
         _cell(interval, "muted", "left"),
         _cell(label, color),
-        _cell(f"{state['gap']:+.1f} %", "green" if state["gap"] >= 0 else "red"),
+        _cell(f"{state['gap']:+z.1f} %", "green" if state["gap"] >= 0 else "red"),
         _cell(f"{rsi:.0f}", "red" if rsi >= 70 else "green" if rsi <= 30 else None),
         _cell("—" if state["atr_pct"] is None else f"{state['atr_pct']:.1f} %",
               "muted"),
@@ -135,9 +135,9 @@ def _stats_cells(cell: dict | None):
     solid = cell["count"] >= MIN_SAMPLE
     edge = "green" if cell["edge"] > 0 else "red"
     return [
-        _cell(f"{cell['mean']:+.2f} %", None if solid else "muted"),
+        _cell(f"{cell['mean']:+z.2f} %", None if solid else "muted"),
         _cell(f"{cell['hit']:.0f} %", None if solid else "muted"),
-        _cell(f"{cell['edge']:+.2f} %", edge if solid else "muted"),
+        _cell(f"{cell['edge']:+z.2f} %", edge if solid else "muted"),
     ]
 
 
@@ -162,7 +162,7 @@ def render_stats(stats: dict | None):
         ])
         for row in stats["rows"]
     ]
-    base = " · ".join(f"{stats['base'][h]:+.2f} % à {h} bougies"
+    base = " · ".join(f"{stats['base'][h]:+z.2f} % à {h} bougies"
                       for h in horizons)
     note = (f"{stats['bars']:,} bougies closes, du {stats['first']:%d/%m/%Y} au "
             f"{stats['last']:%d/%m/%Y} · rester investi : {base} · écart : avance "
@@ -189,9 +189,9 @@ def render_rules(stats: dict | None):
         safer = row["drawdown"] > hold["drawdown"]
         rows.append(html.Tr([
             _cell(row["label"], None, "left"),
-            _cell(f"{row['annual']:+.1f} %",
+            _cell(f"{row['annual']:+z.1f} %",
                   None if row is hold else "green" if better else "red"),
-            _cell(f"{row['total']:+,.0f} %"),
+            _cell(f"{row['total']:+z,.0f} %"),
             _cell(f"{row['drawdown']:.1f} %",
                   None if row is hold else "green" if safer else "red"),
             _cell(f"{row['exposure']:.0f} %"),
@@ -238,14 +238,14 @@ def render_months(stats: dict | None):
         rows.append(html.Tr([
             _heat(None, str(year)),
             *[_heat(row.get(month),
-                    f"{row[month]:+.0f}" if month in row else "")
+                    f"{row[month]:+z.0f}" if month in row else "")
               for month in range(1, 13)],
-            _heat(stats["years"][year], f"{stats['years'][year]:+.0f}"),
+            _heat(stats["years"][year], f"{stats['years'][year]:+z.0f}"),
         ]))
     moyenne = stats["months"]
     rows.append(html.Tr([
         _heat(None, "moy."),
-        *[_heat(moyenne[month]["mean"], f"{moyenne[month]['mean']:+.0f}",
+        *[_heat(moyenne[month]["mean"], f"{moyenne[month]['mean']:+z.0f}",
                 f"{moyenne[month]['up']:.0f} % de mois haussiers")
           if month in moyenne else _heat(None, "")
           for month in range(1, 13)],

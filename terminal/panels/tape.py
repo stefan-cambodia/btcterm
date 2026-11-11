@@ -125,7 +125,7 @@ def badges(tape):
     prime = tape.coinbase_premium(FLOW_WINDOW)
     prime_span = ([] if prime is None else [
         html.Span(" · ", style={"color": C["muted"]}),
-        html.Span(f"prime CBS {prime * 100:+.2f} %",
+        html.Span(f"prime CBS {prime * 100:+z.2f} %",
                   style={"color": C["green"] if prime >= 0 else C["red"]},
                   title=("prime Coinbase : le bitcoin en dollars sur Coinbase "
                          "contre Binance en USDT, prix moyens pondérés de cinq "

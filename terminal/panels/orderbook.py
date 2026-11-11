@@ -155,7 +155,7 @@ def render_liquidity(hub, expanded: bool = False):
     ]
     if len(series) >= 12:        # une heure de relevés : la moyenne dit quelque chose
         children.append(html.Span(
-            f" {ecart:+.0f} %",
+            f" {ecart:+z.0f} %",
             style={"color": C["red"] if ecart <= -25 else
                    C["green"] if ecart >= 25 else C["muted"]}))
     if ecartees:
@@ -222,7 +222,7 @@ def _walls(books: dict, mid: float | None, fx, levels=None) -> dict | None:
 
     def label(side, level):
         price = mid * (1 + level[0] / 100) * fx.rate
-        return f"{side} {price:,.0f} ({level[0]:+.2f} %) · {level[1]:.1f} BTC"
+        return f"{side} {price:,.0f} ({level[0]:+z.2f} %) · {level[1]:.1f} BTC"
 
     return {"bid": label("achat", bid), "ask": label("vente", ask),
             "title": fx.title("la tranche la plus chargée de chaque côté, "

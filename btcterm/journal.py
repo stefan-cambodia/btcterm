@@ -667,7 +667,7 @@ def resume(journal: "Journal", hours: float = 24,
             duree = row["last_seen"] - row["first_seen"]
             lines.append(f"  {debut}  {row['buy_exchange']:>8s} → "
                          f"{row['sell_exchange']:<8s} "
-                         f"net {row['best_net_pct']:+.3f} %  "
+                         f"net {row['best_net_pct']:+z.3f} %  "
                          f"pendant {duree:5.1f} s  ({row['samples']} obs.)")
 
     # Les instantanés dépassent la séance : c'est leur accumulation qui

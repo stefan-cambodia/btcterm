@@ -91,7 +91,7 @@ def render_state(state: dict | None, fx, missing: str | None = None):
     lines = [
         _line("valeur", _money(state["value"], fx)),
         _line("résultat", f"{_money(state['pnl'], fx, True)} "
-                          f"({state['pnl_pct']:+.2f} %)", tone),
+                          f"({state['pnl_pct']:+z.2f} %)", tone),
     ]
     if state["stop_pct"] is not None:
         # Un stop que le cours a déjà dépassé — ou posé du mauvais côté :
@@ -110,7 +110,7 @@ def render_state(state: dict | None, fx, missing: str | None = None):
                 "jusqu'au stop", f"{state['stop_pct']:.2f} % · "
                 f"{_money(state['stop_loss'], fx, True)}"))
     if state["r"] is not None:
-        lines.append(_line("multiple", f"{state['r']:+.2f} R", tone,
+        lines.append(_line("multiple", f"{state['r']:+z.2f} R", tone,
                            title="résultat rapporté à la perte prévue au stop"))
     return html.Div(lines)
 

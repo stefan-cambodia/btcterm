@@ -64,10 +64,10 @@ def render(hub, currency=None):
             html.Td(f"{opportunity.sell_exchange} "
                     f"{opportunity.sell_price * fx.rate:,.2f}",
                     style={"padding": "1px 6px"}),
-            html.Td(f"{opportunity.gross_profit_pct:+.3f}",
+            html.Td(f"{opportunity.gross_profit_pct:+z.3f}",
                     style={"textAlign": "right", "color": C["muted"],
                            "padding": "1px 6px"}),
-            html.Td(f"{opportunity.net_profit_pct:+.3f}",
+            html.Td(f"{opportunity.net_profit_pct:+z.3f}",
                     style={"textAlign": "right", "color": color,
                            "fontWeight": "600", "padding": "1px 6px"}),
         ]))

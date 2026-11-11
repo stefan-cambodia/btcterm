@@ -354,6 +354,24 @@ et les panneaux se contentent de lire. L'état de la dernière tournée est publ
 dans `status`, ce qui permet à la barre de titre d'afficher son âge, et de dire
 quand elle échoue.
 
+**Échec et défaut ne se confondent plus.** `status["error"]` n'est posé que
+si la tournée n'a rien pu lire : aucun flux RSS n'a répondu, ou la base a
+cédé. Une source en défaut parmi d'autres va dans `status["failures"]`, et
+la barre de titre garde l'âge de la collecte en ajoutant « ⚠ 1 », le détail
+au survol : le 12 novembre 2026, une seule lecture ratée du Fear & Greed
+affichait « collecte en échec » en rouge un quart d'heure durant, alors que
+les articles arrivaient. `NewsCollector.sources` garde, source par source,
+le dernier succès et la panne en cours, dont le panneau SOURCES fait une
+ligne chacune (§3.18). Pour qu'un flux en panne se voie, encore fallait-il
+qu'il se dise : feedparser, à qui l'URL était confiée, rend un flux vide
+marqué `bozo` sans rien lever quand le réseau manque, et un site en panne
+passait pour un site sans nouvelles. `fetch_rss_entries` lit donc le flux
+par `requests` — avec un délai, que feedparser ne posait pas —, lève sur un
+statut HTTP d'erreur et sur une réponse illisible, et ne laisse à feedparser
+que l'analyse ; la requête garde son identité (`feedparser.USER_AGENT`).
+Le Fear & Greed transmet de même son erreur réelle (`fetch_fear_greed_now`)
+au lieu de « source injoignable ».
+
 **Au réveil**, la tournée n'attend pas la fin de son intervalle (`nudge`). Elle
 attendait un quart d'heure en temps monotone, que le sommeil n'avance pas : le
 7 novembre 2026, la machine a dormi de 00:40 à 06:18, et le fil a gardé six
@@ -2096,8 +2114,12 @@ erreur — que le cache garde désormais en une ligne (`brief_error`), le
 journal ne disant que la première ; les clés se regroupent par famille, une
 par intervalle de chandeliers ou page d'historique ne faisant qu'une source,
 la plus mal en point donnant l'état et la plus fraîche l'âge. Les calculs
-mis en cache (bilans de l'ANALYSE) n'y figurent pas. Les **tâches de fond** :
-collecte des news, instantané de marché, résolution DNS de secours. Le
+mis en cache (bilans de l'ANALYSE) n'y figurent pas. Les sources de la
+collecte des news y ont chacune leur ligne (« News · CoinDesk »), tenue par
+le collecteur (§2.4). Les **tâches de fond** :
+collecte des news — en panne seulement si aucun flux n'a répondu, ses
+sources absentes nommées sinon —, instantané de marché, résolution DNS de
+secours. Le
 panneau nomme les familles pour un lecteur (« Agrégats de marché ·
 CoinGecko »), met les pannes en tête, et écrit l'état en toutes lettres à
 côté de sa pastille. Il a sa propre minuterie de dix secondes, qui n'existe
@@ -3345,6 +3367,20 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   médiane que d'une moitié au plus. Le contrôle d'interface exigeait que
   la moitié des courbes atteigne le mi-cadre, ce que la règle ne garantit
   pas : il en demande un quart.
+- ~~**« Collecte en échec » pour une source sur huit**~~ — fait le 12
+  novembre 2026 (§2.4, §3.18) : une lecture ratée du Fear & Greed mettait
+  le badge des news en rouge, articles arrivés ; à l'inverse, un flux RSS
+  en panne ne se disait jamais, feedparser le rendant vide sans erreur.
+  L'échec est réservé à une tournée qui n'a rien lu, chaque source de news
+  a sa ligne au panneau SOURCES, et l'adresse de Bitcoin Magazine, qui
+  redirigeait vers du `http://` en clair, est remplacée. Le même jour, une
+  série de sondes rapprochées a valu un 403 de ce site, puis il a répondu
+  de nouveau : à surveiller au panneau, maintenant qu'il le dirait.
+- ~~**« 332 BTC -0 % »**~~ — un écart de -0,3 % arrondi à l'unité gardait
+  son signe. Les soixante formats signés du code portent l'option `z` de
+  Python 3.11, qui écrit « +0 », et `test_terminal_wiring.py` refuse un
+  format signé qui ne la porterait pas. Les gabarits de survol de Plotly,
+  qui suivent d3, restent hors de la règle.
 - ~~**Un panneau POSITION qui répondait « saisir un capital » à tout**~~ —
   vérifié à la demande de l'utilisateur, au clavier dans Firefox : les
   calculs sont justes (valeur, résultat, distance au stop, multiple de

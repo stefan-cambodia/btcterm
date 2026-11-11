@@ -360,7 +360,7 @@ le bandeau en dit le nombre ; il compte aussi les liens temps réel qui tiennent
 (« 10/10 flux » : carnets, liquidations, ruban), nomme les absents au survol, et
 l'un comme l'autre ouvrent ce panneau d'un clic. Le panneau SOURCES — ouvert d'un clic sur cet
 avertissement — en donne le détail sans passer par `journalctl` : pour chaque
-carnet, fil de liquidations, API et tâche de fond, son état (ok, secours,
+carnet, fil de liquidations, API, source de news et tâche de fond, son état (ok, secours,
 panne, muet, coupé, inactif — écrit en toutes lettres, pas seulement en
 couleur), l'âge de sa dernière donnée fraîche et sa dernière erreur en une
 ligne. Les pannes viennent en tête.
@@ -607,7 +607,7 @@ L'installation n'est d'ailleurs pas un prérequis : les scripts trouvent
 
 ```bash
 python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
-python tests/test_news_scoring.py        # scoring et collecte des news
+python tests/test_news_scoring.py        # scoring et collecte des news, sources en défaut nommées
 python tests/test_liquidations.py        # flux de liquidations, badge de grille compté
 python tests/test_orderbook.py           # carnets : niveaux fantômes, synchronisation Binance et OKX, profondeur, liquidité journalisée
 python tests/test_cache.py               # cache du hub : secours, fraîcheur, pannes dites

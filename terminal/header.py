@@ -78,8 +78,8 @@ def position_text(position: dict | None, price: float | None,
                            position.get("entry"), price)
     if state is None:
         return "", STAT
-    return (f"{position.get('side')} {state['pnl'] * fx.rate:+,.0f} {fx.unit} "
-            f"({state['pnl_pct']:+.2f} %)",
+    return (f"{position.get('side')} {state['pnl'] * fx.rate:+z,.0f} {fx.unit} "
+            f"({state['pnl_pct']:+z.2f} %)",
             {**STAT, "color": C["green" if state["pnl"] >= 0 else "red"]})
 
 
@@ -141,7 +141,7 @@ def dvol_text(dvol) -> tuple[str, str]:
     last = float(dvol["close"].iloc[-1])
     text = f"DVOL {last:.1f}"
     if len(dvol) >= 2:
-        text += f" {last - float(dvol['close'].iloc[-2]):+.1f}"
+        text += f" {last - float(dvol['close'].iloc[-2]):+z.1f}"
     return text, ("volatilité implicite à 30 jours (Deribit), et sa variation "
                   "depuis la clôture d'hier — cliquer pour ouvrir le panneau "
                   "options")
@@ -157,7 +157,7 @@ def change_text(ticker: dict) -> tuple[str, dict]:
     if raw in (None, ""):
         return "— % 24 h", {**STAT, "color": C["muted"]}
     change = float(raw)
-    return (f"{change:+.2f} % 24 h",
+    return (f"{change:+z.2f} % 24 h",
             {**STAT, "color": C["green"] if change >= 0 else C["red"]})
 
 

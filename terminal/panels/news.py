@@ -80,12 +80,22 @@ def _collecte_badge(status: dict):
     # Au-delà de deux intervalles, le fil est en retard : la couleur le
     # signale, l'âge écrit le dit.
     late = seconds > 2 * STALE_AFTER
-    return html.Span(
-        f"collecte {_age(seconds)}{neuf}",
-        style={"color": C["orange"] if late else C["muted"]},
-        title=("dernière collecte à "
-               + time.strftime("%H:%M", time.localtime(status["last_run"]))
-               + (" — fil en retard" if late else "")))
+    title = ("dernière collecte à "
+             + time.strftime("%H:%M", time.localtime(status["last_run"]))
+             + (" — fil en retard" if late else ""))
+    texte = f"collecte {_age(seconds)}{neuf}"
+    failures = status.get("failures") or {}
+    if not failures:
+        return html.Span(texte, style={"color": C["orange"] if late
+                                       else C["muted"]}, title=title)
+    # Des sources en défaut parmi d'autres : la collecte a eu lieu, le
+    # badge le dit, et compte à part ce qui manque — le détail au survol,
+    # la barre de titre n'ayant pas la place d'une liste.
+    return html.Span([
+        html.Span(texte, style={"color": C["orange"] if late else C["muted"]}),
+        html.Span(f" · ⚠ {len(failures)}", style={"color": C["orange"]}),
+    ], title=title + " — en défaut : " + " ; ".join(
+        f"{name} ({error})" for name, error in failures.items()))
 
 
 #: L'intervalle de la collecte du hub : au-delà de deux, le fil est en retard.

@@ -101,7 +101,7 @@ def _section_episodes(rows, limit):
                     style={**_CELL, "color": C["muted"]}),
             html.Td(f"{row['buy_exchange']} → {row['sell_exchange']}",
                     style={**_CELL, "color": C["text"]}),
-            html.Td(f"{row['best_net_pct']:+.3f} %",
+            html.Td(f"{row['best_net_pct']:+z.3f} %",
                     style={**_CELL, "color": C["green"], "textAlign": "right"},
                     title="meilleur profit net observé pendant l'épisode"),
             html.Td(f"{duree:.0f} s",

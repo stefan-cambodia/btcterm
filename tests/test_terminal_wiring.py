@@ -325,6 +325,26 @@ def test_variation_inconnue_dite_telle():
     print("  ✓ variation 24 h inconnue affichée comme telle")
 
 
+def test_pas_de_zero_negatif():
+    """« 332 BTC -0 % » au titre de la liquidité, le 12 novembre 2026 : un
+    écart de -0,3 % arrondi à l'unité garde son signe. L'option `z` du
+    format (Python 3.11) le ramène à « +0 » ; tout format signé du code
+    la porte. Les gabarits de survol de Plotly (`%{y:+.1f}`) suivent le
+    format de d3, sans `z`, et restent hors de cette règle."""
+    import re
+
+    racine = Path(__file__).resolve().parent.parent
+    motif = re.compile(r"(?<![%{])\{[^{}%]*?:\+[,.0-9]*f\}")
+    oublis = [f"{chemin.relative_to(racine)}:{numero}"
+              for dossier in ("terminal", "btcterm")
+              for chemin in sorted((racine / dossier).rglob("*.py"))
+              for numero, ligne in enumerate(chemin.read_text().splitlines(), 1)
+              if motif.search(ligne)]
+    assert not oublis, f"format signé sans `z` : {oublis}"
+    assert f"{-0.3:+z.0f} %" == "+0 %" and f"{-1.4:+z.0f} %" == "-1 %"
+    print("  ✓ aucun format signé ne peut écrire « -0 »")
+
+
 
 def test_le_bandeau_compte_tous_les_flux():
     """Le bandeau disait « 5/5 flux » pour les seuls carnets ; il compte

@@ -293,11 +293,17 @@ def collect_cryptopanic(
 def record_fear_greed(
     connection: sqlite3.Connection, on_error: Callback = None
 ) -> Optional[dict]:
-    """Relève l'indice Fear & Greed et l'historise."""
-    data = sources.fetch_fear_greed()
-    if data is None:
+    """Relève l'indice Fear & Greed et l'historise.
+
+    L'erreur est transmise telle quelle à `on_error` : « source
+    injoignable », seul message possible jusqu'ici, ne distinguait pas
+    un délai dépassé d'un refus du serveur ou d'une réponse changée.
+    """
+    try:
+        data = sources.fetch_fear_greed_now()
+    except Exception as exc:  # noqa: BLE001
         if on_error:
-            on_error("Fear & Greed", RuntimeError("source injoignable"))
+            on_error("Fear & Greed", exc)
         return None
 
     connection.execute(
@@ -379,7 +385,15 @@ class NewsCollector:
 
     L'état de la dernière tournée est publié dans `status`, ce qui permet
     à l'interface de dire quand elle a regardé pour la dernière fois, et
-    de le dire aussi quand ça échoue.
+    de le dire aussi quand ça échoue. `error` n'y est posé que si la
+    tournée n'a rien pu lire — aucun flux RSS n'a répondu, ou la base a
+    cédé ; une source en défaut parmi d'autres va dans `failures`. Une
+    seule lecture ratée du Fear & Greed affichait « collecte en échec »
+    en rouge pendant un quart d'heure, articles arrivés ou non, le 12
+    novembre 2026.
+
+    `sources` garde, source par source, le dernier succès et l'erreur en
+    cours : le panneau SOURCES en fait une ligne chacune.
     """
 
     def __init__(self, interval: float = 900, api_key: str = ""):
@@ -387,7 +401,11 @@ class NewsCollector:
         self.api_key = api_key
         self.status: dict[str, Any] = {
             "running": False, "last_run": None, "new": 0, "error": None,
+            "failures": {},
         }
+        #: nom → `ok_at` (dernier succès), `error`, `since` (début de la
+        #: panne en cours) ; rempli à la première tournée.
+        self.sources: dict[str, dict[str, Any]] = {}
         self._stop = threading.Event()
         #: Levé pour devancer l'attente : au réveil de la machine, la
         #: tournée n'attend pas la fin de son intervalle (`nudge`).
@@ -420,18 +438,32 @@ class NewsCollector:
 
     def collect_once(self, connection: sqlite3.Connection) -> int:
         """Une tournée complète : RSS, CryptoPanic, Fear & Greed."""
-        errors: list[str] = []
+        errors: dict[str, str] = {}
 
         def note(name: str, exc: Exception) -> None:
-            errors.append(f"{name}: {exc}")
+            errors[name] = sources.brief_error(exc)
 
         new = collect_rss(connection, on_error=note)
         new += collect_cryptopanic(connection, self.api_key, on_error=note)
         record_fear_greed(connection, on_error=note)
 
+        now = time.time()
+        rss = [feed["name"] for feed in sources.RSS_FEEDS]
+        tried = rss + (["CryptoPanic"] if self.api_key else []) + ["Fear & Greed"]
+        for name in tried:
+            state = self.sources.setdefault(
+                name, {"ok_at": None, "error": None, "since": None})
+            if name in errors:
+                state["error"] = errors[name]
+                state["since"] = state["since"] or now
+            else:
+                state.update(ok_at=now, error=None, since=None)
+        rien = bool(rss) and all(name in errors for name in rss)
         self.status.update(
-            last_run=time.time(), new=new,
-            error="; ".join(errors)[:200] or None,
+            last_run=now, new=new, failures=errors,
+            error=("aucun flux RSS ne répond — "
+                   + "; ".join(f"{k}: {v}" for k, v in errors.items()))[:200]
+            if rien else None,
         )
         return new
 

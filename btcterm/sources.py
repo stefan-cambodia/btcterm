@@ -38,6 +38,7 @@ __all__ = [
     "fetch_stablecoin_supply", "stablecoin_supply", "fetch_chain_chart", "fetch_chain_stats",
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
+    "fetch_fear_greed_now",
     "fetch_fear_greed_history", "FEAR_GREED_DAYS",
     "brief_error",
 ]
@@ -178,10 +179,17 @@ RSS_FEEDS: list[dict[str, str]] = [
     {"name": "CoinDesk", "url": "https://www.coindesk.com/arc/outboundfeeds/rss/"},
     {"name": "CoinTelegraph", "url": "https://cointelegraph.com/rss"},
     {"name": "Decrypt", "url": "https://decrypt.co/feed"},
-    {"name": "Bitcoin Magazine", "url": "https://bitcoinmagazine.com/.rss/full/"},
+    # L'ancienne adresse, `/.rss/full/`, redirigeait vers `http://…/feed` :
+    # en clair, le 12 novembre 2026. La nouvelle répond en HTTPS sans détour.
+    {"name": "Bitcoin Magazine", "url": "https://bitcoinmagazine.com/feed"},
     {"name": "The Block", "url": "https://www.theblock.co/rss.xml"},
     {"name": "CryptoSlate", "url": "https://cryptoslate.com/feed/"},
 ]
+
+#: Délais d'un flux RSS : connexion, puis lecture. Confiée à feedparser,
+#: l'URL partait sans délai du tout — un serveur qui accepte la connexion
+#: sans répondre aurait figé la collecte pour de bon.
+RSS_TIMEOUT = (5, 20)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -919,13 +927,31 @@ def fetch_rss_entries(
     Un flux en échec est signalé via `on_error(nom, exception)` puis
     ignoré : une source indisponible ne doit pas priver le panneau des
     autres.
+
+    Le flux est lu par `requests`, puis seulement analysé par feedparser.
+    Celui-ci, à qui l'URL était confiée, ne lève rien quand le réseau
+    manque : il rend un flux vide marqué `bozo`, et un site en panne
+    passait pour un site sans nouvelles — `on_error` n'était jamais
+    appelé. Un statut HTTP d'erreur lève donc, et une réponse dont
+    feedparser ne tire aucun article alors qu'il la juge mal formée
+    aussi ; un flux bien formé mais vide reste un flux vide.
+
+    La requête garde l'identité que feedparser envoyait quand il lisait
+    lui-même l'URL : changer de lecteur ne change pas la façon dont le
+    terminal se présente aux sites.
     """
     import feedparser  # dépendance optionnelle
 
     entries: list[dict[str, str]] = []
     for feed_info in feeds if feeds is not None else RSS_FEEDS:
         try:
-            feed = feedparser.parse(feed_info["url"])
+            response = _http.get(feed_info["url"], timeout=RSS_TIMEOUT,
+                                 headers={"User-Agent": feedparser.USER_AGENT})
+            response.raise_for_status()
+            feed = feedparser.parse(response.content, response_headers={
+                "content-type": response.headers.get("content-type", "")})
+            if not feed.entries and feed.bozo:
+                raise ValueError(f"flux illisible ({feed.get('bozo_exception')})")
             for entry in feed.entries:
                 entries.append({
                     "title": entry.get("title", "").strip(),
@@ -975,13 +1001,18 @@ def fetch_cryptopanic_posts(api_key: str) -> list[dict[str, Any]]:
     ]
 
 
+def fetch_fear_greed_now() -> dict[str, Any]:
+    """Indice Fear & Greed du jour ; l'erreur remonte, pour être nommée."""
+    response = _http.get(FEAR_GREED_URL, params={"limit": 1}, timeout=8)
+    response.raise_for_status()
+    data = response.json()["data"][0]
+    return {"value": int(data["value"]), "label": data["value_classification"]}
+
+
 def fetch_fear_greed() -> Optional[dict[str, Any]]:
     """Indice Fear & Greed du jour, ou `None` si la source est injoignable."""
     try:
-        response = _http.get(FEAR_GREED_URL, params={"limit": 1}, timeout=8)
-        response.raise_for_status()
-        data = response.json()["data"][0]
-        return {"value": int(data["value"]), "label": data["value_classification"]}
+        return fetch_fear_greed_now()
     except Exception:
         return None
 

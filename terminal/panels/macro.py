@@ -104,7 +104,7 @@ def _stats_badge(stats: dict, label: str = "M2"):
     def colored(value: float):
         color = (C["green"] if value >= 0.5 else
                  C["red"] if value <= -0.2 else C["muted"])
-        return html.Span(f"{value:+.2f}", style={"color": color})
+        return html.Span(f"{value:+z.2f}", style={"color": color})
 
     children = [
         # Des libellés courts, le sens au survol : la rangée basse porte
@@ -119,7 +119,7 @@ def _stats_badge(stats: dict, label: str = "M2"):
     if stats["m2_yoy"] is not None:
         children += [
             html.Span(" · ", style={"color": C["muted"]}),
-            html.Span(f"{stats['m2_yoy']:+.1f} %/an",
+            html.Span(f"{stats['m2_yoy']:+z.1f} %/an",
                       style={"color": C["cyan"]},
                       title=f"croissance de la série ({label}) sur un an"),
         ]

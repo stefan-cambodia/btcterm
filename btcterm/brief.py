@@ -216,7 +216,7 @@ def price_item(ticker: dict) -> Item:
     where = (last - low) / (high - low) * 100 if high > low else 50.0
     return Item(
         "Cours",
-        f"{last:,.0f} $ · {pct:+.2f} % · haut {high:,.0f} · bas {low:,.0f}",
+        f"{last:,.0f} $ · {pct:+z.2f} % · haut {high:,.0f} · bas {low:,.0f}",
         _tone(pct),
         f"journée glissante de Binance : amplitude {amplitude:.1f} %, le "
         f"cours à {where:.0f} % de la fourchette")
@@ -226,13 +226,13 @@ def perp_item(funding_rate: Optional[float], open_interest) -> Item:
     """Financement courant, open interest et son écart sur la journée."""
     parts, detail = [], []
     if funding_rate is not None:
-        parts.append(f"financement {funding_rate * 100:+.4f} % /8 h")
-        detail.append(f"soit {funding_rate * 3 * 365 * 100:+.1f} % par an")
+        parts.append(f"financement {funding_rate * 100:+z.4f} % /8 h")
+        detail.append(f"soit {funding_rate * 3 * 365 * 100:+z.1f} % par an")
     if open_interest:
         current, reference, span = open_interest
         text = f"OI {_usd(current)}"
         if reference:
-            text += f" ({(current / reference - 1) * 100:+.1f} % sur {_span(span)})"
+            text += f" ({(current / reference - 1) * 100:+z.1f} % sur {_span(span)})"
         parts.append(text)
     if not parts:
         return Item("Perpétuel", "indisponible", "muted")
@@ -291,8 +291,8 @@ def etf_item(frame: Optional[pd.DataFrame]) -> Item:
     flows = pd.to_numeric(known[column])
     day = pd.Timestamp(known["Date"].iloc[-1]).date()
     last, week = float(flows.iloc[-1]), float(flows.tail(5).sum())
-    return Item("ETF", f"{last:+,.0f} M$ le {day:%d/%m} · 5 séances "
-                       f"{week:+,.0f} M$", _tone(last),
+    return Item("ETF", f"{last:+z,.0f} M$ le {day:%d/%m} · 5 séances "
+                       f"{week:+z,.0f} M$", _tone(last),
                 "flux nets des ETF spot américains, farside.co.uk")
 
 
@@ -315,10 +315,10 @@ def volatility_item(dvol, rr25) -> Optional[Item]:
     text = f"DVOL {current:.1f}"
     tone = ""
     if reference is not None:
-        text += f" ({current - reference:+.1f} sur {_span(span)})"
+        text += f" ({current - reference:+z.1f} sur {_span(span)})"
         tone = "warn" if current - reference >= 6 else ""
     if rr25:
-        text += f" · skew 25Δ {rr25[0]:+.1f}"
+        text += f" · skew 25Δ {rr25[0]:+z.1f}"
     return Item("Volatilité", text, tone,
                 "volatilité implicite Deribit à 30 jours ; skew négatif : "
                 "les puts plus chers que les calls")
@@ -333,7 +333,7 @@ def premium_item(rows, now: float) -> Optional[Item]:
         return None
     average = sum(values) / len(values)
     return Item("Prime Coinbase",
-                f"{values[-1]:+.2f} % · moyenne {average:+.2f} %",
+                f"{values[-1]:+z.2f} % · moyenne {average:+z.2f} %",
                 _tone(average, 0.02),
                 "Coinbase en dollars contre Binance en USDT : la demande "
                 "américaine, et une part de décote de l'USDT")
@@ -367,7 +367,7 @@ def liquidity_item(rows, band: float = 0.1) -> Optional[Item]:
               f"chaque période de cinq minutes — {', '.join(kept)}"
               + (f" ; sans {', '.join(dropped)}" if dropped else ""))
     return Item("Liquidité",
-                f"{volumes[-1]:.0f} BTC à ±{band:g} % ({gap:+.0f} % contre "
+                f"{volumes[-1]:.0f} BTC à ±{band:g} % ({gap:+z.0f} % contre "
                 f"la moyenne) · achats {share:.0f} %",
                 "warn" if gap <= LIQUIDITY_THIN else "", detail)
 
@@ -378,7 +378,7 @@ def dominance_item(dominance) -> Optional[Item]:
     current, reference, span = dominance
     text = f"BTC {current:.1f} %"
     if reference is not None:
-        text += f" ({current - reference:+.2f} pt sur {_span(span)})"
+        text += f" ({current - reference:+z.2f} pt sur {_span(span)})"
     return Item("Dominance", text, "", "part du bitcoin dans la "
                                        "capitalisation totale, CoinGecko")
 
@@ -442,7 +442,7 @@ def cycle_item(state: Optional[dict]) -> Optional[Item]:
     if state["drawdown"] > -0.05:
         parts.append("au sommet")
     else:
-        parts.append(f"{state['drawdown']:+.1f} % du sommet, "
+        parts.append(f"{state['drawdown']:+z.1f} % du sommet, "
                      f"depuis {state['days_since_ath']} j")
     tone = ""
     if state["mayer"] is not None:

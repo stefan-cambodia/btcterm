@@ -91,14 +91,14 @@ def _compare(rows: dict[str, dict], fx=DOLLARS):
         children += [
             html.Span(f"{EXCHANGE_TAG.get(name, name)} ",
                       style={"color": C["muted"]}),
-            html.Span(f"{rate * 100:+.4f} %",
+            html.Span(f"{rate * 100:+z.4f} %",
                       style={"color": C["green"] if rate >= 0 else C["red"]},
                       title=f"financement {name}, sur huit heures"),
         ]
         if row.get("mark_price") and row.get("index_price"):
             prime = (row["mark_price"] / row["index_price"] - 1) * 100
             children.append(html.Span(
-                f" ({prime:+.3f})", style={"color": C["muted"]},
+                f" ({prime:+z.3f})", style={"color": C["muted"]},
                 title=f"prime {name} : prix marqué contre indice, en %"))
         children.append(html.Span(" · ", style={"color": C["muted"]}))
     total = sum(row["oi_usd"] for row in rows.values() if row.get("oi_usd"))
@@ -124,7 +124,7 @@ def carry(rows: dict[str, dict], futures) -> list:
     from btcterm import options as opt
 
     def rate(value: float, title: str):
-        return html.Span(f"{value:+.1f} %",
+        return html.Span(f"{value:+z.1f} %",
                          style={"color": C["green"] if value >= 0 else C["red"]},
                          title=title)
 
@@ -189,15 +189,15 @@ def _badges(snapshot: dict, open_interest, verbose: bool = False,
         annuel = rate * PERIODS_PER_YEAR * 100
         children += [
             html.Span("financement " if verbose else "", style={"color": C["muted"]}),
-            html.Span(f"{rate * 100:+.4f} %", style={"color": color},
+            html.Span(f"{rate * 100:+z.4f} %", style={"color": color},
                       title=("taux de financement de la période de 8 h, soit "
-                             f"{annuel:+.1f} % par an")),
+                             f"{annuel:+z.1f} % par an")),
         ]
         # L'annualisé ne s'écrit qu'en plein écran : dans la grille, la ligne
         # « portage /an » le donne juste dessous, et le titre débordait de
         # 32 px quand Binance Futures répondait.
         if verbose:
-            children.append(html.Span(f" ({annuel:+.1f} % / an)",
+            children.append(html.Span(f" ({annuel:+z.1f} % / an)",
                                       style={"color": color},
                                       title="le même taux, annualisé"))
     # Le compte à rebours ne survit qu'en plein écran : dans la grille,

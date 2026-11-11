@@ -69,8 +69,8 @@ def _signed(value, kind: str):
     """Une variation : en % pour un prix, en points de base pour un taux."""
     if value is None:
         return html.Td("—", style={**_CELL, "color": C["muted"]})
-    text = (f"{value * 100:+.0f} pb" if kind == "rate"
-            else f"{value:+.2f} %")
+    text = (f"{value * 100:+z.0f} pb" if kind == "rate"
+            else f"{value:+z.2f} %")
     color = C["green"] if value > 0 else C["red"] if value < 0 else C["muted"]
     return html.Td(text, style={**_CELL, "color": color})
 
@@ -80,7 +80,7 @@ def _corr(value):
         return html.Td("—", style={**_CELL, "color": C["muted"]})
     # L'intensité dit la force du lien, pas son sens : le signe est écrit.
     strong = abs(value) >= 0.5
-    return html.Td(f"{value:+.2f}", style={
+    return html.Td(f"{value:+z.2f}", style={
         **_CELL, "color": C["text"] if strong else C["muted"],
         "fontWeight": "600" if strong else "400"})
 
@@ -134,7 +134,7 @@ def badges(rows: list[dict]):
             # « corr. » et non ρ : la barre de titre passe en majuscules,
             # et le Ρ majuscule se lit P.
             parts += [html.Span(f"corr. {short} ", style={"color": C["muted"]}),
-                      html.Span(f"{value:+.2f}", style={"color": C["text"]})]
+                      html.Span(f"{value:+z.2f}", style={"color": C["text"]})]
     if not parts:
         return html.Span("marchés indisponibles", style={"color": C["muted"]})
     return html.Span(parts, style={"fontFamily": MONO},
