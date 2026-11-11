@@ -117,6 +117,25 @@ body {
     text-transform: none;
 }
 
+/* La barre du panneau prix porte dix-neuf sélecteurs : c'est la seule qui
+   manque de place. La case CVD la faisait déborder de 37 px, NIV de 36 —
+   le titre réduit à « BTC » et trois pixels entre les libellés y pourvoient. */
+#price-interval label,
+#price-currency label,
+#price-scale label,
+#price-extras label {
+    /* Dash pose 16 px à droite de chaque option en ligne
+       (`.dash-radioitems-inline`) : dix-neuf pixels entre deux libellés,
+       trois cents sur la barre, que les réglages précédents ne voyaient
+       pas. La minute et les cinq minutes la faisaient déborder de 57 px ;
+       dix pixels d'un seul côté lui en rendent cent quatre-vingts. */
+    margin-left: 10px;
+    margin-right: 0;
+    /* La case LIQ l'a fait déborder de 29 px de plus : les lettres de
+       cette seule barre se resserrent, plutôt que d'y retirer un libellé. */
+    letter-spacing: 0.06em;
+}
+
 .tf-radio .dash-options-list-option-wrapper,
 .tf-check .dash-options-list-option-wrapper {
     display: none;
@@ -287,6 +306,15 @@ body {
 
 /* ── Barres de défilement ──────────────────────────────────*/
 
+/* Firefox ignore les règles ::-webkit-scrollbar ci-dessous : sans ces deux
+   propriétés, ses barres gardaient les couleurs du système — une bande
+   blanche de douze pixels au bord des panneaux JOURNAL et SOURCES, vue
+   sur les captures du 11 novembre 2026. */
+* {
+    scrollbar-width: thin;
+    scrollbar-color: #1e2639 #0e1117;
+}
+
 ::-webkit-scrollbar {
     width: 6px;
     height: 6px;
@@ -309,6 +337,50 @@ body {
 /* Les couleurs viennent du thème via lwc-price.js ; ici, seulement la
    géométrie des éléments posés par-dessus le canvas. */
 
+.command-bar {
+    position: fixed;
+    top: 46px;
+    left: 50%;
+    z-index: 200;
+    width: 420px;
+    transform: translateX(-50%);
+    border: 1px solid #fbbf24;
+    border-radius: 4px;
+    background: #111827;
+}
+
+.command-bar input {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 7px 10px;
+    border: 0;
+    outline: 0;
+    background: transparent;
+    color: #e2e8f0;
+    font-family: inherit;
+    font-size: 12px;
+}
+
+.command-bar-error {
+    border-color: #ff3d6b;
+}
+
+.keys-help {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 200;
+    transform: translate(-50%, -50%);
+    padding: 14px 18px;
+    border: 1px solid #1e2639;
+    border-radius: 4px;
+    background: #111827;
+    color: #e2e8f0;
+    font-size: 11px;
+    line-height: 1.8;
+    white-space: pre;
+}
+
 .lwc-legend {
     position: absolute;
     top: 4px;
@@ -317,6 +389,20 @@ body {
     display: flex;
     gap: 10px;
     font-size: 10px;
+    pointer-events: none;
+}
+
+.lwc-readout {
+    position: absolute;
+    top: 18px;
+    left: 8px;
+    z-index: 8;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 2px 10px;
+    max-width: calc(100% - 90px);
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
     pointer-events: none;
 }
 
@@ -347,6 +433,45 @@ body {
     border: 1px dashed;
     background: rgba(34, 211, 238, 0.12);
     pointer-events: none;
+}
+
+.lwc-draw-preview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 9;
+    display: none;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+}
+
+.lwc-draw-hint {
+    position: absolute;
+    top: 34px;
+    left: 8px;
+    z-index: 9;
+    display: none;
+    font-size: 10px;
+    pointer-events: none;
+}
+
+.lwc-drawing {
+    cursor: crosshair;
+}
+
+.lwc-measure {
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    margin-bottom: 3px;
+    padding: 1px 5px;
+    transform: translateX(-50%);
+    border-radius: 3px;
+    background: #111827;
+    font-size: 10px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
 }
 
 /* Le rappel du geste n'a sa place qu'en plein écran : dans la grille,

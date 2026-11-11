@@ -18,6 +18,17 @@
 (function () {
     "use strict";
 
+    // Le choix d'afficher ou non les flèches, dans le navigateur.
+    var SIGNALS_KEY = "btcterm-signals";
+
+    // Les lignes de tendance, dans le navigateur elles aussi.
+    var DRAWINGS_KEY = "btcterm-drawings";
+
+    var SVG_NS = "http://www.w3.org/2000/svg";
+
+    // Marge d'un Alt + clic pour viser un seuil existant, en pixels.
+    var ALERT_HIT_PX = 6;
+
     var state = {
         el: null,      // le div #price-lwc où vit le graphique
         chart: null,
@@ -28,13 +39,25 @@
         seq: 0,        // jeton anti-course des fetchs
         loading: false,    // une page d'historique en vol, une seule
         exhausted: false,  // plus rien avant : la source l'a dit
+        backfillTimer: null,  // page manquée, source muette : le réessai
         banner: null,
         legend: null,
+        readout: null,
+        measureLabel: null,
+        measuring: false,
+        drawMode: false,
+        drawPreview: null,
+        drawHint: null,
+        drawLines: [],
+        drawings: [],
+        hover: null,   // dernier événement du crosshair sur une bougie
+        signalsHidden: localStorage.getItem(SIGNALS_KEY) === "off",
         zoomBox: null,  // le cadre du zoom rectangulaire, caché au repos
         drag: null      // la sélection en cours : {x0, y0, x1, y1, area}
     };
 
-    var INTRADAY = {"15m": 1, "30m": 1, "1h": 1, "4h": 1, "6h": 1, "12h": 1};
+    var INTRADAY = {"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1,
+                    "6h": 1, "12h": 1};
 
     //: Historique chargé à la volée : dès que le bord gauche visible
     //: approche à moins de ce nombre de bougies du début du tampon, la
@@ -42,9 +65,18 @@
     var BACKFILL_MARGIN = 50;
 
     //: Plafond du tampon par intervalle : au-delà, on cesse de remonter
-    //: le passé — la mémoire reste bornée, et 5 000 bougies font déjà
-    //: sept mois d'horaire ou treize ans de quotidien.
-    var MAX_BARS = 5000;
+    //: le passé — la mémoire reste bornée. 10 000 bougies font une semaine
+    //: de minutes, un mois de cinq minutes, quatorze mois d'horaire ; 5 000
+    //: arrêtaient la minute à trois jours et demi, trois pages après la
+    //: première.
+    var MAX_BARS = 10000;
+
+    //: Une page antérieure revenue vide parce que Binance se taisait
+    //: (`stale`) n'est pas la fin de l'historique : elle est redemandée
+    //: après ce délai, même sans nouveau pan. Le serveur, lui, ne
+    //: retente la source qu'une fois par minute ; entre-temps, un essai
+    //: lui coûte une lecture du disque.
+    var BACKFILL_RETRY = 30000;
 
     // ── Construction ────────────────────────────────────────
 
@@ -189,6 +221,14 @@
             });
             pane += 1;
         }
+        if (extras.indexOf("cvd") !== -1) {
+            series.cvd = state.chart.addSeries(LWC.LineSeries, {
+                color: theme.cyan, lineWidth: 2,
+                priceFormat: {type: "volume"},
+                priceLineVisible: false, lastValueVisible: true
+            }, pane);
+            pane += 1;
+        }
 
         // Le cours domine : les panes d'oscillateurs se partagent le bas.
         var panes = state.chart.panes();
@@ -214,11 +254,44 @@
         if (extras.indexOf("profile") !== -1) {
             buildProfile();
         }
+        // Niveaux clés — la case NIV : veille, semaine et mois passés,
+        // ouvertures en cours.
+        if (extras.indexOf("levels") !== -1) {
+            buildLevels();
+        }
+        // Carte des liquidations — la case LIQ : où, en prix, le levier a
+        // sauté sur la plage visible.
+        if (extras.indexOf("liq") !== -1) {
+            buildLiqMap();
+        }
 
         // L'historique se charge au pan, comme sur tradingview.com :
         // approcher du début des données déclenche la page antérieure.
         state.chart.timeScale()
             .subscribeVisibleLogicalRangeChange(maybeBackfill);
+        // Le cadre d'une mesure vaut pour la vue où il a été tracé.
+        state.chart.timeScale()
+            .subscribeVisibleLogicalRangeChange(clearMeasure);
+
+        state.chart.subscribeCrosshairMove(function (param) {
+            state.hover = param.time === undefined ? null : param;
+            updateReadout();
+        });
+        state.chart.subscribeClick(function (param) {
+            var event = param.sourceEvent;
+            if (!event || !event.altKey || !param.point
+                    || param.paneIndex !== 0) {
+                return;
+            }
+            var drawing = drawingAt(param.point.x, param.point.y);
+            if (drawing !== -1) {
+                state.drawings.splice(drawing, 1);
+                saveDrawings();
+                renderDrawings();
+            } else {
+                toggleAlertAt(param.point.y);
+            }
+        });
     }
 
     // Une légende statique : la bibliothèque n'en fournit pas, et sans
@@ -239,10 +312,102 @@
         // place, en plein écran (terminal.css ne l'affiche que là).
         var hint = document.createElement("span");
         hint.className = "lwc-zoom-hint";
-        hint.textContent = "Maj + glisser : zoom · double-clic : vue entière";
+        hint.textContent = "Maj + glisser : zoom · double-clic : vue entière"
+            + " · Ctrl + glisser : mesure · T : ligne · Alt + clic : alerte";
         div.appendChild(hint);
         state.el.appendChild(div);
         state.legend = div;
+
+        var readout = document.createElement("div");
+        readout.className = "lwc-readout";
+        state.el.appendChild(readout);
+        state.readout = readout;
+    }
+
+    // ── Lecture au crosshair ────────────────────────────────
+
+    function money(value) {
+        return value.toLocaleString("en-US", {minimumFractionDigits: 2,
+                                              maximumFractionDigits: 2});
+    }
+
+    // Une date lue en UTC, comme l'axe du temps ; les heures n'ont de sens
+    // qu'en intraday.
+    function barDate(time) {
+        return new Date(time * 1000).toISOString()
+            .slice(0, INTRADAY[state.cfg.interval] ? 16 : 10)
+            .replace("T", " ");
+    }
+
+    // La valeur d'une série sous le crosshair, ou sa dernière valeur.
+    function valueOf(line) {
+        if (!line) { return undefined; }
+        if (state.hover) {
+            var point = state.hover.seriesData.get(line);
+            return point ? point.value : undefined;
+        }
+        var data = line.data();
+        return data.length ? data[data.length - 1].value : undefined;
+    }
+
+    // La bibliothèque ne donne aucune valeur à lire : sans cette ligne, le
+    // crosshair montre un prix sur l'axe, jamais la bougie sous la souris.
+    // Elle suit la souris, et revient à la dernière bougie quand celle-ci
+    // sort du graphique. La variation se lit contre la clôture précédente.
+    function updateReadout() {
+        if (!state.readout || !state.series) { return; }
+        var candles = state.series.candles;
+        var bar = null;
+        var previous = null;
+        if (state.hover) {
+            bar = state.hover.seriesData.get(candles) || null;
+            previous = bar
+                ? candles.dataByIndex(state.hover.logical - 1) : null;
+        }
+        if (!bar) {
+            var data = candles.data();
+            bar = data.length ? data[data.length - 1] : null;
+            previous = data.length > 1 ? data[data.length - 2] : null;
+        }
+        state.readout.textContent = "";
+        if (!bar) { return; }
+
+        var reference = previous ? previous.close : bar.open;
+        var change = (bar.close / reference - 1) * 100;
+        var theme = state.conf.theme;
+        var unit = state.cfg.currency === "EUR" ? " €" : " $";
+        var parts = [
+            [barDate(bar.time), theme.muted],
+            ["O " + money(bar.open), theme.text],
+            ["H " + money(bar.high), theme.text],
+            ["L " + money(bar.low), theme.text],
+            ["C " + money(bar.close) + unit, theme.text],
+            [(change >= 0 ? "+" : "") + change.toFixed(2) + " %",
+             change >= 0 ? theme.green : theme.red]
+        ];
+        var volume = valueOf(state.series.volume);
+        if (volume !== undefined) {
+            parts.push(["V " + volume.toFixed(1), theme.muted]);
+        }
+        var rsi = valueOf(state.series.rsi);
+        if (rsi !== undefined) {
+            parts.push(["RSI " + rsi.toFixed(1), theme.blue]);
+        }
+        var crsi = valueOf(state.series.crsi);
+        if (crsi !== undefined) {
+            parts.push(["CRSI " + crsi.toFixed(1), theme.purple]);
+        }
+        var cvd = valueOf(state.series.cvd);
+        if (cvd !== undefined) {
+            parts.push(["CVD " + Math.round(cvd).toLocaleString("en-US"),
+                        theme.cyan]);
+        }
+        parts.forEach(function (part) {
+            var item = document.createElement("span");
+            item.textContent = part[0];
+            item.style.color = part[1];
+            state.readout.appendChild(item);
+        });
     }
 
     // ── Zoom rectangulaire ──────────────────────────────────
@@ -263,8 +428,27 @@
         box.className = "lwc-zoom-box";
         box.style.borderColor = state.conf.theme.cyan;
         box.style.display = "none";
+        var label = document.createElement("div");
+        label.className = "lwc-measure";
+        box.appendChild(label);
+        // L'aperçu d'une ligne pendant le tracé : le vrai segment n'existe
+        // qu'une fois ses deux bouts posés sur des bougies.
+        var preview = document.createElementNS(SVG_NS, "svg");
+        preview.setAttribute("class", "lwc-draw-preview");
+        var stroke = document.createElementNS(SVG_NS, "line");
+        stroke.setAttribute("stroke", state.conf.theme.yellow);
+        preview.appendChild(stroke);
+        state.el.appendChild(preview);
+        state.drawPreview = preview;
+        var hint = document.createElement("div");
+        hint.className = "lwc-draw-hint";
+        hint.textContent = "tracé : glisser d'un point à l'autre · Échap pour annuler";
+        hint.style.color = state.conf.theme.yellow;
+        state.el.appendChild(hint);
+        state.drawHint = hint;
         state.el.appendChild(box);
         state.zoomBox = box;
+        state.measureLabel = label;
         state.el.addEventListener("mousedown", zoomStart, true);
         state.chart.subscribeDblClick(resetView);
     }
@@ -286,7 +470,13 @@
     }
 
     function zoomStart(ev) {
-        if (!ev.shiftKey || ev.button !== 0 || !state.chart) { return; }
+        clearMeasure();
+        var measure = ev.ctrlKey && !ev.shiftKey;
+        var draw = state.drawMode && !measure && !ev.shiftKey;
+        if (!(ev.shiftKey || measure || draw) || ev.button !== 0
+                || !state.chart) {
+            return;
+        }
         var p = pointIn(ev);
         var area = paneArea();
         if (p.x < 0 || p.x > area.width || p.y < 0 || p.y > area.height) {
@@ -294,7 +484,8 @@
         }
         ev.preventDefault();
         ev.stopPropagation();
-        state.drag = {x0: p.x, y0: p.y, x1: p.x, y1: p.y, area: area};
+        state.drag = {x0: p.x, y0: p.y, x1: p.x, y1: p.y, area: area,
+                      measure: measure, draw: draw};
         drawBox();
         document.addEventListener("mousemove", zoomMove, true);
         document.addEventListener("mouseup", zoomEnd, true);
@@ -310,18 +501,34 @@
         drawBox();
     }
 
-    // Échap pendant le tracé abandonne la sélection — et ne quitte pas
-    // le plein écran en même temps (terminal.js écoute la même touche).
+    // Échap pendant le tracé abandonne la sélection, et efface une mesure
+    // restée à l'écran — sans quitter le plein écran en même temps
+    // (terminal.js écoute la même touche).
     function zoomKey(ev) {
-        if (ev.key === "Escape" && state.drag) {
+        if (ev.key !== "Escape") { return; }
+        if (state.drag) {
             ev.stopPropagation();
             zoomStop();
+            setDrawMode(false);
+        } else if (state.drawMode) {
+            ev.stopPropagation();
+            setDrawMode(false);
+        } else if (state.measuring) {
+            ev.stopPropagation();
+            clearMeasure();
         }
     }
 
     function zoomStop() {
         state.drag = null;
-        if (state.zoomBox) { state.zoomBox.style.display = "none"; }
+        state.measuring = false;
+        if (state.zoomBox) {
+            state.zoomBox.style.display = "none";
+            state.zoomBox.style.borderColor = state.conf.theme.cyan;
+            state.zoomBox.style.background = "";
+            state.measureLabel.textContent = "";
+            state.drawPreview.style.display = "none";
+        }
         document.removeEventListener("mousemove", zoomMove, true);
         document.removeEventListener("mouseup", zoomEnd, true);
         document.removeEventListener("keydown", zoomKey, true);
@@ -331,18 +538,225 @@
         var drag = state.drag;
         var box = state.zoomBox;
         if (!drag || !box) { return; }
+        if (drag.draw) {
+            var line = state.drawPreview.firstChild;
+            line.setAttribute("x1", drag.x0);
+            line.setAttribute("y1", drag.y0);
+            line.setAttribute("x2", drag.x1);
+            line.setAttribute("y2", drag.y1);
+            state.drawPreview.style.display = "block";
+            return;
+        }
         box.style.left = Math.min(drag.x0, drag.x1) + "px";
         box.style.top = Math.min(drag.y0, drag.y1) + "px";
         box.style.width = Math.abs(drag.x1 - drag.x0) + "px";
         box.style.height = Math.abs(drag.y1 - drag.y0) + "px";
         box.style.display = "block";
+        if (drag.measure) { updateMeasure(drag); }
+    }
+
+    // ── Lignes de tendance ──────────────────────────────────
+
+    // T arme le tracé pour une ligne. Les lignes sont des séries à deux
+    // points, pas des dessins sur le canvas : elles suivent ainsi le zoom, le
+    // pan et l'échelle sans rien à recalculer. Elles se gardent en dollars
+    // et en heures absolues, pour survivre à la devise et à l'intervalle.
+    function setDrawMode(on) {
+        state.drawMode = !!on && !!state.chart;
+        if (!state.drawHint) { return; }
+        state.drawHint.style.display = state.drawMode ? "block" : "none";
+        state.el.classList.toggle("lwc-drawing", state.drawMode);
+        // Pendant une mesure, l'écouteur reste à celle-ci.
+        if (state.drawMode) {
+            document.addEventListener("keydown", zoomKey, true);
+        } else if (!state.measuring) {
+            document.removeEventListener("keydown", zoomKey, true);
+        }
+    }
+
+    function loadDrawings() {
+        try {
+            var saved = JSON.parse(localStorage.getItem(DRAWINGS_KEY));
+            return Array.isArray(saved) ? saved : [];
+        } catch (error) {
+            return [];
+        }
+    }
+
+    function saveDrawings() {
+        localStorage.setItem(DRAWINGS_KEY, JSON.stringify(state.drawings));
+    }
+
+    // L'indice de la dernière bougie ouverte au plus tard à `time`. Une
+    // ligne tracée en 1h se lit ainsi en 1d : ses bouts retombent sur les
+    // bougies de l'intervalle affiché, sans ajouter d'instant à l'axe.
+    function barIndexAt(time) {
+        var bars = state.packet.bars;
+        var low = 0;
+        var high = bars.length - 1;
+        var found = -1;
+        while (low <= high) {
+            var middle = (low + high) >> 1;
+            if (bars[middle].time <= time) {
+                found = middle;
+                low = middle + 1;
+            } else {
+                high = middle - 1;
+            }
+        }
+        return found;
+    }
+
+    // Les deux points affichés, ligne prolongée jusqu'à la dernière bougie :
+    // une tendance se lit à sa projection. En échelle log, c'est en log que
+    // la ligne est droite : la prolonger en prix la casserait à l'écran.
+    function drawingPoints(drawing) {
+        var bars = state.packet.bars;
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var first = barIndexAt(drawing.t0);
+        var second = barIndexAt(drawing.t1);
+        var last = bars.length - 1;
+        if (first < 0 || second <= first) { return null; }
+        var progress = (last - first) / (second - first);
+        var end = state.cfg.log
+            ? drawing.p0 * Math.pow(drawing.p1 / drawing.p0, progress)
+            : drawing.p0 + (drawing.p1 - drawing.p0) * progress;
+        if (!(end > 0)) { return null; }
+        return [{time: bars[first].time, value: drawing.p0 * rate},
+                {time: bars[last].time, value: end * rate}];
+    }
+
+    function renderDrawings() {
+        if (!state.chart || !state.packet) { return; }
+        (state.drawLines || []).forEach(function (line) {
+            state.chart.removeSeries(line.series);
+        });
+        state.drawLines = [];
+        var theme = state.conf.theme;
+        state.drawings.forEach(function (drawing, index) {
+            var points = drawingPoints(drawing);
+            if (!points) { return; }
+            var series = state.chart.addSeries(LightweightCharts.LineSeries, {
+                color: theme.yellow, lineWidth: 1,
+                priceLineVisible: false, lastValueVisible: false,
+                crosshairMarkerVisible: false,
+                // L'axe des prix suit le cours, pas les lignes : une tendance
+                // qui file vers zéro n'a pas à écraser le graphique.
+                autoscaleInfoProvider: function () { return null; }
+            }, 0);
+            series.setData(points);
+            state.drawLines.push({series: series, points: points,
+                                  index: index});
+        });
+    }
+
+    function addDrawing(drag) {
+        var candles = state.series.candles;
+        var ts = state.chart.timeScale();
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var ends = [[drag.x0, drag.y0], [drag.x1, drag.y1]].map(function (end) {
+            var bar = candles.dataByIndex(
+                Math.round(ts.coordinateToLogical(end[0])),
+                LightweightCharts.MismatchDirection.NearestLeft);
+            var price = candles.coordinateToPrice(end[1]);
+            return bar && price !== null
+                ? {time: bar.time, price: price / rate} : null;
+        }).sort(function (a, b) {
+            return a && b ? a.time - b.time : 0;
+        });
+        if (!ends[0] || !ends[1] || ends[0].time === ends[1].time) { return; }
+        state.drawings.push({t0: ends[0].time, p0: ends[0].price,
+                             t1: ends[1].time, p1: ends[1].price});
+        saveDrawings();
+        renderDrawings();
+    }
+
+    // Le tracé visé par un Alt + clic : à quelques pixels de sa droite, entre
+    // ses deux bouts. Rend son rang, ou -1.
+    function drawingAt(x, y) {
+        var candles = state.series.candles;
+        var ts = state.chart.timeScale();
+        var hit = (state.drawLines || []).find(function (line) {
+            var x0 = ts.timeToCoordinate(line.points[0].time);
+            var x1 = ts.timeToCoordinate(line.points[1].time);
+            var y0 = candles.priceToCoordinate(line.points[0].value);
+            var y1 = candles.priceToCoordinate(line.points[1].value);
+            if (x0 === null || x1 === null || y0 === null || y1 === null
+                    || x < x0 || x > x1 || x1 === x0) {
+                return false;
+            }
+            return Math.abs(y0 + (y1 - y0) * (x - x0) / (x1 - x0) - y)
+                <= ALERT_HIT_PX;
+        });
+        return hit ? hit.index : -1;
+    }
+
+    // ── Mesure ──────────────────────────────────────────────
+
+    // Une durée lisible, en la plus grande unité qui donne un chiffre utile.
+    function duration(seconds) {
+        if (seconds >= 2 * 86400) {
+            return Math.round(seconds / 86400) + " j";
+        }
+        if (seconds >= 3600) { return Math.round(seconds / 3600) + " h"; }
+        return Math.round(seconds / 60) + " min";
+    }
+
+    // Ctrl + glisser : ce que le cours a fait entre deux points. Le cadre
+    // reprend celui du zoom, coloré dans le sens du mouvement, et reste à
+    // l'écran après le relâchement : une mesure se lit, elle ne doit pas
+    // disparaître avec le geste. Le clic suivant, Échap ou un pan l'effacent.
+    function updateMeasure(drag) {
+        var candles = state.series.candles;
+        var ts = state.chart.timeScale();
+        var from = candles.coordinateToPrice(drag.y0);
+        var to = candles.coordinateToPrice(drag.y1);
+        var left = ts.coordinateToLogical(drag.x0);
+        var right = ts.coordinateToLogical(drag.x1);
+        var bars = state.packet.bars;
+        if (from === null || to === null || left === null || right === null
+                || bars.length < 2) {
+            return;
+        }
+        var theme = state.conf.theme;
+        var change = (to / from - 1) * 100;
+        var count = Math.round(right - left);
+        var step = bars[bars.length - 1].time - bars[bars.length - 2].time;
+        var unit = state.cfg.currency === "EUR" ? " €" : " $";
+        var sign = change >= 0 ? "+" : "-";
+        state.measureLabel.textContent = sign + Math.abs(change).toFixed(2)
+            + " % · " + sign + money(Math.abs(to - from)) + unit + " · "
+            + Math.abs(count) + " bougies · "
+            + duration(Math.abs(count) * step);
+        state.measureLabel.style.color = change >= 0 ? theme.green : theme.red;
+        state.zoomBox.style.borderColor = state.measureLabel.style.color;
+        state.zoomBox.style.background = change >= 0
+            ? "rgba(0, 212, 170, 0.10)" : "rgba(255, 61, 107, 0.10)";
+    }
+
+    function clearMeasure() {
+        if (state.measuring) { zoomStop(); }
     }
 
     function zoomEnd(ev) {
         var drag = state.drag;
         if (!drag) { return; }
         ev.stopPropagation();
+        // Le cadre reste ; seuls s'en vont les écouteurs du tracé. Échap
+        // garde le sien, pour l'effacer.
+        if (drag.measure && Math.abs(drag.x1 - drag.x0) >= 4) {
+            state.drag = null;
+            state.measuring = true;
+            document.removeEventListener("mousemove", zoomMove, true);
+            document.removeEventListener("mouseup", zoomEnd, true);
+            return;
+        }
         zoomStop();
+        if (drag.draw) {
+            setDrawMode(false);
+            addDrawing(drag);
+            return;
+        }
         // Un cadre de quelques pixels est un clic avec Maj, pas un zoom.
         if (Math.abs(drag.x1 - drag.x0) < 4
                 || Math.abs(drag.y1 - drag.y0) < 4) {
@@ -505,6 +919,174 @@
         }
     }
 
+    // ── Niveaux clés ────────────────────────────────────────
+    //
+    // Plus hauts et plus bas de la veille, de la semaine et du mois passés,
+    // ouvertures en cours : des lignes de prix grises, de plus en plus
+    // claires de la journée au mois — le violet, l'orange et le bleu sont
+    // déjà aux moyennes et à Bollinger. L'étiquette d'axe dit lequel ; les
+    // ouvertures sont pointillées. Relus toutes les cinq minutes : le jour
+    // qui tourne les change. Les prix arrivent en dollars, la devise
+    // affichée les convertit comme le POC.
+    var LEVEL_COLORS = {day: "#64748b", week: "#94a3b8", month: "#cbd5e1",
+                        cme: "#38bdf8"};
+    var LEVELS_EVERY = 300000;
+
+    function buildLevels() {
+        fetchLevels();
+        state.levelsTimer = setInterval(fetchLevels, LEVELS_EVERY);
+    }
+
+    function fetchLevels() {
+        fetch("/api/levels")
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (!state.chart || !state.levelsTimer) { return; }
+                state.levels = data.levels || [];
+                updateLevelLines();
+            })
+            .catch(function () { /* le tour suivant retentera */ });
+    }
+
+    function updateLevelLines() {
+        var series = state.series;
+        if (!series) { return; }
+        (state.levelLines || []).forEach(function (line) {
+            series.candles.removePriceLine(line);
+        });
+        state.levelLines = [];
+        if (!state.levelsTimer) { return; }
+        var rate = (state.cfg.currency === "EUR" && state.packet)
+            ? state.packet.eur_rate : 1;
+        var LS = LightweightCharts.LineStyle;
+        (state.levels || []).forEach(function (level) {
+            state.levelLines.push(series.candles.createPriceLine({
+                price: level.price * rate,
+                color: LEVEL_COLORS[level.span] || LEVEL_COLORS.day,
+                lineWidth: 1,
+                lineStyle: level.kind === "open" ? LS.Dotted : LS.Dashed,
+                axisLabelVisible: true,
+                title: level.label
+            }));
+        });
+    }
+
+    // ── Carte des liquidations ──────────────────────────────
+    //
+    // Le notionnel liquidé par tranche de prix sur la plage visible, lu
+    // dans le journal (/api/liqmap) : des barres à gauche du pane — le
+    // profil de volume tient la droite —, rouge pour les longs fermés de
+    // force (des ventes), vert pour les shorts (des achats). Redemandée
+    // quand la plage bouge, et chaque minute pour les liquidations neuves.
+    // La légende du bas dit le total et les plateformes présentes : la
+    // couverture se voit.
+    var LIQ_EVERY = 60000;
+
+    function buildLiqMap() {
+        var canvas = document.createElement("canvas");
+        canvas.className = "lwc-profile";
+        state.el.appendChild(canvas);
+        state.liqCanvas = canvas;
+        state.liqData = null;
+        state.liqTimer = null;
+        state.chart.timeScale().subscribeVisibleTimeRangeChange(
+            function () {
+                drawLiqMap();
+                scheduleLiqMap();
+            });
+        state.liqPoll = setInterval(fetchLiqMap, LIQ_EVERY);
+    }
+
+    function scheduleLiqMap() {
+        if (!state.liqCanvas) { return; }
+        if (state.liqTimer) { clearTimeout(state.liqTimer); }
+        state.liqTimer = setTimeout(fetchLiqMap, 300);
+    }
+
+    function fetchLiqMap() {
+        if (!state.chart || !state.packet || !state.liqCanvas) { return; }
+        var range = state.chart.timeScale().getVisibleRange();
+        if (!range) { return; }
+        // La plage visible s'arrête à l'ouverture de la dernière bougie ;
+        // ses liquidations courent jusqu'à sa clôture — jusqu'à maintenant
+        // pour la bougie en cours.
+        var bars = state.packet.bars;
+        var n = bars.length;
+        var step = n > 1 ? bars[n - 1].time - bars[n - 2].time : 0;
+        var to = Math.ceil(range.to) + step;
+        if (n && range.to >= bars[n - 1].time) {
+            to = Math.max(to, Math.ceil(Date.now() / 1000));
+        }
+        var seq = state.seq;
+        fetch("/api/liqmap?from=" + Math.floor(range.from) + "&to=" + to)
+            .then(function (r) { return r.json(); })
+            .then(function (carte) {
+                if (seq !== state.seq || !state.liqCanvas) { return; }
+                state.liqData = carte;
+                drawLiqMap();
+            })
+            .catch(function () { /* le prochain mouvement retentera */ });
+    }
+
+    function drawLiqMap() {
+        var canvas = state.liqCanvas;
+        if (!canvas || !state.chart || !state.series) { return; }
+        var paneHeight = state.chart.panes()[0].getHeight();
+        var scaleWidth = state.chart.priceScale("right").width();
+        var paneWidth = state.el.clientWidth - scaleWidth;
+        canvas.width = paneWidth;
+        canvas.height = paneHeight;
+        var ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, paneWidth, paneHeight);
+        var carte = state.liqData;
+        if (!carte) { return; }
+        ctx.font = "9px " + state.conf.mono;
+        if (carte.empty) {
+            liqCaption(ctx, "liquidations : " + (carte.reason || "aucune"));
+            return;
+        }
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var max = 0;
+        for (var k = 0; k < carte.centers.length; k += 1) {
+            max = Math.max(max, carte.longs[k] + carte.shorts[k]);
+        }
+        if (!(max > 0)) { return; }
+        var maxLen = Math.round(paneWidth * 0.18);
+        var candles = state.series.candles;
+        for (var i = 0; i < carte.centers.length; i += 1) {
+            var total = carte.longs[i] + carte.shorts[i];
+            if (!(total > 0)) { continue; }
+            var top = candles.priceToCoordinate(
+                (carte.centers[i] + carte.width / 2) * rate);
+            var bottom = candles.priceToCoordinate(
+                (carte.centers[i] - carte.width / 2) * rate);
+            if (top === null || bottom === null) { continue; }
+            var y = Math.min(top, bottom);
+            var h = Math.max(2, Math.abs(bottom - top) - 1);
+            if (y + h < 0 || y > paneHeight) { continue; }
+            var len = Math.max(1, Math.round(total / max * maxLen));
+            var longLen = Math.round(len * carte.longs[i] / total);
+            ctx.fillStyle = "rgba(255,61,107,0.55)";
+            ctx.fillRect(0, y, longLen, h);
+            ctx.fillStyle = "rgba(0,212,170,0.55)";
+            ctx.fillRect(longLen, y, len - longLen, h);
+        }
+        liqCaption(ctx, "liquidations " + (carte.notional / 1e6).toFixed(1)
+                   + " M$ · " + carte.count + " · "
+                   + carte.exchanges.join(", ")
+                   + " · rouge : longs, vert : shorts");
+    }
+
+    // La légende de la carte, sous celle des moyennes : en bas du pane, le
+    // volume la recouvrait. Un fond la garde lisible sur les chandeliers.
+    function liqCaption(ctx, text) {
+        var width = ctx.measureText(text).width;
+        ctx.fillStyle = "rgba(14,17,23,0.8)";
+        ctx.fillRect(4, 34, width + 6, 13);
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillText(text, 7, 44);
+    }
+
     // ── Seuils d'alerte ─────────────────────────────────────
 
     // Les seuils de cours posés depuis le panneau ALERTES, tracés sur
@@ -533,6 +1115,39 @@
         });
     }
 
+    // Alt + clic : pose un seuil à la hauteur du clic, ou retire celui qui
+    // s'y trouve déjà. Le geste écrit dans le Store alert-config, comme le
+    // panneau ALERTES : le moteur, la liste et les lignes suivent d'eux-mêmes.
+    // Le sens est figé à la pose, comme là-bas, par rapport au dernier cours.
+    function toggleAlertAt(y) {
+        var candles = state.series.candles;
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var bars = state.packet.bars;
+        var levels = (state.alertLevels || []).slice();
+        var hit = levels.findIndex(function (item) {
+            var at = candles.priceToCoordinate(item.level * rate);
+            return at !== null && Math.abs(at - y) <= ALERT_HIT_PX;
+        });
+        if (hit !== -1) {
+            levels.splice(hit, 1);
+        } else {
+            var price = candles.coordinateToPrice(y);
+            if (price === null || !bars.length) { return; }
+            var level = Math.round(price / rate);
+            levels.push({level: level,
+                         dir: level >= bars[bars.length - 1].close
+                             ? "above" : "below"});
+        }
+        writeAlertLevels(levels);
+    }
+
+    function writeAlertLevels(levels) {
+        window.dash_clientside.set_props("alert-config", {
+            data: Object.assign({}, state.alertConfig,
+                                {price_levels: levels})
+        });
+    }
+
     function buildBanner() {
         var theme = state.conf.theme;
         var div = document.createElement("div");
@@ -545,17 +1160,19 @@
     }
 
     // Le bandeau d'avertissement dit ce que le paquet dit : données de
-    // démonstration, ou — en euros seulement — taux de change de
-    // secours. La démonstration prime : un taux juste sur des bougies
-    // inventées n'apprendrait rien.
+    // démonstration, historique sauvegardé servi seul, ou — en euros
+    // seulement — taux de change de secours. La démonstration prime : un
+    // taux juste sur des bougies inventées n'apprendrait rien.
     function updateBanner() {
         var packet = state.packet;
         if (!state.banner || !packet) { return; }
         var text = packet.demo
             ? "⚠ DONNÉES DE DÉMONSTRATION · source injoignable"
-            : (state.cfg.currency === "EUR" && packet.eur_stale)
-                ? "⚠ TAUX € DE SECOURS · source de change injoignable"
-                : "";
+            : packet.stale
+                ? "⚠ HISTORIQUE SAUVEGARDÉ · source injoignable, cours à l'arrêt"
+                : (state.cfg.currency === "EUR" && packet.eur_stale)
+                    ? "⚠ TAUX € DE SECOURS · source de change injoignable"
+                    : "";
         state.banner.textContent = text;
         state.banner.style.display = text ? "block" : "none";
     }
@@ -570,12 +1187,36 @@
         state.chart = null;
         state.series = null;
         state.legend = null;
+        state.readout = null;
+        state.measureLabel = null;
+        state.drawPreview = null;
+        state.drawHint = null;
+        state.drawLines = [];
+        state.drawMode = false;
+        state.hover = null;
         state.banner = null;
         state.loading = false;
         state.exhausted = false;
+        stopBackfillRetry();
         state.profileCanvas = null;
         state.profileData = null;
         state.profileLines = [];
+        if (state.levelsTimer) {
+            clearInterval(state.levelsTimer);
+            state.levelsTimer = null;
+        }
+        state.levels = null;
+        state.levelLines = [];
+        if (state.liqPoll) {
+            clearInterval(state.liqPoll);
+            state.liqPoll = null;
+        }
+        if (state.liqTimer) {
+            clearTimeout(state.liqTimer);
+            state.liqTimer = null;
+        }
+        state.liqCanvas = null;
+        state.liqData = null;
         if (state.profileTimer) {
             clearTimeout(state.profileTimer);
             state.profileTimer = null;
@@ -592,6 +1233,17 @@
                 ? {time: p.time, value: p.value * rate}
                 : {time: p.time, open: p.open * rate, high: p.high * rate,
                    low: p.low * rate, close: p.close * rate};
+        });
+    }
+
+    // Le delta de chaque bougie, cumulé depuis le début de la série chargée.
+    // Seule la forme se lit : le zéro bouge à chaque page d'historique, et
+    // la courbe se décale d'autant sans changer de dessin.
+    function cvdPoints() {
+        var total = 0;
+        return (state.packet.panes.delta || []).map(function (p) {
+            total += p.value;
+            return {time: p.time, value: total};
         });
     }
 
@@ -618,8 +1270,13 @@
         }
         if (series.rsi) { series.rsi.setData(packet.panes.rsi || []); }
         if (series.crsi) { series.crsi.setData(packet.panes.crsi || []); }
+        if (series.cvd) { series.cvd.setData(cvdPoints()); }
         series.markers.setMarkers(markersFrom(packet.signals || []));
+        renderDrawings();
 
+        // Le survol retient des valeurs à l'ancien taux.
+        state.hover = null;
+        updateReadout();
         updateBanner();
         applyLog();
 
@@ -628,9 +1285,14 @@
             drawProfile();
             scheduleProfile();
         }
+        if (state.liqCanvas) {
+            drawLiqMap();
+            scheduleLiqMap();
+        }
         // Les lignes portent des prix en unités de série : la bascule
         // de devise les reprend au taux.
         updateAlertLines();
+        updateLevelLines();
     }
 
     // Traduit les signaux gradués du serveur (-2 à +2) en flèches :
@@ -638,6 +1300,7 @@
     // signaux forts — la grammaire du panneau Plotly.
     function markersFrom(signals) {
         var theme = state.conf.theme;
+        if (state.signalsHidden) { return []; }
         return signals.map(function (s) {
             return {
                 time: s.time,
@@ -674,9 +1337,15 @@
                 // Une réponse dépassée — l'intervalle a rechangé entre
                 // temps — est simplement écartée.
                 if (seq !== state.seq || !state.chart) { return; }
+                // Recalage silencieux : le passé remonté au pan reste,
+                // et avec lui ce qu'on savait de son début.
+                var kept = !fit && keepOlder(packet, state.packet);
                 state.packet = packet;
                 state.loading = false;
-                state.exhausted = false;
+                if (!kept) {
+                    state.exhausted = false;
+                    stopBackfillRetry();
+                }
                 fillSeries();
                 if (fit) { state.chart.timeScale().fitContent(); }
             })
@@ -686,10 +1355,12 @@
     // Le bord gauche visible approche du début du tampon : demander la
     // page antérieure. Verrou anti-rafale (une requête en vol à la
     // fois) et mémoire du « plus ancien atteint » — une page vide dit
-    // que la source n'a plus rien avant, inutile de la marteler.
+    // que la source n'a plus rien avant, inutile de la marteler. Sauf
+    // si elle est vide faute de source (`stale`) : le passé n'est pas
+    // fermé, un réessai est programmé.
     function maybeBackfill(range) {
         if (!state.chart || !state.packet || state.loading
-                || state.exhausted || !range
+                || state.exhausted || state.backfillTimer || !range
                 || range.from > BACKFILL_MARGIN) {
             return;
         }
@@ -702,20 +1373,37 @@
         var interval = state.cfg.interval;
         var limit = (state.conf.intervals || {})[interval] || 365;
         var seq = state.seq;
+        var before = bars[0].time;
         state.loading = true;
         fetch("/api/klines?interval=" + encodeURIComponent(interval)
-              + "&limit=" + limit + "&before=" + bars[0].time)
+              + "&limit=" + limit + "&before=" + before)
             .then(function (r) { return r.json(); })
             .then(function (page) {
                 state.loading = false;
-                // Un refetch est passé entre temps : le tampon a changé
-                // de série, cette page ne le concerne plus.
-                if (seq !== state.seq || !state.chart) { return; }
-                if (!page.bars.length) {
-                    state.exhausted = true;
+                // La page ne se colle que si le tampon commence toujours
+                // là où elle s'arrête. Le jeton seul ne suffisait pas : au
+                // changement d'intervalle, le graphique encore à l'ancien
+                // demandait une page du nouveau, sous le jeton du refetch
+                // déjà parti, et la collait devant la nouvelle série — à
+                // des dates qui la chevauchaient. Le recalage complet
+                // effaçait le dégât ; celui qui garde le passé l'aurait
+                // gardé aussi.
+                if (seq !== state.seq || !state.chart
+                        || !state.packet.bars.length
+                        || state.packet.bars[0].time !== before) {
                     return;
                 }
-                prepend(page);
+                // La série de démonstration n'a pas de passé à attendre :
+                // de vraies bougies n'ont rien à faire devant elle.
+                if (!page.bars.length) {
+                    if (page.stale && !state.packet.demo) {
+                        retryBackfill();
+                    } else {
+                        state.exhausted = true;
+                    }
+                    return;
+                }
+                prepend(state.packet, page);
                 // setData du concaténé : la bibliothèque préserve la
                 // fenêtre visible, le pan continue sans à-coup.
                 fillSeries();
@@ -723,8 +1411,76 @@
             .catch(function () { state.loading = false; });
     }
 
-    function prepend(page) {
-        var packet = state.packet;
+    // Le réessai part de la fenêtre visible du moment : si l'on a
+    // quitté le bord gauche entre-temps, il ne demande rien.
+    function retryBackfill() {
+        stopBackfillRetry();
+        state.backfillTimer = setTimeout(function () {
+            state.backfillTimer = null;
+            if (state.chart) {
+                maybeBackfill(state.chart.timeScale().getVisibleLogicalRange());
+            }
+        }, BACKFILL_RETRY);
+    }
+
+    function stopBackfillRetry() {
+        if (state.backfillTimer) {
+            clearTimeout(state.backfillTimer);
+            state.backfillTimer = null;
+        }
+    }
+
+    // Recalage silencieux : la page fraîche remplace la fin du tampon, et
+    // ce que le pan a remonté reste devant elle. Remplacer tout le tampon,
+    // comme au changement d'intervalle, faisait sauter la vue : le
+    // graphique garde sa plage par rang de bougie, pas par date, et un
+    // retour d'onglet en journalier ramenait de 2023 à 2025 — en repli
+    // poll, toutes les deux secondes. Rien n'est gardé si les deux ne se
+    // recouvrent pas (la machine a dormi plus longtemps que la page n'en
+    // couvre) : mieux vaut perdre le passé remonté qu'y laisser un trou.
+    function keepOlder(packet, old) {
+        if (!old || old.demo || packet.demo || old.interval !== packet.interval
+                || !old.bars.length || !packet.bars.length
+                || old.bars[old.bars.length - 1].time < packet.bars[0].time) {
+            return false;
+        }
+        // Chaque série garde l'ancien jusqu'à son propre premier point :
+        // la MA 200 d'une page fraîche ne commence que deux cents bougies
+        // après elle, et l'ancien tampon a de quoi combler.
+        function older(points, fresh) {
+            var cut = fresh && fresh.length ? fresh[0].time : Infinity;
+            return (points || []).filter(function (p) { return p.time < cut; });
+        }
+        var page = {bars: older(old.bars, packet.bars),
+                    volume: older(old.volume, packet.volume),
+                    volume_ma: older(old.volume_ma, packet.volume_ma),
+                    overlays: {}, panes: {}};
+        var name;
+        for (name in old.overlays) {
+            page.overlays[name] = older(old.overlays[name],
+                                        packet.overlays[name]);
+        }
+        for (name in old.panes) {
+            page.panes[name] = older(old.panes[name], packet.panes[name]);
+        }
+        prepend(packet, page);
+        return page.bars.length > 0;
+    }
+
+    // Le plus court et le plus long écart entre deux bougies affichées :
+    // un doublon met le premier à zéro, un trou allonge le second — ce
+    // que le smoke test compare autour d'un recalage.
+    function steps(points) {
+        var min = null, max = null;
+        for (var i = 1; i < points.length; i++) {
+            var gap = points[i].time - points[i - 1].time;
+            if (min === null || gap < min) { min = gap; }
+            if (max === null || gap > max) { max = gap; }
+        }
+        return [min, max];
+    }
+
+    function prepend(packet, page) {
         var name;
         packet.bars = page.bars.concat(packet.bars);
         packet.volume = page.volume.concat(packet.volume);
@@ -757,6 +1513,8 @@
     function sameExtras(a, b) {
         return a.slice().sort().join(",") === b.slice().sort().join(",");
     }
+
+    state.drawings = loadDrawings();
 
     window.lwcPrice = {
         configure: function (cfg, conf) {
@@ -812,6 +1570,7 @@
             }
             if (previous.log !== cfg.log) {
                 applyLog();
+                renderDrawings();
             }
             // Le plein écran double la largeur mais l'espacement des
             // barres survit au redimensionnement : sans recadrage, la
@@ -872,6 +1631,7 @@
             }
             mergeTail(packet.volume_ma, update.volume_ma);
             packet.demo = update.demo;
+            packet.stale = update.stale;
 
             var series = state.series;
             var theme = state.conf.theme;
@@ -898,6 +1658,10 @@
             if (series.crsi && update.panes.crsi) {
                 series.crsi.update(update.panes.crsi);
             }
+            if (series.cvd && update.panes.delta) {
+                var cvd = cvdPoints();
+                series.cvd.update(cvd[cvd.length - 1]);
+            }
 
             // Le signal de la bougie courante peut naître, changer de
             // grade ou s'éteindre tant qu'elle vit : la liste locale
@@ -915,6 +1679,9 @@
             }
 
             updateBanner();
+            updateReadout();
+            // Une bougie de plus : les lignes se prolongent d'autant.
+            if (delta > 0) { renderDrawings(); }
             // Une bougie qui clôture déplace le volume : le profil de
             // la plage visible suit, au débit du debounce.
             if (delta > 0 && state.profileCanvas) { scheduleProfile(); }
@@ -930,7 +1697,8 @@
         // Les seuils de cours du panneau ALERTES, relayés par le Store
         // alert-config (panels/price.py) : retenus même sans graphique
         // — ils seront tracés au prochain montage.
-        alerts: function (levels) {
+        alerts: function (levels, config) {
+            state.alertConfig = config || null;
             state.alertLevels = (levels || []).filter(function (item) {
                 return item && typeof item.level === "number"
                     && item.level > 0;
@@ -960,6 +1728,9 @@
             return {
                 range: state.chart.timeScale().getVisibleLogicalRange(),
                 interval: state.cfg.interval,
+                // L'intervalle de la série affichée : `interval` dit celui
+                // demandé, la série ne suit qu'un aller-retour plus tard.
+                loaded: state.packet.interval || null,
                 bars: n,
                 demo: !!state.packet.demo,
                 eur_rate: state.packet.eur_rate,
@@ -977,9 +1748,31 @@
                 packetClose: n ? state.packet.bars[n - 1].close : null,
                 firstTime: n ? state.packet.bars[0].time : null,
                 exhausted: state.exhausted,
+                backfillRetry: !!state.backfillTimer,
+                steps: steps(data),
                 panes: state.chart.panes().length,
                 signals: (state.packet.signals || []).length,
+                signalsShown: !state.signalsHidden,
                 alerts: (state.alertLevels || []).length,
+                liqmap: state.liqData
+                    ? (state.liqData.empty ? state.liqData.reason
+                       : {count: state.liqData.count,
+                          exchanges: state.liqData.exchanges})
+                    : null,
+                levels: (state.levelLines || []).map(function (line) {
+                    return line.options().title;
+                }),
+                alertLevels: state.alertLevels || [],
+                readout: state.readout ? state.readout.textContent : null,
+                measure: state.measureLabel
+                    ? state.measureLabel.textContent : null,
+                drawings: state.drawings,
+                drawLines: (state.drawLines || []).map(function (line) {
+                    return line.points;
+                }),
+                drawMode: state.drawMode,
+                cvd: state.series.cvd
+                    ? state.series.cvd.data().length : null,
                 profile: state.profileData
                     ? {poc: state.profileData.poc,
                        vaLow: state.profileData.va_low,
@@ -987,6 +1780,74 @@
                        bins: state.profileData.centers.length}
                     : null
             };
+        },
+
+        // Masque les flèches, ou les rend. Le bilan du panneau ANALYSE dit
+        // qu'elles n'apportent rien : elles restent affichées par défaut,
+        // et le choix survit au rechargement. Rend le nouvel état.
+        toggleSignals: function () {
+            state.signalsHidden = !state.signalsHidden;
+            localStorage.setItem(SIGNALS_KEY,
+                                 state.signalsHidden ? "off" : "on");
+            if (state.series && state.packet) {
+                state.series.markers.setMarkers(
+                    markersFrom(state.packet.signals || []));
+            }
+            return !state.signalsHidden;
+        },
+
+        // T : arme le tracé d'une ligne, ou le désarme.
+        toggleDrawing: function () {
+            setDrawMode(!state.drawMode);
+            return state.drawMode;
+        },
+
+        clearDrawings: function () {
+            state.drawings = [];
+            saveDrawings();
+            renderDrawings();
+            return true;
+        },
+
+        // Le graphique en image, tel qu'il est à l'écran : c'est la seule
+        // chose qu'on puisse joindre à un message ou garder d'une séance.
+        capture: function () {
+            if (!state.chart) { return false; }
+            var link = document.createElement("a");
+            link.href = state.chart.takeScreenshot().toDataURL("image/png");
+            link.download = "btcusdt-" + state.cfg.interval + "-"
+                + new Date().toISOString().slice(0, 16).replace(/[:T]/g, "-")
+                + ".png";
+            link.click();
+            return true;
+        },
+
+        // Un seuil en dollars, pour la ligne de commande. Faux tant que le
+        // graphique n'a pas de cours : le sens d'un seuil se fige contre lui.
+        addAlert: function (level) {
+            var bars = state.packet ? state.packet.bars : [];
+            if (!bars.length || !(level > 0)) { return false; }
+            var levels = (state.alertLevels || []).slice();
+            levels.push({level: level,
+                         dir: level >= bars[bars.length - 1].close
+                             ? "above" : "below"});
+            writeAlertLevels(levels);
+            return true;
+        },
+
+        // Pour le smoke : la position à l'écran d'un prix, en dollars — le
+        // clic d'un test vise ainsi un seuil sans lire le canvas.
+        coordinate: function (price) {
+            var rate = state.cfg.currency === "EUR"
+                ? state.packet.eur_rate : 1;
+            return state.series.candles.priceToCoordinate(price * rate);
+        },
+
+        // Pour le smoke : où se trouve à l'écran un point d'une série, ce que
+        // tout recadrage change.
+        screen: function (time, value) {
+            return {x: state.chart.timeScale().timeToCoordinate(time),
+                    y: state.series.candles.priceToCoordinate(value)};
         },
 
         // Second point d'entrée du smoke : un pan programmatique — le

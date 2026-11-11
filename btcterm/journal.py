@@ -632,6 +632,18 @@ def resume(journal: "Journal", hours: float = 24,
         lines.append(f"  le plus gros : {sens} {gros['exchange']} "
                      f"{gros['notional']:,.0f} $ à {quand(gros['ts'])}")
 
+    totals, kept, dropped = liquidity_totals(
+        (row["ts"], row["exchange"], row["bid_btc"], row["ask_btc"])
+        for row in journal.depth_between(start, end))
+    if totals:
+        volumes = [bid + ask for _, bid, ask in totals]
+        mean = sum(volumes) / len(volumes)
+        lines.append(
+            f"Liquidité : {volumes[-1]:.0f} BTC à portée du prix au dernier "
+            f"relevé ({quand(totals[-1][0])}) — moyenne {mean:.0f}, "
+            f"de {min(volumes):.0f} à {max(volumes):.0f} · {', '.join(kept)}"
+            + (f" ; sans {', '.join(dropped)}" if dropped else ""))
+
     alerts = journal.alerts_between(start, end)
     if not alerts:
         lines.append("Alertes : aucune.")

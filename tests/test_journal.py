@@ -607,6 +607,9 @@ def test_relecture_en_ligne_de_commande():
                                    notional=float(montant)))
         journal.record_alert(N(time=maintenant - 600, kind="price",
                                message="seuil franchi"))
+        for k in range(4):
+            journal.record_book_depth(maintenant - 300 * (3 - k), [
+                ("Binance", 100.0 + 10 * k, 100.0), ("OKX", 50.0, 50.0)])
         journal.record_alert(N(time=maintenant - 30 * 3600, kind="news",
                                message="d'hier"))
 
@@ -616,6 +619,8 @@ def test_relecture_en_ligne_de_commande():
         assert ("Gros ordres : 2 — achats 1 · 300,000 $ · ventes 1 · "
                 "100,000 $ · solde +200,000 $") in jour, jour
         assert "le plus gros : achat Binance 300,000 $" in jour
+        assert ("Liquidité : 330 BTC à portée du prix au dernier relevé"
+                in jour and "moyenne 315, de 300 à 330 · Binance, OKX" in jour), jour
         assert "Alertes : 1" in jour and "d'hier" not in jour
         heure = time.strftime("%H:%M", time.localtime(maintenant - 600))
         assert f"  {heure}  [  price]  seuil franchi" in jour, jour

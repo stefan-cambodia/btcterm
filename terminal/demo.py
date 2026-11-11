@@ -116,9 +116,7 @@ PAGE = """<!DOCTYPE html>
 </div>
 <div class="demo-footer">
   Le vrai terminal sert ces données en temps réel depuis cinq plateformes,
-  avec quatorze autres panneaux — carnet, profondeur, arbitrage, liquidations,
-  ETF, perpétuel, news, calendrier, alertes, journal, macro, dominance,
-  chaîne, analyse. Ici, seul le panneau prix, sur __BARS__ bougies par intervalle
+  avec __PANELS__. Ici, seul le panneau prix, sur __BARS__ bougies par intervalle
   figées le __DATE__ : zoom à la molette ou au cadre (Maj + glisser,
   double-clic pour la vue entière), pan à la souris (l'historique se
   charge en glissant vers le passé), crosshair, $/€, échelle log, panes.
@@ -148,6 +146,17 @@ def freeze_packet(hub, interval: str, bars: int = BARS_PER_INTERVAL,
     packet["eur_rate"] = float(hub.eur_rate())
     packet["demo"] = False
     return packet
+
+
+def other_panels() -> str:
+    """Les panneaux que la démo ne montre pas, tels que la grille les
+    range : la page en annonçait quatorze quand le terminal en comptait
+    vingt et un — une liste écrite à la main se périme."""
+    from .grid import CELLS
+
+    labels = [label.lower() for panels in CELLS.values()
+              for panel_id, label, _ in panels if panel_id != "price"]
+    return f"{len(labels)} autres panneaux — {', '.join(labels)}"
 
 
 def build(out: Path, hub, bars: int = BARS_PER_INTERVAL,
@@ -198,6 +207,7 @@ def build(out: Path, hub, bars: int = BARS_PER_INTERVAL,
         "__CYAN__": C["cyan"], "__BORDER__": C["border"], "__MUTED__": C["muted"],
         "__YELLOW__": C["yellow"], "__ORANGE__": C["orange"], "__PANEL__": C["panel"],
         "__DATE__": date, "__REPO__": repo, "__BARS__": str(bars),
+        "__PANELS__": other_panels(),
         "__CONF__": json.dumps(conf, ensure_ascii=False),
     }.items():
         page = page.replace(key, value)

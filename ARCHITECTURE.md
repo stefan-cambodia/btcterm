@@ -3266,6 +3266,15 @@ journal aura quelques semaines.
   clés (case `NIV`, touche `N`), en bleu, et pendant le week-end la
   fermeture du vendredi s'affiche, le gap se formant. Au 11 novembre
   2026, un seul : « CME 06/11 » à 75 928 $, ouvert de 1,9 %.
+- ~~**Une démo statique de six semaines**~~ — `docs/demo` datait du
+  30 septembre : son `lwc-price.js` comptait mille lignes quand celui du
+  terminal en compte près de deux mille, sans la minute ni les cinq
+  minutes, et sa page annonçait « quatorze autres panneaux » pour vingt
+  et un. Régénérée (`python -m terminal.demo docs`), onze intervalles
+  figés le 11 novembre 2026, vérifiée dans Firefox sur un serveur de
+  fichiers ; la liste des panneaux vient désormais de la grille
+  (`demo.other_panels`), une liste écrite à la main se périmant. La
+  commande du journal, elle, dit la liquidité de la fenêtre.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au
