@@ -3186,6 +3186,28 @@ journal aura quelques semaines.
   rompt sur les interruptions de séance. Le titre donne le dernier relevé
   et son écart à la moyenne de la fenêtre. L'historique commence le
   11 novembre 2026.
+- ~~**Une variation sur 24 h fausse de deux points**~~ — le titre du
+  panneau DOMINANCE recopiait celle de CoinGecko, qui ne dit pas sur quel
+  univers elle est calculée : −4,07 % le 11 novembre 2026, quand le journal
+  mesurait −1,69 et la capitalisation du bitcoin −1,45. Fait :
+  `hub.market_cap_change` la mesure au journal, même univers aux deux
+  bouts (§2.7) ; l'infobulle dit les heures réellement couvertes quand la
+  machine dormait vingt-quatre heures plus tôt, et celle de la source ne
+  s'affiche plus qu'en gris, faute de mieux, tant que le journal n'a pas
+  une demi-journée de recul.
+- ~~**Des frais de transaction absents**~~ — le panneau ON-CHAIN disait la
+  taille du mempool, pas ce que coûte d'y passer : la demande d'espace
+  dans les blocs, nulle quand la chaîne est vide et qui s'envole quand
+  tout le monde bouge ses bitcoins à la fois. Fait : `fetch_fee_estimates`
+  lit les estimations de blockstream.info — au centième de satoshi, là où
+  d'autres arrondissent à l'unité un marché qui vit sous le satoshi —, et
+  le titre du panneau donne le prochain bloc, l'heure et la journée au
+  survol ; orange au-delà de 20 sat/vB, rouge au-delà de 80. La source
+  figure au panneau SOURCES comme les autres.
+- ~~**Un contrôle qui s'arrêtait net**~~ — `ui_smoke.py` levait une
+  exception, et perdait tout le passage, quand le tracé d'une tendance
+  manquait son glisser sur une machine chargée : c'est désormais un
+  contrôle en échec comme un autre.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au

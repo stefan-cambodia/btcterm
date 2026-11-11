@@ -47,8 +47,20 @@ def layout(title=None):
     ], style=PANEL_STYLE)
 
 
-def _badges(stats: dict, mempool):
-    """Hashrate, difficulté, rythme des blocs et taille du mempool."""
+#: Frais au-delà desquels la chaîne est disputée, puis saturée, en sat/vB :
+#: l'ordinaire tient sous dix, les ruées de 2023 et 2024 ont dépassé cent.
+FEES_BUSY = 20.0
+FEES_RUSH = 80.0
+
+
+def _frais(valeur: float) -> str:
+    """Un taux lisible du centième à la centaine de sat/vB."""
+    return f"{valeur:.2f}" if valeur < 1 else (
+        f"{valeur:.1f}" if valeur < 10 else f"{valeur:.0f}")
+
+
+def _badges(stats: dict, mempool, fees: dict | None = None):
+    """Hashrate, difficulté, rythme des blocs, mempool et frais."""
     if not stats:
         return html.Span("réseau indisponible", style={"color": C["muted"]})
 
@@ -81,6 +93,19 @@ def _badges(stats: dict, mempool):
                       style={"color": C["cyan"]},
                       title="transactions en attente de confirmation"),
         ]
+
+    if fees:
+        prochain = fees["next"]
+        couleur = (C["red"] if prochain >= FEES_RUSH else
+                   C["orange"] if prochain >= FEES_BUSY else C["cyan"])
+        children += [
+            html.Span(" · frais ", style={"color": C["muted"]}),
+            html.Span(f"{_frais(prochain)} sat/vB", style={"color": couleur},
+                      title=f"frais pour le prochain bloc ; "
+                            f"{_frais(fees['hour'])} sat/vB dans l'heure, "
+                            f"{_frais(fees['day'])} dans la journée — "
+                            "la demande d'espace dans les blocs"),
+        ]
     return html.Span(children, style={"fontFamily": MONO})
 
 
@@ -99,5 +124,5 @@ def register(app, hub):
         return (
             build_chain_chart(hashrate, difficulty,
                               maximized=(maximized == "macro")),
-            _badges(hub.chain_stats(), mempool),
+            _badges(hub.chain_stats(), mempool, hub.chain_fees()),
         )

@@ -46,6 +46,7 @@ FAMILIES = {
     "etf": "Flux ETF · farside",
     "chain_stats": "Réseau · blockchain.info",
     "chain": "Séries de chaîne · blockchain.info",
+    "fees": "Frais de transaction · blockstream.info",
     "m2": "Masse monétaire M2 · DBnomics",
     "eur": "Change €/$",
     "fear_greed_history": "Fear & Greed · alternative.me",

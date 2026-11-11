@@ -89,6 +89,7 @@ SOURCE_LABELS = {
     "perp_bybit": "perpétuel Bybit", "perp_okx": "perpétuel OKX",
     "funding": "financement", "eur": "taux de change", "ticker": "variation 24 h",
     "global": "dominance", "chain": "on-chain", "chain_stats": "on-chain",
+    "fees": "frais on-chain",
     "etf": "flux ETF", "m2": "masse monétaire",
     "fear_greed_history": "Fear & Greed",
 }

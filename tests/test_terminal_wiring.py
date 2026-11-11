@@ -254,6 +254,15 @@ def test_les_badges_lents_convertissent():
     converti = str(dominance._badges(agregats, euros))
     assert "1.00 T€" in converti and "40 Md€" in converti
     assert "⚠" in converti and "0.5000" in converti
+    # La variation sur 24 h : celle du journal quand il la mesure, celle
+    # de la source en gris sinon — elle s'est montrée fausse de deux points.
+    source = str(dominance._badges(agregats, DOLLARS))
+    assert "+1.00 %" in source and "univers non garanti" in source
+    journal = str(dominance._badges(agregats, DOLLARS, change=(-1.69, 24.2)))
+    assert "-1.69 %" in journal and "+1.00 %" not in journal
+    assert "sur 24 h, mesurée au journal" in journal
+    assert "sur 22 h" in str(dominance._badges(agregats, DOLLARS,
+                                               change=(-1.69, 22.4)))
 
     oi = pd.DataFrame({"oi_usd": [8e9]})
     instant = {"funding_rate": 0.0001}
@@ -334,6 +343,43 @@ def test_le_bandeau_compte_tous_les_flux():
     noms = [nom for nom, _ in hub.realtime_links()]
     assert len([n for n in noms if n.startswith("carnet")]) == 5
     print("  ✓ tous les liens temps réel comptés, les absents nommés")
+
+def test_les_frais_de_transaction_se_lisent():
+    """Les frais on-chain : trois horizons tirés de la table de la source,
+    et un badge qui ne promet rien sans eux."""
+    import pandas as pd
+
+    from btcterm import sources
+    from terminal.panels import onchain
+
+    table = {"1": 1.003, "2": 1.003, "6": 0.351, "25": 0.123, "144": 0.112,
+             "1008": 0.1}
+    frais = sources.fee_estimates(table)
+    assert frais == {"next": 1.003, "hour": 0.351, "day": 0.112}
+    # Une table sans l'horizon exact rend le plus proche.
+    assert sources.fee_estimates({"2": 5.0, "8": 3.0, "100": 1.0}) == \
+        {"next": 5.0, "hour": 3.0, "day": 1.0}
+    try:
+        sources.fee_estimates({})
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("une table vide doit lever")
+
+    stats = {"hash_rate_ghs": 9.59e11, "difficulty": 1.484e14,
+             "minutes_between_blocks": 10.6}
+    mempool = pd.DataFrame({"value": [29e6]})
+    sans = str(onchain._badges(stats, mempool))
+    assert "frais" not in sans and "959 EH/s" in sans
+    calme = str(onchain._badges(stats, mempool, frais))
+    assert "1.0 sat/vB" in calme and "0.35 sat/vB dans l'heure" in calme
+    ruee = onchain._badges(stats, mempool, {"next": 140.0, "hour": 90.0,
+                                            "day": 12.0})
+    assert "140 sat/vB" in str(ruee) and onchain.C["red"] in str(ruee)
+    assert [onchain._frais(v) for v in (0.112, 1.003, 9.96, 23.4)] == \
+        ["0.11", "1.0", "10.0", "23"]
+    print("  ✓ frais on-chain : trois horizons, badge coloré, absence tue")
+
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

@@ -33,7 +33,8 @@ __all__ = [
     "fetch_eur_rate", "fetch_m2_supply",
     "fetch_funding_history", "fetch_open_interest", "fetch_perp_snapshot",
     "fetch_bybit_perp", "fetch_okx_perp",
-    "clean_etf_table", "fetch_market_global", "market_global", "INTERMITTENT", "fetch_chain_chart", "fetch_chain_stats",
+    "clean_etf_table", "fetch_market_global", "market_global", "INTERMITTENT",
+    "fetch_fee_estimates", "fee_estimates", "fetch_chain_chart", "fetch_chain_stats",
     "fetch_etf_flows",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
     "fetch_fear_greed_history", "FEAR_GREED_DAYS",
@@ -111,6 +112,7 @@ FEAR_GREED_DAYS = 90
 #: répond en IPv4 et suffit à ce que le panneau montre.
 BLOCKCHAIN_CHARTS = "https://api.blockchain.info/charts"
 BLOCKCHAIN_STATS = "https://api.blockchain.info/stats"
+BLOCKSTREAM_FEES = "https://blockstream.info/api/fee-estimates"
 
 #: Agrégats de marché (capitalisation, dominance) — CoinGecko, endpoint
 #: public sans clé. Les séries historiques, elles, sont payantes : ce
@@ -517,6 +519,36 @@ def fetch_chain_stats() -> dict[str, Any]:
         # Hauteur de la chaîne : le compte à rebours du halving (§ cycle).
         "height": int(data.get("n_blocks_total", 0)),
     }
+
+
+def fetch_fee_estimates() -> dict[str, float]:
+    """Ce que coûte une transaction, en sat/vB, selon le délai visé.
+
+    Les frais disent la demande d'espace dans les blocs : nuls quand la
+    chaîne est vide, ils s'envolent quand tout le monde veut bouger ses
+    bitcoins à la fois — vers les plateformes, souvent. Blockstream les
+    estime par nombre de blocs d'attente, au centième de satoshi, là où
+    d'autres arrondissent à l'unité un marché qui vit sous le satoshi.
+
+    Retourne `next` (prochain bloc), `hour` (six blocs) et `day` (144).
+    """
+    response = _http.get(BLOCKSTREAM_FEES, timeout=12)
+    response.raise_for_status()
+    return fee_estimates(response.json())
+
+
+def fee_estimates(data: dict) -> dict[str, float]:
+    """Les trois horizons utiles d'une table `{blocs: sat/vB}` ; une table
+    sans prochain bloc ne vaut rien et lève."""
+    table = {int(blocks): float(rate) for blocks, rate in data.items()}
+    if not table:
+        raise RuntimeError("estimations de frais vides")
+
+    def at(target: int) -> float:
+        # L'horizon demandé, ou le plus proche que la table donne.
+        return table[min(table, key=lambda blocks: abs(blocks - target))]
+
+    return {"next": at(1), "hour": at(6), "day": at(144)}
 
 
 def fetch_market_global() -> dict[str, Any]:

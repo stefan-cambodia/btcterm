@@ -544,8 +544,36 @@ def test_univers_de_capitalisation_tenu():
         hub.journal = journal
         frame = hub.market_snapshots(days=1e5)
         assert abs(frame["btc_dominance"].dropna() - 60.0).max() < 1e-6
+        assert hub.market_cap_change(now=1_003_000) is None, \
+            "moins d'une demi-journée de recul : rien à mesurer"
         journal.close()
     print("  ✓ l'actif intermittent retiré à la collecte, rebasé à la lecture")
+
+
+def test_variation_de_capitalisation_au_journal():
+    """La variation sur 24 h se mesure au journal, même univers aux deux
+    bouts — la source en donnait une fausse de plus de deux points."""
+    with tempfile.TemporaryDirectory() as tmp:
+        hub = MarketHub(collect_news=False, keep_journal=False)
+        assert hub.market_cap_change() is None, "sans journal, rien"
+        hub.journal = Journal(Path(tmp) / "journal.db")
+        maintenant = time.time()
+        assert hub.market_cap_change(now=maintenant) is None
+        # Hier « avec » l'actif intermittent, ce matin « sans » : le
+        # total annoncé a perdu 3 %, le marché 2 %.
+        actif = 0.0255e12
+        for ecart, total, tenu in ((-24 * 3600, 2.5e12 + actif, None),
+                                   (-24 * 3600 + 300, 2.5e12 + actif, None),
+                                   (-24 * 3600 + 600, 2.5e12, None),
+                                   (-300, 2.45e12, 0.0), (0, 2.45e12, 0.0)):
+            hub.journal.record_market_snapshot(
+                maintenant + ecart, btc_dominance=100 * 1.5e12 / total,
+                total_cap_usd=total, cap_excluded=tenu)
+        variation, heures = hub.market_cap_change(now=maintenant)
+        assert abs(variation + 2.0) < 0.02, variation
+        assert abs(heures - 24) < 0.1
+        hub.journal.close()
+    print("  ✓ la variation sur 24 h vient du journal, univers rebasé")
 
 
 def test_relecture_en_ligne_de_commande():

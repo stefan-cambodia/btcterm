@@ -353,9 +353,13 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         browser.wait_for("window.lwcPrice.debug().currency === 'EUR'", timeout=5)
         ligne = browser.js("""
             const d = window.lwcPrice.debug();
+            // Sans ligne — le glisser a manqué, sur une machine chargée —,
+            // c'est un contrôle en échec, pas un arrêt du passage entier.
+            if (!d.drawLines.length || !d.drawings.length) { return null; }
             return d.drawLines[0][0].value / d.drawings[0].p0 / d.eur_rate;
         """)
-        check("elle suit la devise", abs(ligne - 1) < 1e-9, ligne)
+        check("elle suit la devise",
+              ligne is not None and abs(ligne - 1) < 1e-9, ligne)
         browser.press("e")
         browser.wait_for("window.lwcPrice.debug().currency === 'USD'", timeout=5)
         browser.press("7")

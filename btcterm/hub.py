@@ -1367,6 +1367,31 @@ class MarketHub:
         except Exception:
             return {}
 
+    def market_cap_change(self, now: Optional[float] = None
+                          ) -> Optional[tuple[float, float]]:
+        """La variation de la capitalisation totale sur un jour, mesurée au
+        journal : `(pourcentage, heures couvertes)`, ou `None`.
+
+        La source donne la sienne, mais sans dire sur quel univers : le
+        11 novembre 2026, elle annonçait −4,07 % quand le journal — même
+        univers aux deux bouts (§ journal.rebase_universe) — en mesurait
+        −1,69, et la capitalisation du bitcoin −1,45. La référence est
+        l'instantané le plus proche de vingt-quatre heures plus tôt ; la
+        machine a pu dormir à ce moment-là, et les heures rendues disent
+        l'écart réel. Sans journal, ou avec moins d'une demi-journée de
+        recul, il n'y a rien à mesurer.
+        """
+        if self.journal is None:
+            return None
+        now = time.time() if now is None else now
+        rows = self.journal.snapshots_rebased(
+            now - (brief.HOURS + 6) * 3600, now)
+        found = brief.change(rows, "total_cap_usd", now)
+        if found is None or found[1] is None or not found[1]:
+            return None
+        current, reference, span = found
+        return (current / reference - 1) * 100, span
+
     def record_market_snapshot(self, now: Optional[float] = None) -> None:
         """Journalise l'instantané de marché du moment.
 
@@ -1543,6 +1568,14 @@ class MarketHub:
             return self._cache.get(
                 "chain_stats", self.TTL_CHAIN_STATS, sources.fetch_chain_stats
             )
+        except Exception:
+            return {}
+
+    def chain_fees(self) -> dict:
+        """Frais de transaction estimés, en sat/vB, ou `{}`."""
+        try:
+            return self._cache.get(
+                "fees", self.TTL_CHAIN_STATS, sources.fetch_fee_estimates)
         except Exception:
             return {}
 

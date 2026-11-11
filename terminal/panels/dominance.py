@@ -42,13 +42,30 @@ def layout(title=None):
     ], style=PANEL_STYLE)
 
 
-def _badges(agregats: dict, fx=DOLLARS):
-    """Dominance du Bitcoin, capitalisation totale et volume."""
+def _badges(agregats: dict, fx=DOLLARS, change=None):
+    """Dominance du Bitcoin, capitalisation totale et volume.
+
+    `change` est la variation de la capitalisation mesurée au journal
+    (§ hub.market_cap_change) : `(pourcentage, heures)`. Sans elle, celle
+    de la source s'affiche en gris — elle ne dit pas sur quel univers
+    elle est calculée, et s'est montrée fausse de plus de deux points.
+    """
     if not agregats:
         return html.Span("agrégats indisponibles", style={"color": C["muted"]})
 
     btc = agregats["shares"].get("BTC")
-    variation = agregats.get("cap_change_24h", 0.0)
+    if change is not None:
+        variation, heures = change
+        couleur = C["green"] if variation >= 0 else C["red"]
+        note = ("variation de la capitalisation sur 24 h, mesurée au journal"
+                if abs(heures - 24) <= 1 else
+                f"variation de la capitalisation sur {heures:.0f} h, mesurée "
+                "au journal — pas d'instantané plus proche de 24 h")
+    else:
+        variation = agregats.get("cap_change_24h", 0.0)
+        couleur = C["muted"]
+        note = ("variation sur 24 h selon la source, univers non garanti — "
+                "le journal n'a pas encore une demi-journée de recul")
     children = []
     if btc is not None:
         children += [
@@ -63,9 +80,8 @@ def _badges(agregats: dict, fx=DOLLARS):
                   style={"color": C["text"]},
                   title=fx.title(
                       "capitalisation de l'ensemble des cryptomonnaies")),
-        html.Span(f" {variation:+.2f} %",
-                  style={"color": C["green"] if variation >= 0 else C["red"]},
-                  title="variation de la capitalisation sur 24 h"),
+        html.Span(f" {variation:+.2f} %", style={"color": couleur},
+                  title=note),
         html.Span(" · vol ", style={"color": C["muted"]}),
         html.Span(f"{agregats['total_volume_usd'] * fx.rate / 1e9:.0f} "
                   f"Md{fx.unit}",
@@ -95,5 +111,6 @@ def register(app, hub):
                 # Une révision par disposition : le zoom posé sur l'une ne
                 # désigne pas les mêmes axes dans l'autre.
                 uirevision="dominance-max" if maximized else "dominance"),
-            _badges(agregats, display(hub, currency)),
+            _badges(agregats, display(hub, currency),
+                    change=hub.market_cap_change()),
         )
