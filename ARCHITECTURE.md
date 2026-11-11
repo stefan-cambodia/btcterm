@@ -2720,21 +2720,34 @@ des manques constatés à la clôture et depuis — chacun à ouvrir quand l'usa
 fera sentir, aucun ne conditionnant les autres. Celui qui reste ouvert est
 en fin de section, et ne presse pas.
 
-**Point de reprise** (6 novembre 2026, au soir) : `main` porte tout le travail
-de la séance — réveil et attente de Binance, cache borné, panneaux OPTIONS et
-MARCHÉS, niveaux clés, calendrier 2027, historique du skew, portage et carte
-des liquidations —, le service tourne sur ce code, et les contrôles passent :
-tests Python et `ui_smoke.py`, trois passages conformes sur une machine chargée
-à 15–21 pour 22 cœurs par une machine virtuelle. Les échecs intermittents
-d'avant la pause venaient du contrôle et non de l'interface : des délais fixes
-qui lisaient sous charge la figure précédente (vues des options, macro), une
-attente de 12 s trop courte pour un perpétuel dont Binance dépasse les délais,
-et un on-chain refusé alors qu'il annonçait honnêtement sa série manquante.
-Chaque contrôle attend désormais sa condition. Le panneau SOURCES a suivi
-(§3.18). L'alerte sur le skew, laissée à ouvrir ce soir-là faute d'historique
-pour en étalonner le seuil, l'a été le 11 novembre sur un écart à 24 h plutôt
-que sur un niveau (§2.8) ; son seuil de deux points reste à revoir quand le
-journal aura quelques semaines.
+**Point de reprise** (11 novembre 2026, au soir) : `main` porte tout le
+travail de la journée, poussé lot par lot, le service tourne sur ce code, et
+les contrôles passent — les vingt-neuf fichiers de tests et `ui_smoke.py`,
+sur une machine chargée. La journée n'a rien eu d'un plan : l'existant relu à
+l'écran, sur le service en marche, puis ce que cette relecture rendait
+possible. D'abord les défauts — un titre qui débordait, une profondeur
+comparée qui ne comparait plus, un calendrier à cheval sur deux fuseaux, une
+dominance qui sautait avec l'univers de CoinGecko, des lignes vides comptées
+pour des séances d'ETF, des actions dans le fil des liquidations. Ensuite les
+carnets, portés de quelques niveaux à des centaines sur Binance, OKX, Kraken
+et Bybit ; et sur eux, la liquidité journalisée, son graphique, sa ligne à la
+synthèse et son alerte. Enfin ce que le journal gardait sans le montrer — le
+ruban dans le temps, la base et le put/call —, les gaps du CME parmi les
+niveaux clés, les frais on-chain, et pour le serveur à venir l'alerte sur une
+source en défaut et `/api/health`. Le détail est dans les listes ci-dessous,
+entrée par entrée.
+
+Ce qui reste à revoir tient à des seuils posés sans recul : celui des carnets
+creux (quarante pour cent sous la moyenne) le jour même où l'historique
+commence, celui du skew (deux points en 24 h) — quelques semaines de journal
+les étalonneront. Et à ce qui n'a pas pu se vérifier d'ici : le fil des
+liquidations de Binance, muet depuis le Cambodge, porte peut-être lui aussi
+des contrats qui ne sont pas des cryptomonnaies ; l'alerte sur une source en
+défaut et celle des carnets creux n'ont sonné que dans leurs tests ; la
+fermeture du CME un jour férié donnera un niveau pris à la mauvaise heure.
+L'actif intermittent de la capitalisation est écarté par son nom
+(`sources.INTERMITTENT`) : un autre qui se mettrait à clignoter ne le serait
+qu'à la lecture des anciennes lignes, pas à la collecte.
 
 **Pour l'analyse :**
 
@@ -3336,6 +3349,13 @@ journal aura quelques semaines.
   soixante-dix appels de plus, pour des bougies qui vieillissent vite. La
   minute et les cinq minutes aussi, à plus forte raison, et leur série est
   oubliée après quelques jours sans lecture (§2.10).
+
+- **Les seuils provisoires** — carnets creux et skew (voir le point de
+  reprise) : à étalonner sur quelques semaines de journal.
+- **Les jours fériés du CME** — `cme_gaps` lit la fermeture du vendredi à
+  16 h de Chicago, que le marché ait ouvert ou non ce jour-là.
+- **Les liquidations de Binance hors cryptomonnaies** — à vérifier depuis un
+  réseau où le flux futures livre (§2.5).
 
 **À trancher :**
 
