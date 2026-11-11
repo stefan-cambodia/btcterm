@@ -928,7 +928,8 @@
     // ouvertures sont pointillées. Relus toutes les cinq minutes : le jour
     // qui tourne les change. Les prix arrivent en dollars, la devise
     // affichée les convertit comme le POC.
-    var LEVEL_COLORS = {day: "#64748b", week: "#94a3b8", month: "#cbd5e1"};
+    var LEVEL_COLORS = {day: "#64748b", week: "#94a3b8", month: "#cbd5e1",
+                        cme: "#38bdf8"};
     var LEVELS_EVERY = 300000;
 
     function buildLevels() {

@@ -545,6 +545,88 @@ def test_niveaux_cles():
     print("  ✓ veille, semaine du lundi, mois ; niveau partagé fusionné ; "
           "pas d'ouverture inventée")
 
+
+def test_gaps_du_cme():
+    """Le trou du week-end, lu sur le comptant aux heures de Chicago : un
+    gap ouvert donne un niveau, un gap comblé ou trop mince n'en donne pas,
+    et le week-end en cours montre la fermeture du vendredi."""
+    from btcterm.analysis import cme_gaps
+
+    def heures(debut, fin, cours):
+        """Bougies d'une heure en UTC ; `cours(t)` rend (o, h, l, c)."""
+        lignes = []
+        for moment in pd.date_range(debut, fin, freq="h"):
+            o, h, l, c = cours(moment)
+            lignes.append({"time": moment, "open": o, "high": h, "low": l,
+                           "close": c})
+        return pd.DataFrame(lignes)
+
+    # Novembre : Chicago est à UTC−6. Fermeture le vendredi 6 à 22 h UTC
+    # (bougie de 21 h), réouverture le dimanche 8 à 23 h UTC.
+    ferme, rouvre = pd.Timestamp("2026-11-06 22:00"), pd.Timestamp("2026-11-08 23:00")
+
+    def baisse(plus_haut_apres):
+        def cours(t):
+            if t < ferme:
+                return (76_000, 76_100, 75_900, 76_000)
+            if t < rouvre:                      # le week-end : ça glisse
+                return (75_000, 75_200, 74_400, 74_500)
+            return (74_500, plus_haut_apres, 74_000, 74_300)
+        return cours
+
+    semaine = heures("2026-11-02", "2026-11-11 10:00", baisse(75_000))
+    ouverts = cme_gaps(semaine)
+    assert ouverts == [{"label": "CME 06/11", "price": 76_000.0, "span": "cme",
+                        "kind": "gap", "gap_pct": -1.97}], ouverts
+    # Le cours revenu toucher la fermeture du vendredi : comblé.
+    assert cme_gaps(heures("2026-11-02", "2026-11-11 10:00",
+                           baisse(76_050))) == []
+    # Un écart d'un dixième de pour cent n'est pas un gap.
+    def plat(t):
+        return (76_000, 76_050, 75_990, 76_000 if t < rouvre else 75_990)
+    assert cme_gaps(heures("2026-11-02", "2026-11-11 10:00", plat)) == []
+
+    # Le samedi : pas encore rouvert, la fermeture du vendredi se montre.
+    samedi = cme_gaps(semaine[semaine["time"] <= "2026-11-07 15:00"])
+    assert samedi == [{"label": "CME clôt.", "price": 76_000.0,
+                       "span": "cme", "kind": "close"}], samedi
+    # Mais un vieux vendredi sans dimanche — des bougies qui manquent —
+    # n'invente pas de fermeture en cours.
+    troue = semaine[(semaine["time"] < "2026-11-08 20:00")
+                    | (semaine["time"] > "2026-11-09 06:00")]
+    assert all(n["kind"] != "close" for n in cme_gaps(troue))
+
+    # En été, Chicago est à UTC−5 : la fermeture tombe à 21 h UTC, et un
+    # gap à la hausse se comble par le bas.
+    ferme_ete, rouvre_ete = (pd.Timestamp("2026-07-10 21:00"),
+                             pd.Timestamp("2026-07-12 22:00"))
+
+    def hausse(t):
+        if t < ferme_ete:
+            return (60_000, 60_100, 59_900, 60_000)
+        if t < rouvre_ete:
+            return (60_500, 61_200, 60_400, 61_000)
+        return (61_000, 61_500, 60_700, 61_200)
+
+    ete = cme_gaps(heures("2026-07-06", "2026-07-15", hausse))
+    assert [(n["label"], n["price"], n["gap_pct"]) for n in ete] == \
+        [("CME 10/07", 60_000.0, 1.67)], ete
+
+    # Plusieurs week-ends : les plus récents d'abord, bornés par `limit`.
+    def escalier(t):
+        # Une marche chaque samedi (le 5 septembre en est un), jamais
+        # redescendue : chaque week-end laisse un gap ouvert.
+        samedi = pd.Timestamp("2026-09-05")
+        marches = (t - samedi).days // 7 + 1 if t >= samedi else 0
+        base = 50_000 + 1_000 * marches
+        return (base, base + 50, base - 50, base)
+    tous = cme_gaps(heures("2026-09-01", "2026-10-20", escalier), limit=2)
+    assert len(tous) == 2 and tous[0]["label"] > tous[1]["label"], tous
+
+    assert cme_gaps(semaine.iloc[0:0]) == [] and cme_gaps(None) == []
+    assert cme_gaps(semaine[["time", "close"]]) == []
+    print("  ✓ gaps du CME : heures de Chicago, comblement, week-end en cours")
+
 if __name__ == "__main__":
     tests = [v for k, v in globals().items() if k.startswith("test_")]
     print(f"\nBilan des signaux — {len(tests)} vérifications\n" + "─" * 60)

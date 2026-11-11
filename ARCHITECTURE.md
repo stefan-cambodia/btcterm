@@ -3247,7 +3247,25 @@ journal aura quelques semaines.
   était une position sur SanDisk. Fait : la table des contrats retient la
   catégorie que la plateforme leur donne (`instCategory`), et ceux qui ne
   sont pas des cryptomonnaies restent connus mais hors du fil (§2.5). Les
-  lignes déjà journalisées y restent jusqu'à leur purge, trente jours.
+  2 928 lignes déjà journalisées (10,3 M$) ont été retirées de
+  `journal.db` le même jour, à la demande de l'utilisateur, la base
+  d'avant gardée dans `journal-avant-purge-20261111.db`.
+- ~~**Les gaps du CME, à repérer à la main**~~ — les futures du CME
+  ferment du vendredi soir au dimanche soir pendant que le bitcoin cote,
+  et laissent un trou que le cours revient souvent combler : un niveau
+  que beaucoup surveillent, et qu'il fallait aller lire sur un autre
+  graphique. Fait : `analysis.cme_gaps` le lit **sur le comptant**, aux
+  heures de Chicago — du cours à la fermeture du vendredi au cours à la
+  réouverture du dimanche —, sur les bougies d'une heure que le disque
+  tient déjà. C'est le gap des futures à la base près, dans les prix du
+  graphique et sans source de plus ; les bougies quotidiennes de `BTC=F`
+  chez Yahoo, essayées d'abord, sont incomplètes sur les derniers jours
+  (ouverture, plus haut et plus bas confondus), ceux qui comptent ici.
+  Un gap est comblé dès que le cours est revenu toucher la fermeture du
+  vendredi ; les trois plus récents encore ouverts rejoignent les niveaux
+  clés (case `NIV`, touche `N`), en bleu, et pendant le week-end la
+  fermeture du vendredi s'affiche, le gap se formant. Au 11 novembre
+  2026, un seul : « CME 06/11 » à 75 928 $, ouvert de 1,9 %.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au
