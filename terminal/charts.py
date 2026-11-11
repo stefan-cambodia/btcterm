@@ -24,6 +24,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from btcterm import indicators as ind
+from btcterm.journal import liquidity_totals
 from btcterm.sources import STABLES
 
 from .theme import C, MONO
@@ -210,31 +211,19 @@ def build_depth_chart(books: dict, uirevision: str = "depth") -> dict:
 
 def liquidity_series(history: pd.DataFrame,
                      presence: float = 0.9) -> tuple[pd.DataFrame, list, list]:
-    """La liquidité des plateformes réunies, sur un ensemble qui ne change pas.
-
-    Additionner ce qui est là ferait un trou dans la courbe chaque fois
-    qu'une plateforme se tait cinq minutes : le marché n'aurait rien
-    perdu, le terminal seulement. La somme ne porte donc que sur les
-    plateformes présentes dans au moins `presence` des relevés de la
-    fenêtre, et un relevé où l'une d'elles manque est écarté.
-
-    Retourne la série (`time`, `bid`, `ask`), les plateformes comptées, et
-    celles qui ne le sont pas — à dire à l'écran.
-    """
+    """La liquidité des plateformes réunies, en série (`time`, `bid`,
+    `ask`), avec les plateformes comptées et celles qui ne le sont pas —
+    la règle est celle du journal (`liquidity_totals`)."""
     vide = pd.DataFrame(columns=["time", "bid", "ask"])
     if history is None or history.empty:
         return vide, [], []
-    releves = history["time"].nunique()
-    compte = history.groupby("exchange")["time"].nunique()
-    gardees = sorted(compte[compte >= presence * releves].index)
-    ecartees = sorted(set(compte.index) - set(gardees))
-    if not gardees:
-        return vide, [], ecartees
-    utile = history[history["exchange"].isin(gardees)]
-    somme = utile.groupby("time").agg(
-        bid=("bid", "sum"), ask=("ask", "sum"), n=("exchange", "nunique"))
-    somme = somme[somme["n"] == len(gardees)].reset_index()
-    return somme[["time", "bid", "ask"]], gardees, ecartees
+    totals, gardees, ecartees = liquidity_totals(
+        history[["time", "exchange", "bid", "ask"]].itertuples(index=False),
+        presence)
+    if not totals:
+        return vide, gardees, ecartees
+    return (pd.DataFrame(totals, columns=["time", "bid", "ask"]),
+            gardees, ecartees)
 
 
 def build_liquidity_chart(series: pd.DataFrame, gap: float = 900.0,

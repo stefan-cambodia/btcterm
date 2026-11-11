@@ -319,6 +319,38 @@ def test_le_panneau_rend_la_synthese():
     print("  ✓ lignes, couverture en tête, heure d'envoi au titre")
 
 
+def test_la_liquidite_contre_sa_moyenne():
+    """La synthèse dit le carnet contre lui-même, et se tait sans une
+    heure de relevés."""
+    from btcterm import brief
+
+    def lignes(n, dernier=1.0):
+        out = []
+        for k in range(n):
+            f = dernier if k == n - 1 else 1.0
+            out.append({"ts": 300.0 * k, "exchange": "Binance",
+                        "bid_btc": 120.0 * f, "ask_btc": 80.0 * f})
+            if k != 3:              # OKX manque un relevé : il est écarté
+                out.append({"ts": 300.0 * k, "exchange": "OKX",
+                            "bid_btc": 60.0 * f, "ask_btc": 40.0 * f})
+            if k < 2:               # trop rare pour compter
+                out.append({"ts": 300.0 * k, "exchange": "Coinbase",
+                            "bid_btc": 1.0, "ask_btc": 1.0})
+        return out
+
+    assert brief.liquidity_item([]) is None
+    assert brief.liquidity_item(lignes(brief.LIQUIDITY_MIN - 1)) is None
+    plein = brief.liquidity_item(lignes(24))
+    assert plein.label == "Liquidité" and plein.tone == ""
+    assert plein.text == "300 BTC à ±0.1 % (+0 % contre la moyenne) · achats 60 %", \
+        plein.text
+    assert "Binance, OKX" in plein.detail and "sans Coinbase" in plein.detail
+    creux = brief.liquidity_item(lignes(24, dernier=0.5))
+    assert creux.tone == "warn" and "150 BTC" in creux.text
+    assert "(-49 %" in creux.text, creux.text
+    print("  ✓ liquidité : dernier relevé contre la moyenne, creux signalé")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nSynthèse — {len(tests)} vérifications\n" + "─" * 60)

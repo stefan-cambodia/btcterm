@@ -25,7 +25,7 @@ from dash import Input, Output, State, dcc, html
 
 from ..charts import (build_depth_chart, build_liquidity_chart,
                       liquidity_series)
-from ..fx import display
+from ..fx import display, spread_text
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
 #: Le carnet et la profondeur partagent désormais une cellule haute de
@@ -243,7 +243,7 @@ def book_payload(hub, exchange: str, expanded: bool,
         "asks": levels(reversed(asks)),
         "bids": levels(bids),
         "spread": (f"{fx.warning}spread {spread * fx.rate:,.2f} {fx.unit} · "
-                   f"{spread_pct:.4f} % · achat {pressure:.0f} % · "
+                   f"{spread_text(spread_pct)} · achat {pressure:.0f} % · "
                    f"{book.age_ms:.0f} ms"),
         "spread_title": fx.title("achat : part des acheteurs dans le volume "
                                  "des niveaux affichés"),

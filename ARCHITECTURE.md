@@ -3208,6 +3208,16 @@ journal aura quelques semaines.
   exception, et perdait tout le passage, quand le tracé d'une tendance
   manquait son glisser sur une machine chargée : c'est désormais un
   contrôle en échec comme un autre.
+- ~~**Un spread à « 0.0000 % »**~~ — à 73 000 $, un centime d'écart vaut
+  0,000014 % : le bandeau et le carnet écrivaient quatre zéros à longueur
+  de journée. Sous le millième de pour cent, le spread garde deux
+  décimales de plus (`fx.spread_text`).
+- ~~**La liquidité absente de la synthèse**~~ — fait : une ligne
+  « Liquidité » dit le dernier relevé contre la moyenne de la journée et
+  la part des achats, en avertissement quand le carnet est à trente pour
+  cent sous sa moyenne ; elle part aussi au réveil sur le téléphone. Elle
+  se tait sans une heure de relevés. La règle de somme est désormais
+  unique (`journal.liquidity_totals`), pour le graphique comme pour elle.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au

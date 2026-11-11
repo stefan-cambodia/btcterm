@@ -56,7 +56,8 @@ from pathlib import Path
 from typing import Optional
 
 __all__ = ["DB_DIR", "DB_PATH", "GRACE", "RETENTION_DAYS",
-           "SNAPSHOT_RETENTION_DAYS", "Journal", "rebase_universe"]
+           "SNAPSHOT_RETENTION_DAYS", "Journal", "rebase_universe",
+           "liquidity_totals"]
 
 DB_DIR = Path.home() / ".btcterm"
 DB_PATH = DB_DIR / "journal.db"
@@ -254,6 +255,43 @@ def rebase_universe(rows) -> list[dict]:
             if row.get("stable_share") is not None:
                 row["stable_share"] *= factor
     return rows
+
+
+def liquidity_totals(rows, presence: float = 0.9
+                     ) -> tuple[list[tuple], list[str], list[str]]:
+    """La liquidité des plateformes réunies, sur un ensemble qui ne change pas.
+
+    `rows` sont des triplets `(instant, plateforme, achats, ventes)` — les
+    lignes de `book_depth`, quelle que soit la forme de l'instant.
+    Additionner ce qui est là ferait un trou dans la courbe chaque fois
+    qu'une plateforme se tait cinq minutes : le marché n'aurait rien
+    perdu, le terminal seulement. La somme ne porte donc que sur les
+    plateformes présentes dans au moins `presence` des relevés, et un
+    relevé où l'une d'elles manque est écarté.
+
+    Retourne les relevés `(instant, achats, ventes)` dans l'ordre, les
+    plateformes comptées, et celles qui ne le sont pas — à dire à l'écran.
+    """
+    by_time: dict = {}
+    for moment, exchange, bid, ask in rows:
+        by_time.setdefault(moment, {})[exchange] = (bid, ask)
+    if not by_time:
+        return [], [], []
+    seen: dict[str, int] = {}
+    for sample in by_time.values():
+        for exchange in sample:
+            seen[exchange] = seen.get(exchange, 0) + 1
+    kept = sorted(name for name, count in seen.items()
+                  if count >= presence * len(by_time))
+    dropped = sorted(set(seen) - set(kept))
+    totals = []
+    for moment in sorted(by_time):
+        sample = by_time[moment]
+        if kept and all(name in sample for name in kept):
+            totals.append((moment,
+                           sum(sample[name][0] for name in kept),
+                           sum(sample[name][1] for name in kept)))
+    return totals, kept, dropped
 
 
 def find_gaps(timestamps: list[float], gap: float) -> list[tuple[float, float]]:

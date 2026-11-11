@@ -627,7 +627,7 @@ python tests/test_markets.py             # marchés : séances, corrélations, t
 python tests/test_cycle.py               # cycle : halving, repli, Mayer, panneau
 python tests/test_notify.py              # alertes vers ntfy, sans réseau
 python tests/test_tape.py                # ruban : sens du preneur, flux, panneau
-python tests/test_brief.py               # synthèse : écarts, couverture, envoi du matin
+python tests/test_brief.py               # synthèse : écarts, couverture, liquidité, envoi du matin
 
 python -m terminal.app &                 # puis, terminal lancé :
 python tests/ui_smoke.py --capture /tmp/captures   # contrôle dans Firefox

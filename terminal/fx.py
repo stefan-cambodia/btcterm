@@ -48,3 +48,14 @@ def display(hub, currency: Optional[str]) -> Display:
     if stale:
         note += " — taux de secours : source de change injoignable"
     return Display(rate, "€", "⚠ " if stale else "", note)
+
+
+def spread_text(pct: float) -> str:
+    """Un spread en pourcentage qui dit quelque chose.
+
+    Quatre décimales suffisaient quand le pas de cotation pesait : à
+    73 000 $, un centime d'écart vaut 0,000014 %, et le bandeau comme le
+    carnet écrivaient « 0.0000 % » à longueur de journée. Sous le millième
+    de pour cent, deux décimales de plus.
+    """
+    return f"{pct:.4f} %" if pct >= 0.001 else f"{pct:.6f} %"

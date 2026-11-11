@@ -44,6 +44,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from . import cycle, macrocal, newsdb
+from .journal import liquidity_totals
 
 log = logging.getLogger("btcterm.brief")
 
@@ -338,6 +339,39 @@ def premium_item(rows, now: float) -> Optional[Item]:
                 "américaine, et une part de décote de l'USDT")
 
 
+#: Relevés de liquidité exigés pour en parler : une heure de service.
+LIQUIDITY_MIN = 12
+#: Écart à la moyenne en deçà duquel le carnet est dit creux, en %.
+LIQUIDITY_THIN = -30.0
+
+
+def liquidity_item(rows, band: float = 0.1) -> Optional[Item]:
+    """La liquidité des carnets : le dernier relevé contre sa moyenne.
+
+    `rows` sont les lignes `book_depth` de la fenêtre (§ hub.
+    _flush_depth). Un carnet n'est ni plein ni vide dans l'absolu : c'est
+    l'écart à sa propre moyenne qui se lit, et un carnet creux est un
+    avertissement — il amortira mal le prochain mouvement.
+    """
+    totals, kept, dropped = liquidity_totals(
+        (row["ts"], row["exchange"], row["bid_btc"], row["ask_btc"])
+        for row in rows)
+    if len(totals) < LIQUIDITY_MIN:
+        return None
+    volumes = [bid + ask for _, bid, ask in totals]
+    _, bid, ask = totals[-1]
+    mean = sum(volumes) / len(volumes)
+    gap = (volumes[-1] / mean - 1) * 100 if mean else 0.0
+    share = 100 * bid / (bid + ask) if bid + ask else 50.0
+    detail = (f"volume offert à moins de {band:g} % du prix, moyenne de "
+              f"chaque période de cinq minutes — {', '.join(kept)}"
+              + (f" ; sans {', '.join(dropped)}" if dropped else ""))
+    return Item("Liquidité",
+                f"{volumes[-1]:.0f} BTC à ±{band:g} % ({gap:+.0f} % contre "
+                f"la moyenne) · achats {share:.0f} %",
+                "warn" if gap <= LIQUIDITY_THIN else "", detail)
+
+
 def dominance_item(dominance) -> Optional[Item]:
     if not dominance:
         return None
@@ -482,6 +516,9 @@ def build(hub, now: Optional[float] = None,
             lambda: liquidations_item(journal.liquidations_between(start, now)))
         add("Gros ordres",
             lambda: trades_item(journal.trades_between(start, now)))
+        add("Liquidité", lambda: liquidity_item(
+            journal.depth_between(start, now),
+            getattr(hub, "DEPTH_BAND", 0.1)))
     add("ETF", lambda: etf_item(hub.etf_flows()))
     add("Sentiment", lambda: sentiment_item(hub.fear_greed_history()))
     add("Volatilité", lambda: volatility_item(change(snapshots, "dvol", now),

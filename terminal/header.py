@@ -23,7 +23,7 @@ from dash import Input, Output, State, html
 from btcterm.analysis import position_state
 from btcterm.hub import MarketHub
 
-from .fx import DOLLARS, display
+from .fx import DOLLARS, display, spread_text
 from .grid import AREAS, reveal
 from .theme import C, MONO
 
@@ -254,7 +254,7 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         range_txt = range_text(ticker, display(hub, currency))
 
         spreads = [b.spread_pct for b in hub.books.values() if b.spread_pct]
-        spread_txt = f"spread min {min(spreads):.4f} %" if spreads else ""
+        spread_txt = f"spread min {spread_text(min(spreads))}" if spreads else ""
 
         uptime = hub.uptime_seconds
         flux, flux_tip = links_text(hub.realtime_links())

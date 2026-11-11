@@ -381,6 +381,16 @@ def test_les_frais_de_transaction_se_lisent():
     print("  ✓ frais on-chain : trois horizons, badge coloré, absence tue")
 
 
+def test_un_spread_d_un_centime_se_lit():
+    """À 73 000 $, un centime d'écart ne s'écrit plus « 0.0000 % »."""
+    from terminal.fx import spread_text
+
+    assert spread_text(0.01 / 73_000 * 100) == "0.000014 %"
+    assert spread_text(0.0123) == "0.0123 %" and spread_text(0.001) == "0.0010 %"
+    assert spread_text(0.0009) == "0.000900 %"
+    print("  ✓ un spread sous le millième de pour cent garde ses chiffres")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCâblage du terminal — {len(tests)} vérifications\n" + "─" * 60)
