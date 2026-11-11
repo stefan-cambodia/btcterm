@@ -1290,6 +1290,11 @@ def build_options_history(snapshots: pd.DataFrame,
     monnaie de l'échéance à un mois ; en bas, le skew, dans son propre
     étage plutôt que sur un second axe. Les lignes de rupture du journal
     — machine endormie, service arrêté — y coupent les courbes.
+
+    En plein écran, un troisième étage : la base annualisée du future à
+    trois mois et le put/call en open interest, que le journal notait
+    aussi sans que rien ne les trace — ce que le marché paie pour porter
+    une position, et de quel côté il s'assure.
     """
     fig = go.Figure()
     columns = ["dvol", "atm30_iv", "rr25"]
@@ -1317,18 +1322,55 @@ def build_options_history(snapshots: pd.DataFrame,
             mode="lines", connectgaps=False,
             line=dict(color=C["cyan"], width=1.3),
             hovertemplate="skew %{y:+.1f}<extra></extra>"))
+    # Le troisième étage, quand la hauteur est là et que le journal a de
+    # quoi : deux relevés au moins de la base ou du put/call.
+    portage = [
+        (column, name, color, axe, gabarit)
+        for column, name, color, axe, gabarit in (
+            ("basis90", "base 3 mois", C["orange"], "y3",
+             "base %{y:+.1f} %/an"),
+            ("pc_oi", "put/call (OI)", C["purple"], "y4", "put/call %{y:.2f}"))
+        if maximized and points >= 2 and column in view.columns
+        and view[column].notna().sum() >= 2]
+    for column, name, color, axe, gabarit in portage:
+        fig.add_trace(go.Scatter(
+            x=view["time"], y=view[column], name=name, yaxis=axe,
+            mode="lines", connectgaps=False,
+            line=dict(color=color, width=1.3),
+            hovertemplate=gabarit + "<extra></extra>"))
     _options_layout(fig, uirevision, maximized)
     axis = dict(gridcolor=C["grid"], zerolinecolor=C["border"])
+    etages = ([0.56, 1.0], [0.30, 0.50]) if portage else ([0.36, 1.0], [0.0, 0.28])
     fig.update_layout(
         hovermode="x unified",
-        xaxis=dict(anchor="y2", gridcolor=C["grid"],
+        xaxis=dict(anchor="y3" if portage else "y2", gridcolor=C["grid"],
                    tickfont=dict(size=9, color=C["muted"])),
-        yaxis=dict(domain=[0.36, 1.0], tickfont=dict(size=9, color=C["muted"]),
+        yaxis=dict(domain=etages[0], tickfont=dict(size=9, color=C["muted"]),
                    title_text="vol. implicite" if maximized else None, **axis),
-        yaxis2=dict(domain=[0.0, 0.28], tickfont=dict(size=9, color=C["cyan"]),
+        yaxis2=dict(domain=etages[1], tickfont=dict(size=9, color=C["cyan"]),
                     title_text="skew 25Δ" if maximized else None,
                     zeroline=True, **axis),
     )
+    if portage:
+        # Un relevé aberrant — la base lue à zéro quand Deribit rend une
+        # chaîne incomplète — écrasait l'étage : il se cadre sur ce que la
+        # série fait 96 fois sur 100, l'aberration sortant du cadre.
+        cadre = {}
+        if any(column == "basis90" for column, *_ in portage):
+            base = view["basis90"].dropna()
+            bas, haut = float(base.quantile(0.02)), float(base.quantile(0.98))
+            marge = max(haut - bas, 0.2) * 0.25
+            cadre = {"range": [bas - marge, haut + marge]}
+        fig.update_layout(
+            yaxis3=dict(domain=[0.0, 0.24], anchor="x",
+                        tickfont=dict(size=9, color=C["orange"]),
+                        title_text="base %/an", zeroline=True, **axis,
+                        **cadre),
+            yaxis4=dict(overlaying="y3", side="right", anchor="x",
+                        showgrid=False,
+                        tickfont=dict(size=9, color=C["purple"]),
+                        title_text="put/call"),
+        )
     if points < 2:
         since = f" depuis le {first:%d/%m %H:%M}" if first is not None else ""
         _options_empty(fig, "historique local en constitution" + since +

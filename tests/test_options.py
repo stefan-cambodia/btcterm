@@ -271,6 +271,57 @@ def test_le_portage_dans_la_meme_unite():
     assert carry({}, opt.futures_curve([])) == []
     print("  ✓ portage : financement annualisé et base, une plateforme muette absente")
 
+def test_l_historique_des_options():
+    """Ce que seul le journal garde se trace : volatilité et skew dans la
+    grille ; en plein écran, la base et le put/call en plus."""
+    import pandas as pd
+
+    from terminal.charts import build_options_history
+
+    temps = pd.date_range("2026-11-10", periods=6, freq="5min")
+    instants = pd.DataFrame({
+        "time": temps, "dvol": [40.0, 40.2, None, 40.5, 40.4, 40.1],
+        "atm30_iv": [38.0, 38.1, None, 38.4, 38.2, 38.0],
+        "rr25": [-3.0, -3.1, None, -3.4, -3.3, -3.2],
+        "basis90": [5.5, 5.6, None, 5.7, 5.6, 5.5],
+        "pc_oi": [0.70, 0.71, None, 0.74, 0.73, 0.72],
+        "gap": [False, False, True, False, False, False]})
+
+    grille = build_options_history(instants)
+    assert [t.name for t in grille.data] == ["DVOL", "à la monnaie, 1 mois",
+                                              "skew 25Δ"]
+    assert grille.layout.yaxis.domain == (0.36, 1.0)
+
+    plein = build_options_history(instants, maximized=True)
+    assert [t.name for t in plein.data][-2:] == ["base 3 mois", "put/call (OI)"]
+    assert plein.layout.yaxis3.domain == (0.0, 0.24)
+    assert plein.layout.yaxis.domain[0] > plein.layout.yaxis2.domain[1] \
+        > plein.layout.yaxis3.domain[1], "trois étages qui ne se recouvrent pas"
+    assert 5.3 < plein.layout.yaxis3.range[0] < 5.5 \
+        and 5.7 < plein.layout.yaxis3.range[1] < 5.9, plein.layout.yaxis3.range
+    # Une base lue à zéro, une fois : l'étage ne s'écrase pas dessus.
+    longue = pd.DataFrame({
+        "time": pd.date_range("2026-11-10", periods=200, freq="5min"),
+        "dvol": 40.0, "atm30_iv": 38.0, "rr25": -3.0, "pc_oi": 0.7,
+        "basis90": [0.0 if k == 100 else 5.5 + (k % 10) / 50 for k in range(200)],
+        "gap": False})
+    assert build_options_history(longue, maximized=True).layout.yaxis3.range[0] > 5
+    base = plein.data[3]
+    assert base.yaxis == "y3" and pd.isna(base.y[2]), "rompue sur l'interruption"
+
+    # Un journal d'avant ces colonnes : deux étages, même en plein écran.
+    ancien = build_options_history(instants.drop(columns=["basis90", "pc_oi"]),
+                                   maximized=True)
+    assert len(ancien.data) == 3 and ancien.layout.yaxis.domain == (0.36, 1.0)
+    # Une seule des deux : elle seule s'ajoute.
+    une = build_options_history(instants.assign(pc_oi=None), maximized=True)
+    assert [t.name for t in une.data][-1] == "base 3 mois" and len(une.data) == 4
+    # Moins de deux relevés : l'historique se dit en constitution.
+    vide = build_options_history(instants.iloc[:1], maximized=True)
+    assert not vide.data and "constitution" in vide.layout.annotations[0].text
+    print("  ✓ historique : deux étages dans la grille, trois en plein écran")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nOptions — {len(tests)} vérifications\n" + "─" * 60)

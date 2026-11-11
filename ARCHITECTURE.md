@@ -3300,6 +3300,13 @@ journal aura quelques semaines.
   séance. Une heure sans barre est une heure sans gros ordre — ou sans
   terminal : le graphique ne distingue pas les deux, le panneau JOURNAL
   dit la couverture.
+- ~~**La base et le put/call journalisés pour rien**~~ — l'instantané les
+  notait depuis le 6 novembre 2026 avec la volatilité et le skew, et la
+  vue HISTO du panneau OPTIONS ne traçait que ces deux-là. Fait : en plein
+  écran, un troisième étage porte la base annualisée du future à trois
+  mois et le put/call en open interest, chacun sur son axe ; la grille
+  garde ses deux étages. L'étage se cadre sur l'essentiel de la série —
+  une base lue à zéro quand Deribit rend une chaîne incomplète l'écrasait.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au
