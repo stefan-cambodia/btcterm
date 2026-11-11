@@ -666,17 +666,39 @@ def _okx(path: str, **params: str) -> dict[str, Any]:
     return response.json()["data"][0]
 
 
-def fetch_okx_swap_contracts() -> dict[str, tuple[float, str]]:
+#: La catégorie qu'OKX donne à ses contrats sur cryptomonnaies
+#: (`instCategory`) ; « 3 » désigne les actions, « 4 » les matières premières.
+OKX_CRYPTO = "1"
+
+
+def fetch_okx_swap_contracts() -> dict[str, Optional[tuple[float, str]]]:
     """La valeur de chaque contrat perpétuel d'OKX : `instId` → (`ctVal`,
     `ctValCcy`). Un contrat linéaire vaut `ctVal` unités du sous-jacent, un
-    inverse `ctVal` dollars. Une table vide lève."""
+    inverse `ctVal` dollars. Une table vide lève.
+
+    **Un perpétuel n'est plus forcément une cryptomonnaie.** Le
+    11 novembre 2026, 239 des 543 perpétuels d'OKX portaient sur des
+    actions ou des matières premières — Micron, SanDisk, des ETF à levier,
+    l'or —, et un tiers de ses liquidations journalisées en quatre jours
+    (10 M$ sur 32) venaient d'eux : la plus grosse « liquidation du
+    marché » relue au journal était une position sur SanDisk. Ces contrats
+    sont rendus à `None` : connus, donc pas à redemander, mais hors du
+    fil. Un contrat sans catégorie reste compté.
+    """
     response = _http.get(f"{OKX_REST}/api/v5/public/instruments",
                             params={"instType": "SWAP"}, timeout=15)
     response.raise_for_status()
-    contracts = {item["instId"]: (float(item["ctVal"]), item["ctValCcy"])
-                 for item in response.json().get("data") or []
-                 if item.get("ctVal")}
-    if not contracts:
+    return okx_swap_contracts(response.json().get("data") or [])
+
+
+def okx_swap_contracts(items: list) -> dict[str, Optional[tuple[float, str]]]:
+    contracts = {
+        item["instId"]: (
+            (float(item["ctVal"]), item["ctValCcy"])
+            if item.get("instCategory", OKX_CRYPTO) in (OKX_CRYPTO, "", None)
+            else None)
+        for item in items if item.get("ctVal")}
+    if not any(contracts.values()):
         raise RuntimeError("OKX : aucun contrat perpétuel")
     return contracts
 

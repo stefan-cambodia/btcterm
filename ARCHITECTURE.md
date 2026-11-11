@@ -3227,6 +3227,27 @@ journal aura quelques semaines.
   plateformes présentes toute la journée. Le seuil est provisoire : posé
   le jour où l'historique commence, il est à revoir quand le journal aura
   quelques semaines, comme celui du skew.
+- ~~**Les murs cherchés dix fois par seconde**~~ — mesuré sur des carnets
+  de taille réelle : chaque envoi du carnet prenait 2,6 ms, dont 1,9 à
+  chercher les murs dans cinq carnets entiers, dix fois par seconde. Fait :
+  ils sont recherchés au plus une fois par seconde (`_wall_levels`). Au
+  niveau du service, le gain ne se distingue pas du bruit d'une machine
+  chargée — 12 % d'un cœur avec un onglet, avant comme après.
+- ~~**Le contrôle ignorait ce qui venait d'être fait**~~ — `ui_smoke.py`
+  vérifie désormais le cadre de la profondeur (symétrique, rempli par la
+  moitié des courbes), sa légende, l'historique de liquidité et son
+  titre, et l'absence d'actif intermittent dans les barres de dominance.
+- ~~**Des actions dans le fil des liquidations**~~ — constaté sur les
+  captures du 11 novembre 2026 : SNDK, MU, SOXL, ZHONGJI remplissaient le
+  tableau. OKX cote désormais des perpétuels sur actions et matières
+  premières — 239 de ses 543 contrats ce jour-là —, et un tiers de ses
+  liquidations journalisées en quatre jours venaient d'eux (10 M$ sur
+  32) : ils gonflaient les totaux de l'heure, pouvaient faire sonner
+  l'alerte de rafale, et la « plus grosse liquidation » relue au journal
+  était une position sur SanDisk. Fait : la table des contrats retient la
+  catégorie que la plateforme leur donne (`instCategory`), et ceux qui ne
+  sont pas des cryptomonnaies restent connus mais hors du fil (§2.5). Les
+  lignes déjà journalisées y restent jusqu'à leur purge, trente jours.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au

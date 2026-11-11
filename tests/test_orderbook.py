@@ -320,6 +320,42 @@ def test_le_backoff_repart_apres_une_connexion_qui_a_tenu():
     print("  ✓ le backoff repart de zéro après une connexion qui a tenu")
 
 
+def test_les_murs_ne_se_cherchent_pas_a_chaque_envoi():
+    """Le carnet part dix fois par seconde ; les murs, cherchés dans cinq
+    carnets entiers, une fois par seconde."""
+    from types import SimpleNamespace
+
+    from terminal.panels import orderbook as panneau
+
+    book = OrderBook("Binance")
+    book.connected = True
+    book.replace({99_990.0: 1.0, 99_900.0: 5.0}, {100_010.0: 1.0, 100_100.0: 7.0})
+    hub = SimpleNamespace(books={"Binance": book},
+                          eur_rate_cached=lambda: None)
+    appels = []
+    cherche = panneau.wall
+    panneau.wall = lambda books, side: appels.append(side) or cherche(books, side)
+    try:
+        premier = panneau.book_payload(hub, "Binance", False)["walls"]
+        assert premier and "5.0 BTC" in premier["bid"], premier
+        for _ in range(5):
+            panneau.book_payload(hub, "Binance", False)
+        assert appels == ["bids", "asks"], appels
+        # La durée de vie passée, ils sont recherchés ; un autre jeu de
+        # carnets aussi, sans attendre.
+        hub._walls_memo = (hub._walls_memo[0] - panneau.WALLS_TTL - 0.1,
+                           *hub._walls_memo[1:])
+        book.replace({99_990.0: 1.0, 99_900.0: 9.0}, {100_010.0: 1.0})
+        assert "9.0 BTC" in panneau.book_payload(hub, "Binance", False)["walls"]["bid"]
+        assert len(appels) == 4
+        hub.books = dict(hub.books)
+        panneau.book_payload(hub, "Binance", False)
+        assert len(appels) == 6
+    finally:
+        panneau.wall = cherche
+    print("  ✓ murs cherchés une fois par seconde, pas à chaque envoi")
+
+
 def test_binance_snapshot_accorde_au_flux():
     """Binance : un snapshot REST, les deltas du flux par-dessus, sans trou
     ni redite — et une relecture qui ne ferme rien."""

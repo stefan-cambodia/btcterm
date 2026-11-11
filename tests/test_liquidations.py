@@ -460,6 +460,53 @@ def test_la_carte_des_liquidations():
     print("  ✓ carte par tranche, côtés séparés, paire filtrée, plateformes dites")
 
 
+def test_okx_sans_actions_ni_matieres_premieres():
+    """Près de la moitié des perpétuels d'OKX ne sont pas des
+    cryptomonnaies : ils sont connus, mais hors du fil."""
+    import time as horloge
+
+    from btcterm import sources
+    from btcterm.liquidations import LiquidationFeed, OKXLiquidationConnector
+
+    contrats = sources.okx_swap_contracts([
+        {"instId": "BTC-USDT-SWAP", "ctVal": "0.01", "ctValCcy": "BTC",
+         "instCategory": "1"},
+        {"instId": "SNDK-USDT-SWAP", "ctVal": "1", "ctValCcy": "SNDK",
+         "instCategory": "3"},
+        {"instId": "XAU-USDT-SWAP", "ctVal": "0.001", "ctValCcy": "XAU",
+         "instCategory": "4"},
+        {"instId": "ANCIEN-USDT-SWAP", "ctVal": "10", "ctValCcy": "ANCIEN"},
+        {"instId": "SANS-VALEUR-SWAP", "ctVal": "", "instCategory": "1"},
+    ])
+    assert contrats == {"BTC-USDT-SWAP": (0.01, "BTC"), "SNDK-USDT-SWAP": None,
+                        "XAU-USDT-SWAP": None,
+                        "ANCIEN-USDT-SWAP": (10.0, "ANCIEN")}, contrats
+    try:
+        sources.okx_swap_contracts([{"instId": "MU-USDT-SWAP", "ctVal": "1",
+                                     "ctValCcy": "MU", "instCategory": "3"}])
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("une table sans cryptomonnaie doit lever")
+
+    feed = LiquidationFeed()
+    okx = OKXLiquidationConnector(feed)
+    okx.contracts = contrats
+    okx.since = horloge.time() - 5
+    maintenant = str(int(horloge.time() * 1000))
+    ligne = {"posSide": "short", "side": "buy", "bkPx": "900", "sz": "1000",
+             "ts": maintenant}
+    inconnu = okx.handle({"data": [
+        {"instId": "SNDK-USDT-SWAP", "details": [ligne]},
+        {"instId": "XAU-USDT-SWAP", "details": [ligne]},
+        {"instId": "BTC-USDT-SWAP", "details": [
+            {**ligne, "bkPx": "75000", "sz": "10"}]},
+    ]})
+    assert inconnu is False, "un contrat écarté est connu : rien à redemander"
+    assert [e.symbol for e in feed.latest(10)] == ["BTCUSDT"]
+    print("  ✓ OKX : actions et matières premières connues, hors du fil")
+
+
 def test_okx_troisieme_source():
     """OKX compte en contrats : linéaire en unités du sous-jacent, inverse en
     dollars ; le côté vient de `posSide`, ou du sens de l'ordre en mode net ;

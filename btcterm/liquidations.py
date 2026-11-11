@@ -401,8 +401,10 @@ class BybitLiquidationConnector(ExchangeConnector):
 class OKXLiquidationConnector(ExchangeConnector):
     """Troisième source du fil : le canal `liquidation-orders` d'OKX.
 
-    Tous les contrats perpétuels d'un seul abonnement, sans liste de
-    paires. Depuis le Cambodge, Binance tait son flux futures et Bybit,
+    Tous les contrats perpétuels sur cryptomonnaies d'un seul abonnement,
+    sans liste de paires — ceux sur actions et matières premières, près de
+    la moitié du catalogue, sont écartés (§ sources.
+    fetch_okx_swap_contracts). Depuis le Cambodge, Binance tait son flux futures et Bybit,
     sur dix paires, peut se taire une heure : le 7 novembre 2026 au matin,
     OKX a livré dix liquidations en trois minutes pendant que Bybit n'en
     livrait aucune.
@@ -484,10 +486,12 @@ class OKXLiquidationConnector(ExchangeConnector):
         unknown = False
         for item in message.get("data") or []:
             inst = item.get("instId", "")
-            contract = self.contracts.get(inst)
-            if contract is None:
+            if inst not in self.contracts:
                 unknown = True
                 continue
+            contract = self.contracts[inst]
+            if contract is None:
+                continue        # action ou matière première : hors du fil
             ct_val, ct_ccy = contract
             symbol = inst.replace("-SWAP", "").replace("-", "")
             for detail in item.get("details") or []:

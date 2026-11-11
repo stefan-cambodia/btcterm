@@ -20,6 +20,7 @@ s'exprime en écart relatif et en bitcoins.
 from __future__ import annotations
 
 import math
+import time
 
 from dash import Input, Output, State, dcc, html
 
@@ -180,13 +181,35 @@ def wall(books: dict, side: str) -> tuple[float, float] | None:
     return max(totals.items(), key=lambda item: item[1], default=None)
 
 
-def _walls(books: dict, mid: float | None, fx) -> dict | None:
+#: Durée de vie des murs calculés, en secondes. Le carnet part dix fois par
+#: seconde, et chercher les murs dans cinq carnets entiers prenait 1,9 des
+#: 2,6 ms de chaque envoi (mesure du 11 novembre 2026, Binance à mille
+#: niveaux par côté) : un mur ne se déplace pas en cent millisecondes.
+WALLS_TTL = 1.0
+
+
+def _wall_levels(hub) -> tuple:
+    """Les deux murs, recalculés au plus une fois par `WALLS_TTL`."""
+    memo = getattr(hub, "_walls_memo", None)
+    now = time.monotonic()
+    if memo is None or now - memo[0] >= WALLS_TTL or memo[1] is not hub.books:
+        memo = (now, hub.books,
+                wall(hub.books, "bids"), wall(hub.books, "asks"))
+        try:
+            hub._walls_memo = memo
+        except AttributeError:      # un hub d'essai sans attributs libres
+            pass
+    return memo[2], memo[3]
+
+
+def _walls(books: dict, mid: float | None, fx, levels=None) -> dict | None:
     """La ligne des murs ; rien tant qu'aucun carnet connecté n'en donne.
 
     Les écarts sont ramenés au prix de la plateforme affichée : c'est celui
-    qu'on a sous les yeux, juste au-dessus.
+    qu'on a sous les yeux, juste au-dessus. `levels` sont les deux murs
+    déjà cherchés (`_wall_levels`) ; sans eux, ils le sont ici.
     """
-    bid, ask = wall(books, "bids"), wall(books, "asks")
+    bid, ask = levels or (wall(books, "bids"), wall(books, "asks"))
     if bid is None or ask is None or not mid:
         return None
 
@@ -247,7 +270,7 @@ def book_payload(hub, exchange: str, expanded: bool,
                    f"{book.age_ms:.0f} ms"),
         "spread_title": fx.title("achat : part des acheteurs dans le volume "
                                  "des niveaux affichés"),
-        "walls": _walls(hub.books, book.mid, fx),
+        "walls": _walls(hub.books, book.mid, fx, _wall_levels(hub)),
     }
 
 

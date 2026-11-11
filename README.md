@@ -86,7 +86,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ (onglet du carnet) | 2 s |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian et cadrées sur l'étendue médiane des carnets ; dessous, l'historique journalisé de la liquidité à ±0,1 % du prix (onglet du carnet) | 250 ms · 5 min |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
-| **Liquidations** | positions fermées de force — Binance et OKX, toutes paires, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
+| **Liquidations** | positions fermées de force — Binance, toutes paires, OKX, tous ses perpétuels sur cryptomonnaies, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
 | **Flux ETF** | entrées/sorties nettes des ETF spot ; en plein écran, cumul depuis le lancement, classement des émetteurs et fenêtre réglable (30 j / 90 j / 1 an / tout) | 5 min |
 | **Position** | la position tenue, saisie à la main : résultat, distance au stop, multiple du risque ; taille qu'autorise un risque choisi, stop à quelques ATR ; résultat au bandeau. Rien ne quitte le navigateur (onglet des flux ETF) | 2 s |

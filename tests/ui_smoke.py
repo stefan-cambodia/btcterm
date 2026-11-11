@@ -758,6 +758,44 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("graduations et titres des axes dans la figure",
               coupes[0] == 0 and coupes[1] > 0 and coupes[2] > 0,
               f"{coupes[0]} coupés, {coupes[1]} en x, {coupes[2]} en y")
+        # Le cadre : la moitié des carnets au moins le remplit, et aucun
+        # axe étiré par un seul d'entre eux n'écrase les autres.
+        cadre = browser.js("""
+            const gd = document.getElementById('depth-chart')
+                .querySelector('.js-plotly-plot');
+            const r = gd.layout.xaxis.range;
+            const portees = gd.data.map(t => Math.max(...t.x.map(Math.abs)));
+            return {demi: (r[1] - r[0]) / 2,
+                    dedans: portees.filter(p => p >= (r[1] - r[0]) / 4).length,
+                    courbes: gd.data.length,
+                    noms: Array.from(new Set(gd.data.map(t => t.name)))};
+        """)
+        check("cadre symétrique que la moitié des courbes remplit",
+              0 < cadre["demi"] <= 2 and cadre["dedans"] * 2 >= cadre["courbes"],
+              f"±{cadre['demi']:g} %, {cadre['dedans']}/{cadre['courbes']} courbes")
+        check("la légende nomme les plateformes, pas leurs côtés",
+              not any("bids" in nom or "asks" in nom for nom in cadre["noms"]),
+              ", ".join(cadre["noms"]))
+        # La mémoire de la profondeur : deux courbes, ou l'historique dit
+        # en constitution — et le titre chiffré dans les deux cas.
+        browser.wait_for(
+            "!!document.querySelector('#depth-history .js-plotly-plot')"
+            " && (document.getElementById('depth-liquidity')?.textContent"
+            " || '').length > 8", timeout=30)
+        memoire = browser.js("""
+            const gd = document.getElementById('depth-history')
+                .querySelector('.js-plotly-plot');
+            const bar = document.getElementById('depth-liquidity').parentElement;
+            return {courbes: gd.data.map(t => t.name),
+                    notes: (gd.layout.annotations || []).map(a => a.text).join(' '),
+                    titre: document.getElementById('depth-liquidity').textContent,
+                    exces: bar.scrollWidth - bar.clientWidth};
+        """)
+        check("liquidité : achats et ventes tracés, ou l'historique en constitution",
+              memoire["courbes"] == ["achats", "ventes"]
+              or "constitution" in memoire["notes"], memoire["titre"])
+        check("son titre tient dans la barre", memoire["exces"] <= 1,
+              f"{memoire['exces']} px de trop")
         browser.js("""
             Array.from(document.querySelectorAll('#cell-book .cell-tab'))
                  .find(t => t.textContent === 'CARNET').click();
@@ -867,6 +905,15 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                   (etat["series"] >= 1 or "indisponible" in etat["notes"])
                   and len(etat["badge"]) > 8,
                   etat["badge"][:44])
+            if label == "DOMINANCE":
+                # Aucun actif que la source compte par intermittence.
+                check("DOMINANCE : chaque barre nommée, sans actif intermittent",
+                      browser.js("""
+                          const gd = document.getElementById('dominance-chart')
+                              .querySelector('.js-plotly-plot');
+                          const bar = gd.data.find(t => t.type === 'bar');
+                          return !bar || !bar.y.includes('FIGR_HELOC');
+                      """))
 
         print("\nOnglet cycle")
         browser.js("""
