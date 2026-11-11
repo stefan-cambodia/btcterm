@@ -3326,9 +3326,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   `futures_curve` écarte un future coté au prix de l'indice — ce n'est pas
   une base nulle, c'est une absence de cotation — et les compte
   (`attrs["pinned"]`) ; quand ils le sont tous, l'instantané n'écrit rien
-  du marché des options pour ce relevé. La ligne du 10 novembre reste au
-  journal : l'alerte sur le skew lit déjà une médiane de trois relevés, et
-  le graphique la laisse hors cadre.
+  du marché des options pour ce relevé. La ligne du 10 novembre a été
+  neutralisée au journal le lendemain — ses quatre champs d'options remis
+  à NULL, la base d'avant gardée dans `journal-avant-purge-20261111.db`.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au
@@ -3349,7 +3349,11 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   oubliée après quelques jours sans lecture (§2.10).
 
 - **Les seuils provisoires** — carnets creux et skew (voir le point de
-  reprise) : à étalonner sur quelques semaines de journal.
+  reprise) : à étalonner sur quelques semaines de journal. Premier repère
+  pour le skew, sur les cinq jours du 6 au 11 novembre 2026 : l'écart à
+  24 h vaut 0,42 point en médiane, 0,76 neuf fois sur dix, 1,4 au plus —
+  le seuil de deux points n'a jamais été atteint, sur une semaine calme.
+  Pour les carnets creux, neuf heures de relevés ne disent encore rien.
 - ~~**Les liquidations de Binance hors cryptomonnaies**~~ — vérifié le
   11 novembre au soir : son catalogue se lit d'ici, et compte 234
   perpétuels `TRADIFI_PERPETUAL` (actions, matières premières) sur 946
