@@ -138,6 +138,14 @@ CREATE TABLE IF NOT EXISTS market_snapshots (
                                      --   (NULL : écrit avant ce retrait)
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON market_snapshots (ts);
+
+CREATE TABLE IF NOT EXISTS book_depth (
+    ts       REAL NOT NULL,      -- epoch de la fin de la période moyennée
+    exchange TEXT NOT NULL,
+    bid_btc  REAL NOT NULL,      -- volume moyen à l'achat, à portée du prix
+    ask_btc  REAL NOT NULL       -- volume moyen à la vente
+);
+CREATE INDEX IF NOT EXISTS idx_book_depth_ts ON book_depth (ts);
 """
 
 #: Colonnes de `market_snapshots` hors horodatage — l'ordre du schéma.
@@ -344,6 +352,19 @@ class Journal:
             )
             self._db.commit()
 
+    def record_book_depth(self, ts: float, rows) -> None:
+        """La liquidité des carnets sur la période qui s'achève : une ligne
+        par plateforme, `(plateforme, achats, ventes)` en bitcoins (§ hub.
+        _flush_depth). Rien ne s'écrit sans ligne."""
+        rows = [(ts, name, bid, ask) for name, bid, ask in rows]
+        if not rows:
+            return
+        with self._lock:
+            self._connection().executemany(
+                "INSERT INTO book_depth (ts, exchange, bid_btc, ask_btc) "
+                "VALUES (?, ?, ?, ?)", rows)
+            self._db.commit()
+
     def observe(self, opportunities, now: Optional[float] = None) -> None:
         """Un balayage du moteur : fait vivre les épisodes.
 
@@ -417,6 +438,10 @@ class Journal:
             db.execute("DELETE FROM alerts WHERE ts < ?", (horizon,))
             db.execute("DELETE FROM market_snapshots WHERE ts < ?",
                        (time.time() - SNAPSHOT_RETENTION_DAYS * 86_400,))
+            # La liquidité des carnets est de la même nature : un
+            # historique que personne ne sert, bâti par accumulation.
+            db.execute("DELETE FROM book_depth WHERE ts < ?",
+                       (time.time() - SNAPSHOT_RETENTION_DAYS * 86_400,))
             db.commit()
 
     # ── Lectures ────────────────────────────────────────────
@@ -461,6 +486,14 @@ class Journal:
         with self._lock:
             return self._connection().execute(
                 "SELECT * FROM market_snapshots WHERE ts BETWEEN ? AND ?"
+                " ORDER BY ts", (start, end)).fetchall()
+
+    def depth_between(self, start: float, end: float) -> list[sqlite3.Row]:
+        if not self.path.exists():
+            return []
+        with self._lock:
+            return self._connection().execute(
+                "SELECT * FROM book_depth WHERE ts BETWEEN ? AND ?"
                 " ORDER BY ts", (start, end)).fetchall()
 
     def snapshots_rebased(self, start: float, end: float) -> list[dict]:

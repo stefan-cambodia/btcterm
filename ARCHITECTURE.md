@@ -3167,6 +3167,25 @@ journal aura quelques semaines.
   isolé à 20 % ne cadre rien), ses courbes sont élaguées à 250 points par
   côté — 30 Ko par seconde au lieu de 140. Coût mesuré, un onglet ouvert :
   11 % d'un cœur contre 9,5 ; au repos, rien de mesurable.
+- ~~**Une profondeur sans mémoire**~~ — la profondeur comparée disait le
+  carnet de l'instant, pas s'il était plein ou vide pour lui-même ; or un
+  carnet qui se vide précède souvent le mouvement qu'il n'amortira pas, et
+  aucune API gratuite ne sert cet historique. Fait, une fois les carnets
+  assez profonds pour que la mesure ait un sens : la boucle d'observation
+  échantillonne toutes les dix secondes le volume offert à moins de 0,1 %
+  du prix médian de chaque plateforme (`OrderBook.depth_within`), et en
+  écrit la moyenne toutes les cinq minutes dans la table `book_depth` du
+  journal, une ligne par plateforme, gardée quatre cents jours comme les
+  instantanés. Une moyenne et non une photographie — un carnet respire à
+  la seconde —, et rien pour une plateforme coupée ou figée la moitié de
+  la période. Le panneau PROFONDEUR la trace sous le carnet de l'instant,
+  achats et ventes, sur un jour dans la grille et sept en plein écran ; la
+  somme ne porte que sur les plateformes présentes dans neuf relevés sur
+  dix (`liquidity_series`) — une plateforme qui se tait cinq minutes ne
+  creuse pas la courbe, elle en sort, et le titre le dit — et le trait se
+  rompt sur les interruptions de séance. Le titre donne le dernier relevé
+  et son écart à la moyenne de la fenêtre. L'historique commence le
+  11 novembre 2026.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au

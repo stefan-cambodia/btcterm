@@ -580,6 +580,116 @@ def test_profondeur_cadree_sur_le_carnet_median():
     print("  ✓ profondeur cadrée sur le carnet médian, volume ajusté au cadre")
 
 
+def test_la_liquidite_a_une_memoire():
+    """Le volume à portée du prix s'échantillonne, se moyenne, se
+    journalise par plateforme, et se relit en une somme qui ne change pas
+    d'ensemble en cours de route."""
+    import tempfile
+    import time
+
+    import pandas as pd
+
+    from btcterm.hub import MarketHub
+    from btcterm.journal import Journal
+    from terminal.charts import build_liquidity_chart, liquidity_series
+    from terminal.panels import orderbook as panneau
+
+    # ── Le carnet : ce qui est à moins de 0,1 % du prix médian.
+    book = OrderBook("essai")
+    assert book.depth_within(0.1) is None, "un carnet vide ne dit rien"
+    book.replace({99_990.0: 1.0, 99_950.0: 2.0, 99_800.0: 5.0},
+                 {100_010.0: 0.5, 100_090.0: 1.5, 100_300.0: 7.0})
+    assert book.depth_within(0.1) == (3.0, 2.0)
+    assert book.depth_within(1.0) == (8.0, 9.0)
+    book.replace({100_020.0: 1.0}, {100_010.0: 1.0})
+    assert book.depth_within(0.1) is None, "un carnet croisé non plus"
+
+    # ── Le hub : dix échantillons, une moyenne, une ligne par plateforme.
+    with tempfile.TemporaryDirectory() as tmp:
+        hub = MarketHub(collect_news=False, keep_journal=False)
+        hub.journal = Journal(Path(tmp) / "journal.db")
+        maintenant = time.time()
+        for nom, volume in (("Binance", 10.0), ("Kraken", 2.0)):
+            hub.books[nom].connected = True
+        for k in range(10):
+            hub.books["Binance"].replace({99_990.0: 10.0 + k}, {100_010.0: 20.0})
+            hub.books["Kraken"].replace({99_990.0: 2.0}, {100_010.0: 4.0})
+            if k >= 6:          # Kraken se coupe : quatre échantillons en moins
+                hub.books["Kraken"].connected = False
+            hub._sample_depth()
+        hub._flush_depth(now=maintenant - 600)
+        lignes = hub.journal.depth_between(0, maintenant)
+        assert [(r["exchange"], r["bid_btc"], r["ask_btc"]) for r in lignes] == \
+            [("Binance", 14.5, 20.0), ("Kraken", 2.0, 4.0)], [tuple(r) for r in lignes]
+        assert hub._depth_acc == {}, "la période repart de zéro"
+        # Trop peu d'échantillons : la plateforme n'écrit rien.
+        for _ in range(hub.DEPTH_MIN_SAMPLES - 1):
+            hub._sample_depth()
+        hub._flush_depth(now=maintenant - 300)
+        assert len(hub.journal.depth_between(0, maintenant)) == 2
+        # Un carnet figé depuis plus de dix secondes ne compte pas.
+        hub.books["Binance"].timestamp = time.time() - 60
+        hub._sample_depth()
+        assert hub._depth_acc == {}
+
+        frame = hub.book_depth_history(days=1)
+        assert list(frame.columns) == ["time", "exchange", "bid", "ask"]
+        assert len(frame) == 2
+        # La purge garde la liquidité aussi longtemps que les instantanés.
+        hub.journal.record_book_depth(maintenant - 500 * 86_400,
+                                      [("Binance", 1.0, 1.0)])
+        hub.journal.record_book_depth(maintenant - 100 * 86_400,
+                                      [("Binance", 1.0, 1.0)])
+        hub.journal.purge()
+        assert len(hub.journal.depth_between(0, maintenant)) == 3
+
+        # Le panneau : en constitution tant qu'il n'y a pas deux relevés.
+        figure, badge = panneau.render_liquidity(hub)
+        assert figure["data"] == [] and "constitution" in str(figure["layout"])
+        hub.journal.close()
+
+    # ── La somme : un ensemble de plateformes qui ne change pas.
+    t0 = pd.Timestamp("2026-11-11 00:00")
+    lignes = []
+    for k in range(40):
+        moment = t0 + pd.Timedelta(minutes=5 * k)
+        if k >= 30:                       # une heure de veille avant la fin
+            moment += pd.Timedelta(hours=1)
+        lignes.append((moment, "Binance", 100.0, 80.0))
+        if k != 7:                        # OKX manque un relevé
+            lignes.append((moment, "OKX", 50.0, 40.0))
+        if k < 10:                        # Coinbase n'est là qu'un quart du temps
+            lignes.append((moment, "Coinbase", 5.0, 5.0))
+    history = pd.DataFrame(lignes, columns=["time", "exchange", "bid", "ask"])
+    serie, gardees, ecartees = liquidity_series(history)
+    assert gardees == ["Binance", "OKX"] and ecartees == ["Coinbase"]
+    assert len(serie) == 39, "le relevé sans OKX est écarté, pas additionné à moitié"
+    assert set(serie["bid"]) == {150.0} and set(serie["ask"]) == {120.0}
+    assert liquidity_series(history.iloc[0:0])[0].empty
+
+    figure = build_liquidity_chart(serie, gap=900)
+    achats, ventes = figure["data"]
+    assert achats["name"] == "achats" and ventes["name"] == "ventes"
+    assert achats["y"].count(None) == 1, "le trait se rompt sur l'heure de veille"
+    assert len(achats["x"]) == 40
+
+    # ── Le badge : le dernier relevé, et son écart à la moyenne.
+    class Hub:
+        SNAPSHOT_GAP, DEPTH_BAND = 900, 0.1
+
+        def book_depth_history(self, days):
+            creux = history.copy()
+            dernier = creux["time"] == creux["time"].max()
+            creux.loc[dernier, ["bid", "ask"]] = creux.loc[dernier, ["bid", "ask"]] / 2
+            return creux
+
+    _, badge = panneau.render_liquidity(Hub())
+    texte = str(badge)
+    assert "135 BTC" in texte and "-49 %" in texte, texte
+    assert "sans Coinbase" in texte and "2/3" in texte
+    print("  ✓ liquidité : échantillonnée, moyennée, journalisée, sommée sans trou")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCarnets et connecteurs — {len(tests)} vérifications\n" + "─" * 60)

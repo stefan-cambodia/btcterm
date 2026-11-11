@@ -195,6 +195,21 @@ class OrderBook:
         bid, ask = self.best_bid, self.best_ask
         return (bid + ask) / 2 if bid and ask else None
 
+    def depth_within(self, pct: float) -> Optional[tuple[float, float]]:
+        """Le volume offert à moins de `pct` % du prix médian : (achats,
+        ventes), en bitcoins. `None` pour un carnet vide ou croisé, qui ne
+        dit pas le marché."""
+        with self._lock:
+            if not self.bids or not self.asks:
+                return None
+            bid, ask = max(self.bids), min(self.asks)
+            if bid >= ask:
+                return None
+            mid = (bid + ask) / 2
+            low, high = mid * (1 - pct / 100), mid * (1 + pct / 100)
+            return (sum(q for p, q in self.bids.items() if p >= low),
+                    sum(q for p, q in self.asks.items() if p <= high))
+
     @property
     def crossed(self) -> bool:
         """Vrai si le meilleur bid atteint le meilleur ask.

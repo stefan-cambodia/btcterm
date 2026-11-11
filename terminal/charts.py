@@ -16,6 +16,8 @@ réinitialiserait le zoom de l'utilisateur.
 
 from __future__ import annotations
 
+import datetime as dt
+
 import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
@@ -27,7 +29,8 @@ from btcterm.sources import STABLES
 from .theme import C, MONO
 
 __all__ = ["VOL_BINS", "prepare_price_frame",
-           "build_depth_chart", "depth_window", "prepare_macro_frame", "macro_stats",
+           "build_depth_chart", "depth_window",
+           "liquidity_series", "build_liquidity_chart", "prepare_macro_frame", "macro_stats",
            "build_macro_chart", "build_dominance_chart",
            "build_chain_chart", "build_fear_greed_chart",
            "fear_greed_color", "FEAR_GREED_ZONES",
@@ -202,6 +205,94 @@ def build_depth_chart(books: dict, uirevision: str = "depth") -> dict:
         "xaxis": xaxis,
         "yaxis": yaxis,
     }
+    return {"data": data, "layout": layout}
+
+
+def liquidity_series(history: pd.DataFrame,
+                     presence: float = 0.9) -> tuple[pd.DataFrame, list, list]:
+    """La liquidité des plateformes réunies, sur un ensemble qui ne change pas.
+
+    Additionner ce qui est là ferait un trou dans la courbe chaque fois
+    qu'une plateforme se tait cinq minutes : le marché n'aurait rien
+    perdu, le terminal seulement. La somme ne porte donc que sur les
+    plateformes présentes dans au moins `presence` des relevés de la
+    fenêtre, et un relevé où l'une d'elles manque est écarté.
+
+    Retourne la série (`time`, `bid`, `ask`), les plateformes comptées, et
+    celles qui ne le sont pas — à dire à l'écran.
+    """
+    vide = pd.DataFrame(columns=["time", "bid", "ask"])
+    if history is None or history.empty:
+        return vide, [], []
+    releves = history["time"].nunique()
+    compte = history.groupby("exchange")["time"].nunique()
+    gardees = sorted(compte[compte >= presence * releves].index)
+    ecartees = sorted(set(compte.index) - set(gardees))
+    if not gardees:
+        return vide, [], ecartees
+    utile = history[history["exchange"].isin(gardees)]
+    somme = utile.groupby("time").agg(
+        bid=("bid", "sum"), ask=("ask", "sum"), n=("exchange", "nunique"))
+    somme = somme[somme["n"] == len(gardees)].reset_index()
+    return somme[["time", "bid", "ask"]], gardees, ecartees
+
+
+def build_liquidity_chart(series: pd.DataFrame, gap: float = 900.0,
+                          uirevision: str = "liquidity") -> dict:
+    """La liquidité à portée du prix, dans le temps : achats et ventes.
+
+    La profondeur comparée dit le carnet de l'instant ; ceci dit s'il est
+    plein ou vide pour lui-même — un carnet qui se vide précède souvent le
+    mouvement qu'il ne pourra pas amortir. Le trait se rompt là où la
+    séance s'est interrompue (`gap` secondes sans relevé).
+    """
+    axis = {"gridcolor": C["grid"], "zerolinecolor": C["grid"],
+            "tickfont": {"size": 9, "color": C["muted"]}, "automargin": True}
+    layout = {
+        "paper_bgcolor": C["panel"], "plot_bgcolor": C["panel"],
+        "font": {"family": MONO, "color": C["text"], "size": 10},
+        "margin": {"l": 8, "r": 8, "t": 2, "b": 4},
+        "showlegend": False, "hovermode": "x unified",
+        "hoverlabel": {"bgcolor": "#1a2035", "bordercolor": C["border"],
+                       "font": {"color": C["text"], "size": 10}},
+        "uirevision": uirevision,
+        "xaxis": dict(axis),
+        "yaxis": {"ticksuffix": " ₿", "rangemode": "tozero", **axis},
+    }
+    if series is None or len(series) < 2:
+        layout["annotations"] = [{
+            "text": "historique de liquidité en constitution — "
+                    "un relevé toutes les cinq minutes",
+            "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5,
+            "showarrow": False,
+            "font": {"family": MONO, "size": 10, "color": C["muted"]}}]
+        layout["xaxis"]["visible"] = layout["yaxis"]["visible"] = False
+        return {"data": [], "layout": layout}
+
+    # Le journal date en UTC ; une courbe d'une journée se lit à l'heure
+    # de la machine, comme le reste du terminal.
+    local = dt.datetime.now().astimezone().tzinfo
+    times = (pd.to_datetime(series["time"]).dt.tz_localize("UTC")
+             .dt.tz_convert(local).dt.tz_localize(None))
+    x, bids, asks = [], [], []
+    previous = None
+    for moment, bid, ask in zip(times, series["bid"], series["ask"]):
+        if previous is not None and (moment - previous).total_seconds() > gap:
+            x.append((previous + pd.Timedelta(seconds=1)).isoformat())
+            bids.append(None)
+            asks.append(None)
+        x.append(moment.isoformat())
+        bids.append(round(float(bid), 2))
+        asks.append(round(float(ask), 2))
+        previous = moment
+    data = [
+        {"type": "scatter", "mode": "lines", "x": x, "y": cote,
+         "name": nom, "connectgaps": False,
+         "line": {"color": couleur, "width": 1.4},
+         "hovertemplate": f"{nom} %{{y:.1f}} BTC<extra></extra>"}
+        for nom, cote, couleur in (("achats", bids, C["green"]),
+                                   ("ventes", asks, C["red"]))
+    ]
     return {"data": data, "layout": layout}
 
 

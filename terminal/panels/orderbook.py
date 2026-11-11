@@ -23,7 +23,8 @@ import math
 
 from dash import Input, Output, State, dcc, html
 
-from ..charts import build_depth_chart
+from ..charts import (build_depth_chart, build_liquidity_chart,
+                      liquidity_series)
 from ..fx import display
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
@@ -85,16 +86,74 @@ def layout(title=None):
     ], style=PANEL_STYLE)
 
 
+#: Fenêtre de l'historique de liquidité, en jours : la journée dans la
+#: grille, la semaine en plein écran.
+LIQUIDITY_DAYS = 1
+LIQUIDITY_DAYS_MAX = 7
+
+
 def depth_layout(title=None):
     return html.Div([
-        html.Div(title if title is not None else
-                 html.Span("Profondeur comparée"), style=TITLE_STYLE),
+        html.Div([
+            title if title is not None else html.Span("Profondeur comparée"),
+            html.Span(id="depth-liquidity",
+                      style={"fontSize": "9px", "whiteSpace": "nowrap",
+                             "marginLeft": "10px"}),
+        ], style=TITLE_STYLE),
         dcc.Graph(
             id="depth-chart",
-            style={"flex": "1", "minHeight": "0"},
+            style={"flex": "2", "minHeight": "0"},
             config={"displayModeBar": False, "scrollZoom": True},
         ),
+        # La mémoire de la profondeur : le même carnet, dans le temps.
+        dcc.Graph(
+            id="depth-history",
+            style={"flex": "1", "minHeight": "0"},
+            config={"displayModeBar": False},
+        ),
     ], style=PANEL_STYLE)
+
+
+def render_liquidity(hub, expanded: bool = False):
+    """L'historique de liquidité et son badge — pur vis-à-vis de Dash.
+
+    Le badge dit le dernier relevé — le volume à portée, des deux côtés
+    réunis — et ce qu'il vaut contre la moyenne de la fenêtre : c'est
+    l'écart qui se lit, un carnet n'étant ni plein ni vide dans l'absolu.
+    """
+    days = LIQUIDITY_DAYS_MAX if expanded else LIQUIDITY_DAYS
+    series, gardees, ecartees = liquidity_series(hub.book_depth_history(days))
+    figure = build_liquidity_chart(
+        series, gap=getattr(hub, "SNAPSHOT_GAP", 900),
+        uirevision=f"liquidity-{days}")
+    band = getattr(hub, "DEPTH_BAND", 0.1)
+    if series.empty:
+        return figure, html.Span(f"liquidité ±{band:g} % : en constitution",
+                                 style={"color": C["muted"],
+                                        "fontFamily": MONO})
+    total = series["bid"] + series["ask"]
+    last, mean = float(total.iloc[-1]), float(total.mean())
+    ecart = (last / mean - 1) * 100 if mean else 0.0
+    detail = (f"volume offert à moins de {band:g} % du prix, achats et ventes, "
+              f"moyenne de chaque période de cinq minutes — "
+              f"{', '.join(gardees)}"
+              + (f" ; sans {', '.join(ecartees)}, trop souvent absent"
+                 if ecartees else "")
+              + f" ; écart à la moyenne de {'7 j' if expanded else '24 h'}"
+                f" ({mean:.0f} BTC)")
+    children = [
+        html.Span(f"±{band:g} % · ", style={"color": C["muted"]}),
+        html.Span(f"{last:.0f} BTC", style={"color": C["text"]}),
+    ]
+    if len(series) >= 12:        # une heure de relevés : la moyenne dit quelque chose
+        children.append(html.Span(
+            f" {ecart:+.0f} %",
+            style={"color": C["red"] if ecart <= -25 else
+                   C["green"] if ecart >= 25 else C["muted"]}))
+    if ecartees:
+        children.append(html.Span(f" · {len(gardees)}/{len(gardees) + len(ecartees)}",
+                                  style={"color": C["yellow"]}))
+    return figure, html.Span(children, style={"fontFamily": MONO}, title=detail)
 
 
 def wall(books: dict, side: str) -> tuple[float, float] | None:
@@ -228,3 +287,13 @@ def register(app, hub):
     )
     def _refresh_depth(_tick):
         return render_depth(hub)
+
+    @app.callback(
+        Output("depth-history", "figure"),
+        Output("depth-liquidity", "children"),
+        # Un relevé toutes les cinq minutes : l'horloge rare suffit.
+        Input("tick-rare", "n_intervals"),
+        Input("expanded", "data"),
+    )
+    def _refresh_liquidity(_tick, expanded):
+        return render_liquidity(hub, expanded == "depth")

@@ -430,6 +430,20 @@ class MarketHub:
     #: Trois cadences : un instantané manqué n'est pas une interruption.
     SNAPSHOT_GAP = 3 * SNAPSHOT_EVERY
 
+    #: La liquidité journalisée : le volume offert à moins de `DEPTH_BAND`
+    #: pour cent du prix médian de chaque plateforme — une portée que les
+    #: cinq carnets couvrent tous, et celle où un ordre de quelques
+    #: dizaines de bitcoins trouve ou non sa contrepartie. Un carnet
+    #: respire à la seconde : la valeur écrite est la moyenne
+    #: d'échantillons pris toutes les `DEPTH_SAMPLE_EVERY` secondes sur la
+    #: période d'un instantané, et pas une photographie. En deçà de
+    #: `DEPTH_MIN_SAMPLES`, la plateforme n'a pas assez parlé pour compter.
+    DEPTH_BAND = 0.1
+    DEPTH_SAMPLE_EVERY = 10.0
+    DEPTH_MIN_SAMPLES = 6
+    #: Un carnet sans mise à jour depuis ce délai ne dit plus le marché.
+    DEPTH_MAX_AGE_MS = 10_000.0
+
     #: Profondeur de la fenêtre de liquidations relue du journal au
     #: démarrage : une heure, celle des totaux du panneau.
     WARM_UP_SECONDS = 3600.0
@@ -529,6 +543,9 @@ class MarketHub:
         self.alerts = AlertEngine(journal=self.journal)
 
         self._observe_stop = threading.Event()
+        #: Échantillons de liquidité de la période en cours, par
+        #: plateforme : [somme des achats, somme des ventes, nombre].
+        self._depth_acc: dict[str, list[float]] = {}
         self._observe_thread: Optional[threading.Thread] = None
         #: Levé quand le hub s'arrête — ou, en régime service, dès que
         #: le signal d'arrêt arrive (terminal/wsgi.py), avant même que
@@ -726,8 +743,12 @@ class MarketHub:
         self._wait_for_network()
         next_snapshot = time.monotonic() + self.SNAPSHOT_WARMUP
         next_sweep = time.monotonic() + self.CACHE_SWEEP_EVERY
+        next_depth = time.monotonic() + self.DEPTH_SAMPLE_EVERY
         while not self._observe_stop.wait(1.0):
             self._after_sleep()
+            if time.monotonic() >= next_depth:
+                next_depth = time.monotonic() + self.DEPTH_SAMPLE_EVERY
+                self._sample_depth()
             if time.monotonic() >= next_sweep:
                 next_sweep = time.monotonic() + self.CACHE_SWEEP_EVERY
                 self._cache.sweep(self.CACHE_IDLE)
@@ -752,6 +773,10 @@ class MarketHub:
                 next_snapshot = time.monotonic() + self.SNAPSHOT_EVERY
                 try:
                     self.record_market_snapshot()
+                except Exception:
+                    pass
+                try:
+                    self._flush_depth()
                 except Exception:
                     pass
 
@@ -1450,6 +1475,48 @@ class MarketHub:
             df = (pd.concat([df, breaks], ignore_index=True)
                   .sort_values("time", kind="stable").reset_index(drop=True))
         return df[columns]
+
+    def _sample_depth(self) -> None:
+        """Un échantillon de liquidité par carnet qui dit le marché."""
+        for name, book in self.books.items():
+            if not book.connected or book.age_ms > self.DEPTH_MAX_AGE_MS:
+                continue
+            depth = book.depth_within(self.DEPTH_BAND)
+            if depth is None:
+                continue
+            acc = self._depth_acc.setdefault(name, [0.0, 0.0, 0])
+            acc[0] += depth[0]
+            acc[1] += depth[1]
+            acc[2] += 1
+
+    def _flush_depth(self, now: Optional[float] = None) -> None:
+        """Écrit la liquidité moyenne de la période, et repart de zéro.
+
+        Une plateforme qui n'a pas livré `DEPTH_MIN_SAMPLES` échantillons
+        — carnet coupé, ou en resynchronisation la moitié du temps —
+        n'écrit rien : son absence se lit, une moyenne de deux points
+        mentirait.
+        """
+        acc, self._depth_acc = self._depth_acc, {}
+        if self.journal is None:
+            return
+        self.journal.record_book_depth(
+            time.time() if now is None else now,
+            [(name, bid / n, ask / n) for name, (bid, ask, n) in acc.items()
+             if n >= self.DEPTH_MIN_SAMPLES])
+
+    def book_depth_history(self, days: float = 1) -> pd.DataFrame:
+        """La liquidité journalisée : `time`, `exchange`, `bid`, `ask`."""
+        columns = ["time", "exchange", "bid", "ask"]
+        if self.journal is None:
+            return pd.DataFrame(columns=columns)
+        end = time.time()
+        rows = self.journal.depth_between(end - days * 86_400, end)
+        if not rows:
+            return pd.DataFrame(columns=columns)
+        df = pd.DataFrame([dict(row) for row in rows])
+        df["time"] = pd.to_datetime(df.pop("ts"), unit="s")
+        return df.rename(columns={"bid_btc": "bid", "ask_btc": "ask"})[columns]
 
     def market_interruptions(self, days: float = 1) -> list[tuple[float, float]]:
         """Les interruptions de séance sur `days` jours : (avant, après)."""
