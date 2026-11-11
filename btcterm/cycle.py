@@ -1,0 +1,225 @@
+"""
+Le cycle du bitcoin : où en est-on depuis le halving, et depuis le sommet.
+
+Le bitcoin a une horloge que les autres marchés n'ont pas : tous les
+210 000 blocs — quatre ans à peu près — l'émission est divisée par deux, et
+les trois cycles passés se sont lus contre cette date. Ce module ne prédit
+rien ; il situe. Tout y vient des clôtures journalières que le disque tient
+déjà depuis août 2017 (§ history), sans source de plus :
+
+- le **halving** : blocs restants et date estimée du prochain, au rythme
+  nominal de dix minutes ; la hauteur vient de l'instantané du réseau, ou,
+  s'il manque, s'estime depuis le dernier halving ;
+- le **repli** depuis le plus haut historique, et depuis quand ;
+- le **multiple de Mayer** — le cours rapporté à sa moyenne de 200 jours —,
+  avec la part des jours passés où il était plus bas ;
+- la **moyenne de 200 semaines**, plancher des trois derniers marchés
+  baissiers, et le rapport du **Pi cycle** (moyenne de 111 jours sur deux
+  fois celle de 350 : 1 aux sommets de 2017 et 2021) ;
+- les **cycles superposés** : le cours en multiple de celui du jour du
+  halving, jour pour jour.
+
+L'historique commence le 17 août 2017 : le cycle de 2016 n'y entre qu'à son
+quatre-centième jour, et son cours de départ est une référence écrite ici.
+Le sommet d'avant cette date (3 000 $ en juin 2017) était déjà dépassé ce
+jour-là : le plus haut couru sur la série est bien le plus haut historique.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from typing import Optional
+
+import pandas as pd
+
+__all__ = ["Halving", "HALVINGS", "HALVING_INTERVAL", "BLOCK_MINUTES",
+           "MAYER_LOW", "MAYER_HIGH", "WEEKS_200",
+           "closes", "next_halving", "mayer", "drawdown", "cycle_paths",
+           "metrics"]
+
+#: Blocs entre deux halvings, et rythme visé par le protocole.
+HALVING_INTERVAL = 210_000
+BLOCK_MINUTES = 10.0
+
+#: Bornes d'usage du multiple de Mayer : sous 0,8 le cours est loin sous sa
+#: moyenne, au-dessus de 2,4 il s'en est détaché comme aux sommets.
+MAYER_LOW = 0.8
+MAYER_HIGH = 2.4
+
+#: Deux cents semaines, en jours.
+WEEKS_200 = 1400
+
+
+@dataclass(frozen=True)
+class Halving:
+    """Un halving passé : son bloc, son jour (UTC), le cours de ce jour-là."""
+    height: int
+    date: datetime
+    #: Cours de référence, en dollars, pour les cycles que la série ne
+    #: couvre pas depuis leur premier jour ; `None` quand elle le donne.
+    price: Optional[float] = None
+
+    @property
+    def label(self) -> str:
+        return str(self.date.year)
+
+
+HALVINGS = (
+    Halving(210_000, datetime(2012, 11, 28), 12.3),
+    Halving(420_000, datetime(2016, 7, 9), 650.0),
+    Halving(630_000, datetime(2020, 5, 11)),
+    Halving(840_000, datetime(2024, 4, 20)),
+)
+
+
+def closes(frame: Optional[pd.DataFrame]) -> pd.Series:
+    """Les clôtures journalières, une par jour, indexées par leur date."""
+    if frame is None or frame.empty:
+        return pd.Series(dtype=float)
+    series = pd.Series(frame["close"].to_numpy(dtype=float),
+                       index=pd.to_datetime(frame["time"]).dt.normalize())
+    return series[~series.index.duplicated(keep="last")].sort_index().dropna()
+
+
+def _naive_utc(now: Optional[datetime]) -> datetime:
+    if now is None:
+        return datetime.now(timezone.utc).replace(tzinfo=None)
+    if now.tzinfo is not None:
+        return now.astimezone(timezone.utc).replace(tzinfo=None)
+    return now
+
+
+def next_halving(height: Optional[int] = None,
+                 now: Optional[datetime] = None) -> dict:
+    """Le prochain halving : son bloc, ce qu'il reste, et quand.
+
+    Sans hauteur connue, elle s'estime depuis le dernier halving, à dix
+    minutes le bloc — `estimated` le dit. La date se compte au rythme
+    nominal : le rythme observé d'un jour ne dit rien des dix-huit mois à
+    venir, que l'ajustement de difficulté ramène à dix minutes.
+    """
+    now = _naive_utc(now)
+    last = HALVINGS[-1]
+    estimated = not height or height < last.height
+    if estimated:
+        elapsed = (now - last.date).total_seconds() / 60 / BLOCK_MINUTES
+        height = last.height + max(int(elapsed), 0)
+    done = height // HALVING_INTERVAL
+    target = (done + 1) * HALVING_INTERVAL
+    left = target - height
+    eta = now + timedelta(minutes=left * BLOCK_MINUTES)
+    # Si la hauteur a déjà franchi un halving que la table ignore, le
+    # cycle en cours a commencé là — sa date s'estime de la même façon.
+    since = last.date if done * HALVING_INTERVAL == last.height else (
+        now - timedelta(minutes=(height - done * HALVING_INTERVAL)
+                        * BLOCK_MINUTES))
+    return {
+        "height": int(height), "target": int(target), "blocks_left": int(left),
+        "eta": eta, "days_left": left * BLOCK_MINUTES / 1440,
+        "days_since": (now - since).total_seconds() / 86_400,
+        "progress": 1 - left / HALVING_INTERVAL,
+        "estimated": bool(estimated),
+    }
+
+
+def mayer(series: pd.Series) -> pd.Series:
+    """Le cours rapporté à sa moyenne de 200 jours, là où elle existe."""
+    return (series / series.rolling(200).mean()).dropna()
+
+
+def drawdown(series: pd.Series) -> pd.Series:
+    """Le repli depuis le plus haut couru, en % (zéro au sommet)."""
+    return (series / series.cummax() - 1) * 100
+
+
+def cycle_paths(series: pd.Series) -> list[dict]:
+    """Chaque cycle que la série touche, en multiple du cours du halving.
+
+    Rend, du plus ancien au plus récent, `label`, `days` (jours écoulés
+    depuis le halving), `multiple` et `current`. Le cours de départ est
+    celui de la série ce jour-là, ou la référence du halving si la série
+    commence après.
+    """
+    paths = []
+    if series.empty:
+        return paths
+    for position, halving in enumerate(HALVINGS):
+        start = pd.Timestamp(halving.date)
+        last = position == len(HALVINGS) - 1
+        end = (series.index[-1] + pd.Timedelta(days=1) if last
+               else pd.Timestamp(HALVINGS[position + 1].date))
+        leg = series[(series.index >= start) & (series.index < end)]
+        if leg.empty:
+            continue
+        base = (float(series[start]) if start in series.index
+                else halving.price)
+        if not base:
+            continue
+        paths.append({
+            "label": halving.label,
+            "days": (leg.index - start).days.to_numpy(),
+            "multiple": (leg / base).to_numpy(),
+            "base": base,
+            "current": last,
+        })
+    return paths
+
+
+def _at_day(path: dict, day: int) -> Optional[float]:
+    """Le multiple d'un cycle à son `day`-ième jour, s'il l'a vécu."""
+    days = path["days"]
+    if not len(days) or day < days[0] or day > days[-1]:
+        return None
+    return float(path["multiple"][int((days <= day).sum()) - 1])
+
+
+def metrics(series: pd.Series, height: Optional[int] = None,
+            now: Optional[datetime] = None) -> Optional[dict]:
+    """La situation du jour, ou `None` sans série.
+
+    Chaque mesure qui demande plus de profondeur que la série n'en a
+    revient à `None` plutôt qu'approchée.
+    """
+    if series.empty:
+        return None
+    now = _naive_utc(now)
+    last = float(series.iloc[-1])
+    peak_date = series.idxmax()
+    peak = float(series[peak_date])
+
+    def average(window: int) -> Optional[float]:
+        if len(series) < window:
+            return None
+        return float(series.iloc[-window:].mean())
+
+    ratio = mayer(series)
+    ma200, ma200w = average(200), average(WEEKS_200)
+    ma111, ma350 = average(111), average(350)
+
+    paths = cycle_paths(series)
+    current = next((p for p in paths if p["current"]), None)
+    day = int(current["days"][-1]) if current else None
+    same_day = [
+        {"label": p["label"], "multiple": _at_day(p, day)}
+        for p in paths if not p["current"] and day is not None
+    ]
+    return {
+        "price": last,
+        "ath": peak, "ath_date": peak_date.to_pydatetime(),
+        "drawdown": (last / peak - 1) * 100,
+        "days_since_ath": int((series.index[-1] - peak_date).days),
+        "ma200": ma200,
+        "mayer": float(ratio.iloc[-1]) if len(ratio) else None,
+        # Part des jours passés où le multiple était plus bas : dit si
+        # 1,3 est banal ou rare, ce que le chiffre seul ne dit pas.
+        "mayer_rank": (float((ratio.iloc[:-1] < ratio.iloc[-1]).mean())
+                       if len(ratio) > 1 else None),
+        "ma200w": ma200w,
+        "ma200w_ratio": last / ma200w if ma200w else None,
+        "pi_ratio": ma111 / (2 * ma350) if ma111 and ma350 else None,
+        "cycle_day": day,
+        "cycle_multiple": float(current["multiple"][-1]) if current else None,
+        "same_day": [row for row in same_day if row["multiple"] is not None],
+        "halving": next_halving(height, now),
+    }

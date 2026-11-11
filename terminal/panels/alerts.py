@@ -43,7 +43,8 @@ KIND_COLORS = {"price": C["yellow"], "liq": C["red"],
                "trend": C["purple"], "flip": C["purple"], "event": C["orange"],
                "rsi": C["cyan"], "signal": C["green"],
                "dominance": C["yellow"], "etf": C["green"],
-               "chain": C["purple"], "vol": C["yellow"]}
+               "chain": C["purple"], "vol": C["yellow"],
+               "skew": C["yellow"]}
 
 _INPUT = {
     "width": "52px", "background": C["card"], "color": C["text"],
@@ -144,6 +145,10 @@ def layout(title=None):
                 _field("DVOL J/J-1 (pts)", dcc.Input(
                     id="alert-dvol", type="number", min=0.5, debounce=True,
                     value=config["dvol_jump_pts"], style=_INPUT)),
+                _field("skew 24 h (pts)", dcc.Input(
+                    id="alert-skew", type="number", min=0.1, step="any",
+                    debounce=True, value=config["skew_shift_pts"],
+                    style=_INPUT)),
                 dcc.Checklist(
                     id="alert-signal",
                     options=[{"label": "signaux ±2", "value": "on"}],
@@ -271,6 +276,7 @@ def register(app, hub):
         Input("alert-mempool", "value"),
         Input("alert-block", "value"),
         Input("alert-dvol", "value"),
+        Input("alert-skew", "value"),
         Input("alert-signal", "value"),
         Input("alert-trend", "value"),
         Input("alert-event", "value"),
@@ -281,7 +287,7 @@ def register(app, hub):
     )
     def _edit(_add, _dels, liq, funding, news_score, arb,
               ma200, rsi_hi, rsi_lo, dominance, etf, mempool, block,
-              dvol, signal, trend, event, sound, level, stored):
+              dvol, skew, signal, trend, event, sound, level, stored):
         trigger = dash.ctx.triggered_id
         # Un composant qui vient d'être monté déclenche aussi ce
         # callback (n_clicks 0, valeurs du Store) : sans valeur de
@@ -322,6 +328,7 @@ def register(app, hub):
                       "dominance_shift_pts": dominance,
                       "etf_flow_musd": etf, "mempool_mb": mempool,
                       "block_minutes": block, "dvol_jump_pts": dvol,
+                      "skew_shift_pts": skew,
                       "signal_strong": bool(signal),
                       "trend_flip": bool(trend),
                       "event_soon": bool(event),

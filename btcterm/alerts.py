@@ -69,6 +69,20 @@ Deribit :
   n'est arrivée que dix jours, dont deux dans la semaine qui a mené au
   krach du 5 février 2026, et ce jour-là.
 
+Et une lit ce que le journal garde de ce marché (§2.7), comme la
+dominance :
+
+- **déplacement du skew** : l'écart des ailes 25 delta à un mois (call
+  moins put) s'est déplacé de plus du seuil (en points) sur vingt-quatre
+  heures — vers le bas, les puts se renchérissent : le marché paie pour
+  se couvrir. Un écart et non un niveau : le niveau du skew dérive avec
+  le régime, et l'historique local est trop court pour l'étalonner. Le
+  seuil de deux points est provisoire — sur les cinq premiers jours
+  journalisés (6-11 novembre 2026, marché calme), l'écart sur 24 h n'a
+  pas dépassé 1,4 point. Les deux bouts se lisent en médiane de trois
+  instantanés : au retour d'une panne de Deribit, un instantané isolé a
+  donné −6,0 entre deux lectures à −3,1.
+
 Les règles d'état (tout sauf les news, le signal et le flux ETF) sonnent sur le
 **front montant** et pas avant un délai de garde : une condition qui
 dure ne sonne qu'une fois, une condition qui clignote ne sonne pas en
@@ -130,6 +144,8 @@ DEFAULT_CONFIG: dict = {
     "block_minutes": 12.0,
     #: DVOL au-dessus de sa clôture de la veille, en points de volatilité.
     "dvol_jump_pts": 6.0,
+    #: déplacement du skew 25 delta à un mois sur 24 h, en points.
+    "skew_shift_pts": 2.0,
     #: bip sonore côté navigateur — le moteur l'ignore, le client le lit.
     "sound": True,
 }
@@ -155,6 +171,11 @@ KLINE_LIMIT = 400
 #: Avance de l'alerte d'échéance, en secondes.
 EVENT_LEAD = 1800.0
 
+#: Le skew se lit en médiane de trois instantanés, pris dans la
+#: demi-heure pour le présent (§ `_check_skew`).
+SKEW_POINTS = 3
+SKEW_FRESH = 1800.0
+
 #: L'alerte de tendance lit le journalier : assez de bougies pour sa MA 200.
 TREND_WINDOW = 200
 TREND_LIMIT = 365
@@ -167,7 +188,7 @@ class Alert:
     time: float
     kind: str      #: price | liq | funding | news | arb
                    #:   | trend | rsi | signal | dominance | etf | chain
-                   #:   | vol
+                   #:   | vol | skew
     message: str
 
 
@@ -188,7 +209,7 @@ def normalize_config(data) -> dict:
     for key in ("liq_burst_musd", "funding_pct", "news_score", "arb_net_pct",
                 "ma200_gap_pct", "rsi_overbought", "rsi_oversold",
                 "dominance_shift_pts", "etf_flow_musd", "mempool_mb",
-                "block_minutes", "dvol_jump_pts"):
+                "block_minutes", "dvol_jump_pts", "skew_shift_pts"):
         value = data.get(key)
         if isinstance(value, (int, float)) and value > 0:
             config[key] = float(value)
@@ -305,7 +326,7 @@ class AlertEngine:
                          self._check_technical, self._check_trend,
                          self._check_event, self._check_dominance,
                          self._check_etf, self._check_chain,
-                         self._check_volatility):
+                         self._check_volatility, self._check_skew):
                 try:
                     rule(hub, opportunities, config, now)
                 except Exception:
@@ -598,6 +619,39 @@ class AlertEngine:
             self._fire("vol",
                        f"volatilité implicite en hausse : DVOL {last:.1f}, "
                        f"{jump:+.1f} points depuis la clôture d'hier", now)
+
+    def _check_skew(self, hub, _opps, config, now) -> None:
+        """Déplacement du skew 25 delta sur vingt-quatre heures.
+
+        Même lecture que la dominance, sur les instantanés du journal,
+        avec deux gardes de plus. Chaque bout est la médiane de
+        `SKEW_POINTS` instantanés : une cotation isolée, au retour d'une
+        panne de la source, ne fait pas un déplacement. Et les deux bouts
+        doivent être frais — le présent dans la demi-heure, la référence
+        entre 23 et 30 heures : après une longue veille, l'écart ne
+        serait plus « sur 24 h ».
+        """
+        history = hub.market_snapshots(days=2)
+        if history.empty or "rr25" not in history.columns:
+            return
+        serie = history.dropna(subset=["rr25"])
+        if serie.empty:
+            return
+        epoch = (pd.to_datetime(serie["time"]).astype("datetime64[ns]")
+                 .astype("int64") // 1_000_000_000)
+        recents = serie[epoch >= now - SKEW_FRESH]["rr25"].tail(SKEW_POINTS)
+        anciens = serie[(epoch <= now - 23 * 3600)
+                        & (epoch >= now - 30 * 3600)]["rr25"].tail(SKEW_POINTS)
+        if len(recents) < SKEW_POINTS or len(anciens) < SKEW_POINTS:
+            return
+        latest = float(recents.median())
+        delta = latest - float(anciens.median())
+        if self._edge("skew", abs(delta) >= config["skew_shift_pts"], now):
+            sens = ("les puts se renchérissent" if delta < 0
+                    else "les calls se renchérissent")
+            self._fire("skew",
+                       f"skew 25Δ {delta:+.1f} pt en 24 h "
+                       f"({latest:+.1f}) : {sens}", now)
 
     def _check_news(self, hub, _opps, config, now) -> None:
         rows = self._fetch_news()

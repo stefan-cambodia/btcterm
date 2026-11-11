@@ -92,14 +92,15 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Position** | la position tenue, saisie à la main : résultat, distance au stop, multiple du risque ; taille qu'autorise un risque choisi, stop à quelques ATR ; résultat au bandeau. Rien ne quitte le navigateur (onglet des flux ETF) | 2 s |
 | **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; financement, prime et open interest comparés sur Binance, Bybit et OKX , et le portage annualisé — financement de chaque plateforme et base du future Deribit à trois mois, dans la même unité (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
-| **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF, Fear & Greed, DVOL et skew, prime Coinbase, dominance, prochaines échéances macro, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
+| **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF, Fear & Greed, DVOL et skew, prime Coinbase, dominance, cycle (halving, sommet, Mayer), prochaines échéances macro, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
-| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite (onglet des news) | 2 s |
+| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite, déplacement du skew (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US), décalage réglable et corrélations | 5 min |
 | **Analyse** | tendance, écart à la MA 200, RSI, ATR et dernier signal de 15m à 1w ; au choix, bilan des signaux contre une référence, règles simples face à la détention, frais compris, ou carte des rendements mensuels ; export CSV (onglet de la macro) | 30 s |
 | **Dominance** | parts de capitalisation et leur tendance journalisée, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, rythme des blocs, mempool (onglet de la macro) | 5 min |
 | **Marchés** | le bitcoin face au S&P 500, au Nasdaq, à l'or, au dollar et au taux à 10 ans : performance comparée en base 100 ou corrélation glissante sur 30 séances, tableau des cours, variations et corrélations à 30 et 90 séances (onglet de la macro) | 5 min |
+| **Cycle** | où en est le bitcoin depuis le halving et depuis le sommet : compte à rebours du prochain halving, cycles superposés en multiple du cours du jour du halving, multiple de Mayer et son rang, repli depuis le plus haut, moyenne de 200 semaines, Pi cycle (onglet de la macro) | 5 min |
 | **Sources** | l'état de chaque source — carnets, fils de liquidations, API REST, tâches de fond : ok, secours, panne, muet ou coupé, âge de la dernière donnée fraîche et dernière erreur ; ouvert aussi par l'avertissement « ⚠ N sources » du bandeau (onglet de l'arbitrage) | 10 s |
 | **Options** | marché des options Deribit en quatre vues : DVOL contre volatilité réalisée ; volatilité par échéance avec ses ailes 25 delta, au-dessus de la base annualisée des futures ; open interest par strike d'une échéance, forward et max pain ; historique du skew et de la volatilité, noté par le journal. Skew, put/call, open interest total au titre ; DVOL aussi au bandeau (onglet de la macro) | 1 min |
 
@@ -291,7 +292,10 @@ on-chain : un jour de flux ETF au-delà du seuil (une sonnerie par jour,
 le jour présent au démarrage tenu pour vu) et un réseau chargé, mempool
 gonflé ou blocs lents — et une sur le marché des options : DVOL qui monte de
 plus de six points (réglable) au-dessus de sa clôture de la veille, ce qui
-n'est arrivé que dix jours sur l'année écoulée.
+n'est arrivé que dix jours sur l'année écoulée — et une sur ce que le journal
+garde de ce marché : le skew 25 delta qui se déplace de plus de deux points
+en 24 h (réglable, seuil encore provisoire), le message disant si ce sont les
+puts ou les calls qui se renchérissent.
 Les règles sonnent sur le front montant, sous délai de garde — une condition
 qui dure ou qui clignote ne sonne pas en rafale. La cloche du bandeau compte
 la dernière heure et ouvre le panneau d'un clic, où qu'il soit rangé ; le bip et les notifications navigateur (permission
@@ -366,6 +370,23 @@ taux — et corrélations à 30 et 90 séances : celle à 30 suit le régime, ce
 90 le confirme. Le graphique ne porte que trois marchés, le Nasdaq et le taux
 restant au tableau : au-delà, les courbes ne se distinguent plus. Source :
 l'API de graphiques de Yahoo Finance, non documentée et sans clé.
+
+**Cycle** — le bitcoin a une horloge que les autres marchés n'ont pas : tous
+les 210 000 blocs, quatre ans à peu près, son émission est divisée par deux.
+Le panneau situe le cours dans ce cycle, sans rien prédire. **CYCLES**
+superpose les cycles de 2016, 2020 et 2024 en multiple du cours du jour de leur
+halving, jour pour jour, sur une échelle logarithmique. **MAYER** trace le
+cours rapporté à sa moyenne de 200 jours, entre ses bornes d'usage — sous 0,8
+il en est loin, au-dessus de 2,4 il s'en est détaché comme aux sommets.
+**REPLI** trace la distance au plus haut : profondeur et durée des marchés
+baissiers s'y lisent d'un coup. Le tableau donne la date estimée du prochain
+halving (à dix minutes le bloc) et les blocs restants, le jour du cycle et ce
+que valaient les précédents au même jour, le sommet et le repli, le multiple de
+Mayer avec la part des jours passés où il était plus bas, la moyenne de 200
+semaines et le rapport du Pi cycle. Tout vient de l'historique journalier du
+disque, qui commence en août 2017 — le cycle de 2016 n'y entre qu'à son
+quatre-centième jour —, et de la hauteur de la chaîne chez blockchain.info ;
+sans elle, la date est estimée et porte un tilde. Le panneau reste en dollars.
 
 **Options** — le carnet, le perpétuel et les liquidations disent ce que le
 marché fait ; les options disent ce qu'il craint et ce qu'il paie pour s'en
@@ -461,7 +482,8 @@ panneau, OPTIONS — volatilité implicite contre réalisée, courbe des échéa
 et skew, open interest par strike et max pain, base des futures à échéance —,
 DVOL au bandeau et une alerte quand la volatilité implicite bondit ; puis un
 dix-huitième, MARCHÉS, qui dit si le bitcoin bouge avec les actions, l'or ou
-le dollar. Depuis, le terminal en compte vingt avec le RUBAN des gros ordres,
+le dollar. Depuis, le terminal en compte vingt et un avec le RUBAN des gros
+ordres et le CYCLE, qui situe le cours depuis le halving et depuis le sommet,
 et les alertes partent jusqu'au téléphone par ntfy.
 Ce même journal a ensuite compté cinquante-quatre resynchronisations
 Kraken en une matinée, et nommé la cause qu'on croyait fortuite : le flux
@@ -602,6 +624,7 @@ python tests/test_fear_greed.py          # Fear & Greed : lecture, dérivation, 
 python tests/test_etf_flows.py           # flux ETF : fenêtres, cumul, classement
 python tests/test_options.py             # options : sourire, max pain, base, panneau
 python tests/test_markets.py             # marchés : séances, corrélations, tableau
+python tests/test_cycle.py               # cycle : halving, repli, Mayer, panneau
 python tests/test_notify.py              # alertes vers ntfy, sans réseau
 python tests/test_tape.py                # ruban : sens du preneur, flux, panneau
 python tests/test_brief.py               # synthèse : écarts, couverture, envoi du matin

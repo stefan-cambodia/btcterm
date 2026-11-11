@@ -864,6 +864,47 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                   and len(etat["badge"]) > 8,
                   etat["badge"][:44])
 
+        print("\nOnglet cycle")
+        browser.js("""
+            Array.from(document.querySelectorAll('#cell-macro .cell-tab'))
+                 .find(t => t.textContent === 'CYCLE').click();
+        """)
+        browser.wait_for(
+            "!!document.querySelector('#cycle-chart .js-plotly-plot')"
+            " && (document.getElementById('cycle-badges')?.textContent"
+            " || '').length > 8", timeout=30)
+        for vue in ("MAYER", "REPLI", "CYCLES"):
+            browser.js("""
+                Array.from(document.querySelectorAll('#cycle-view label'))
+                     .find(l => l.textContent.trim() === arguments[0]).click();
+            """, [vue])
+            attendu = {"CYCLES": "halving", "MAYER": "Mayer",
+                       "REPLI": "repli"}[vue]
+            # La vue est là quand sa propre série l'est, ou que le panneau
+            # a dit son absence : pas de délai fixe.
+            browser.wait_for(f"""
+                (gd => !!gd && ((gd.data[0] || {{}}).name || '')
+                    .includes('{attendu}')
+                    || (gd && (gd.layout.annotations || [])
+                        .some(a => a.text.includes('indisponible'))))(
+                    document.querySelector('#cycle-chart .js-plotly-plot'))
+            """, timeout=15)
+            etat = browser.js("""
+                const gd = document.querySelector('#cycle-chart .js-plotly-plot');
+                return {series: gd.data.map(t => t.name),
+                        notes: (gd.layout.annotations || []).map(a => a.text)
+                            .join(' '),
+                        lignes: document.querySelectorAll('#cycle-table tr')
+                            .length,
+                        badge: document.getElementById('cycle-badges')
+                            .textContent};
+            """)
+            check(f"CYCLE · {vue} : tracé et chiffré, ou l'absence dite",
+                  (any(attendu in (nom or "") for nom in etat["series"])
+                   and etat["lignes"] >= 4 and "halving" in etat["badge"])
+                  or "indisponible" in etat["notes"],
+                  f"{len(etat['series'])} séries · {etat['badge'][:40]}")
+
         print("\nOnglet analyse")
         browser.js("""
             Array.from(document.querySelectorAll('#cell-macro .cell-tab'))

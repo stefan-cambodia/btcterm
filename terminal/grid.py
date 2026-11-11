@@ -22,7 +22,8 @@ from __future__ import annotations
 import dash
 from dash import ALL, Input, Output, State, dcc, html
 
-from .panels import (alerts, analysis, arbitrage, brief, calendar, dominance, etf,
+from .panels import (alerts, analysis, arbitrage, brief, calendar, cycle,
+                     dominance, etf,
                      journal, liquidations, macro, markets, news, onchain,
                      options, orderbook, perp, position, price, sources, tape)
 from .theme import C
@@ -93,7 +94,8 @@ CELLS: dict[str, tuple[tuple[str, str, object], ...]] = {
               ("dominance", "DOMINANCE", dominance.layout),
               ("onchain", "ON-CHAIN", onchain.layout),
               ("analysis", "ANALYSE", analysis.layout),
-              ("options", "OPTIONS", options.layout)),
+              ("options", "OPTIONS", options.layout),
+              ("cycle", "CYCLE", cycle.layout)),
 }
 
 #: Zones de la grille, dans l'ordre où elles sont posées. C'est aussi

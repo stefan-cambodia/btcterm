@@ -69,6 +69,8 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   │                              max pain, base des futures (§2.11)
 │   ├── markets.py                 le bitcoin face aux actions, à l'or, au
 │   │                              dollar et aux taux (§2.12)
+│   ├── cycle.py                   le cycle : halving, repli depuis le sommet,
+│   │                              Mayer, cycles superposés (§2.15)
 │   ├── tape.py                    ruban des échanges : gros ordres, flux
 │   │                              agressif, sens du preneur (§2.13)
 │   ├── notify.py                  les alertes vers ntfy, jusqu'au téléphone
@@ -121,6 +123,7 @@ a mené ici — soldée — et la liste de ce qui manque encore sont en
 │   ├── test_etf_flows.py          flux ETF : fenêtres, cumul, classement
 │   ├── test_options.py            options : sourire, max pain, base, panneau
 │   ├── test_markets.py            marchés : séances, corrélations, tableau
+│   ├── test_cycle.py              cycle : halving, repli, Mayer, panneau
 │   ├── test_notify.py             alertes vers ntfy, sans réseau
 │   ├── test_tape.py               ruban : sens du preneur, flux, panneau
 │   ├── test_terminal_wiring.py    panneaux posés et branchés
@@ -637,7 +640,7 @@ de l'open interest compris.
 
 Douze panneaux qu'il faut balayer des yeux couvraient la surveillance
 active ; la passive demande l'inverse — que le terminal prévienne.
-`AlertEngine` évalue treize règles dans la boucle d'observation du hub
+`AlertEngine` évalue quatorze règles dans la boucle d'observation du hub
 (1 s), toutes nourries par ce que le hub tient déjà, sans aucune
 connexion nouvelle :
 
@@ -707,6 +710,18 @@ chaud à la minute — c'est sur lui que le bandeau lit DVOL sans réseau :
   31 janvier, le 3 et le 5 février 2026 — la semaine du krach, où DVOL est
   passé de 53 à 90 dans la journée. Une sonnerie par montée : la condition tient le reste du
   jour, le front ne sonne qu'une fois.
+- **déplacement du skew** — l'écart des ailes 25 delta à un mois s'est
+  déplacé de plus du seuil (deux points par défaut) sur vingt-quatre heures,
+  lu sur les instantanés du journal comme la dominance ; le message dit le
+  sens — vers le bas, les puts se renchérissent. Un écart et non un niveau :
+  le niveau dérive avec le régime, et il aurait fallu des semaines
+  d'historique pour l'étalonner. Le seuil reste provisoire : sur les cinq
+  premiers jours journalisés (6-11 novembre 2026, marché calme), l'écart sur
+  24 h n'a pas dépassé 1,4 point. Deux gardes : chaque bout est la médiane
+  de trois instantanés — au retour d'une panne de Deribit, le 10 novembre,
+  un instantané isolé a donné −6,0 entre deux lectures à −3,1 —, et les deux
+  bouts doivent être frais, le présent dans la demi-heure, la référence
+  entre 23 et 30 heures : après une longue veille, la règle se tait.
 
 Les deux dernières sont des événements datés, comme le signal gradué,
 mais tirés de ce que le bilan du panneau ANALYSE (§3.14) et le
@@ -884,9 +899,12 @@ la série, l'appel ne valait plus que sa poignée de main TLS (337 ms contre
 l'autre, quand chaque `requests.get` en ouvrait une neuve, certificats
 rechargés compris. Mesuré sur le ticker de Binance, que le bandeau relit toutes
 les cinq secondes : 251 ms et 18,8 ms de processeur par appel, 132 ms et 3,4 ms
-une fois la connexion gardée. Celle-ci ne refait pas d'essai sur une lecture
-ratée — elle doublerait l'attente des sources lentes — alors que celle des
-chandeliers en refait un. Le réveil de la machine oublie les deux
+une fois la connexion gardée. Celle-ci ne refait pas d'essai sur un délai
+dépassé — elle doublerait l'attente des sources lentes — alors que celle des
+chandeliers en refait un ; elle rejoue en revanche, une fois et sur une
+connexion neuve, la lecture qu'une connexion gardée a rompue
+(`_ReprendRupture`) : la rupture se dit tout de suite, la reprise ne coûte
+pas un délai de plus. Le réveil de la machine oublie les deux
 (`reset_connections`) : mortes sans l'avoir dit, elles feraient attendre la
 lecture suivante jusqu'au bout de son délai.
 
@@ -1007,8 +1025,10 @@ douzaine de lignes, toutes tirées de ce que le terminal tient déjà : le ticke
 de Binance pour la journée glissante ; les instantanés du journal pour le
 financement, l'open interest, DVOL et le skew, la prime Coinbase et la
 dominance, chacun avec son écart sur la journée ; les liquidations, gros
-ordres et alertes journalisés ; les flux ETF, le Fear & Greed, le calendrier
-macro et les news les mieux notées de la fenêtre (`newsdb.top_since`). Les
+ordres et alertes journalisés ; les flux ETF, le Fear & Greed, le cycle —
+jour depuis le halving, distance au sommet, multiple de Mayer, halving à
+venir (§2.15) —, le calendrier macro et les news les mieux notées de la
+fenêtre (`newsdb.top_since`). Les
 fonctions de section sont pures, testées sans réseau
 (`tests/test_brief.py`) ; une source muette ne coûte que sa ligne.
 
@@ -1033,7 +1053,46 @@ priorité 2, sous les sonneries : c'est un résumé, pas une alerte, et elle ne
 passe pas par le moteur d'alertes — elle ne sonnerait pas à la cloche du
 bandeau ni ne se relirait parmi les alertes.
 
-### 2.15 Non-régression
+### 2.15 `cycle` — où en est-on depuis le halving
+
+Le bitcoin a une horloge que les autres marchés n'ont pas : tous les 210 000
+blocs l'émission est divisée par deux, et les cycles passés se lisent contre
+cette date. Le module situe le cours dans ce cycle, sans rien prédire, et sans
+source de plus : tout vient des clôtures journalières que le disque tient
+depuis le 17 août 2017 (§2.10), et de la hauteur de la chaîne, ajoutée à
+l'instantané de blockchain.info (`height`). Fonctions pures, testées sans
+réseau (`tests/test_cycle.py`) :
+
+- `next_halving` — blocs restants et date du prochain halving, comptée à dix
+  minutes le bloc : le rythme observé d'un jour ne dit rien des mois à venir,
+  que l'ajustement de difficulté ramène à la cible. Sans hauteur — source
+  muette —, elle s'estime depuis le dernier halving, et le résultat le dit
+  (`estimated`, un tilde à l'écran) ;
+- `drawdown` — le repli depuis le plus haut couru. Le sommet d'avant la série
+  (3 000 $ en juin 2017) était déjà dépassé à son premier jour : le plus haut
+  couru y est bien le plus haut historique, en clôture journalière ;
+- `mayer` — le cours sur sa moyenne de 200 jours, avec ses bornes d'usage
+  (0,8 et 2,4) ; `metrics` y ajoute son rang, la part des jours passés où il
+  était plus bas, sans laquelle le chiffre ne dit pas s'il est banal ou rare ;
+- `cycle_paths` — chaque cycle en multiple du cours du jour de son halving,
+  jour pour jour. Le cycle de 2016 n'entre dans la série qu'à son
+  quatre-centième jour : son cours de départ (650 $) est une référence écrite
+  dans la table `HALVINGS`, la seule donnée du module qui ne vienne pas du
+  disque ;
+- `metrics` — la situation du jour : ce qui précède, la moyenne de 200
+  semaines, le rapport du Pi cycle (moyenne de 111 jours sur deux fois celle
+  de 350), et ce que valaient les cycles précédents au même jour. Une mesure
+  qui demande plus de profondeur que la série n'en a revient vide plutôt
+  qu'approchée.
+
+Le hub assemble la série (`cycle_closes`) : les jours clos du disque et le
+jour en cours de la lecture courante, gardés une minute. Ce n'est pas une
+source, et le panneau SOURCES ne la montre pas. Le panneau CYCLE (rangée
+basse) en tire trois vues — CYCLES, sur une échelle logarithmique où une même
+hauteur vaut un même multiple, MAYER et REPLI — et un tableau. Tout y reste en
+dollars : ce sont des multiples et des rapports.
+
+### 2.16 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
@@ -2454,7 +2513,7 @@ Le numéro de version, lui, est resté à 1.1.0.
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.15) :
+scripts y sont ramenés, sans changement de comportement (§2.16) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -2623,8 +2682,10 @@ qui lisaient sous charge la figure précédente (vues des options, macro), une
 attente de 12 s trop courte pour un perpétuel dont Binance dépasse les délais,
 et un on-chain refusé alors qu'il annonçait honnêtement sa série manquante.
 Chaque contrôle attend désormais sa condition. Le panneau SOURCES a suivi
-(§3.18). Reste à ouvrir : une alerte sur le skew, une fois quelques semaines
-d'historique pour en étalonner le seuil.
+(§3.18). L'alerte sur le skew, laissée à ouvrir ce soir-là faute d'historique
+pour en étalonner le seuil, l'a été le 11 novembre sur un écart à 24 h plutôt
+que sur un niveau (§2.8) ; son seuil de deux points reste à revoir quand le
+journal aura quelques semaines.
 
 **Pour l'analyse :**
 
@@ -2990,6 +3051,27 @@ d'historique pour en étalonner le seuil.
   secours d'une source en panne —, et l'état de panne reste aussi, pour
   que le retour de la source se dise au journal. Le disque tient de toute
   façon ces pages.
+
+- ~~**Des connexions gardées rompues sans l'avoir dit**~~ — onze des dix-huit
+  pannes du journal du service entre le 7 et le 11 novembre 2026 étaient des
+  « Connection reset by peer », toutes sur CoinGecko et blockchain.info :
+  lues toutes les cinq ou dix minutes, leurs connexions gardées étaient
+  oubliées en route, et urllib3 n'écarte que celles que le serveur a fermées
+  proprement. Chaque rupture laissait le panneau sur sa valeur de secours
+  jusqu'à la lecture suivante, et un instantané du journal sans agrégats de
+  marché (3 % sur cinq jours). Fait : la session rejoue une fois la lecture
+  rompue, sur une connexion neuve ; un délai dépassé ou une connexion
+  refusée ne sont pas rejoués (§2.10, `tests/test_cache.py`).
+
+- ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
+  journée, la semaine et les marchés voisins, pas la distance au sommet ni au
+  halving, que tout suivi du bitcoin regarde. Fait : le panneau CYCLE (§2.15),
+  vingt et unième, sans source de plus. La barre de titre de la rangée basse,
+  qui porte désormais sept onglets, débordait de 30 px sur l'onglet MACRO :
+  ses badges passent à 9 px, comme ceux des autres panneaux. La synthèse
+  (§2.14) en tire une ligne, qui part aussi au réveil sur le téléphone.
+- ~~**Une alerte sur le skew**~~ — fait, sur son déplacement en 24 h (§2.8) ;
+  seuil provisoire, à revoir avec l'historique.
 
 **Constaté, pas encore ouvert :**
 

@@ -502,6 +502,8 @@ def fetch_chain_stats() -> dict[str, Any]:
         "difficulty": float(data.get("difficulty", 0)),
         "minutes_between_blocks": float(data.get("minutes_between_blocks", 0)),
         "n_tx": int(data.get("n_tx", 0)),
+        # Hauteur de la chaîne : le compte à rebours du halving (§ cycle).
+        "height": int(data.get("n_blocks_total", 0)),
     }
 
 

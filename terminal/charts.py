@@ -37,7 +37,8 @@ __all__ = ["VOL_BINS", "prepare_price_frame",
            "OPTIONS_VIEWS", "OPTIONS_DEFAULT_VIEW", "build_vol_chart",
            "build_term_chart", "build_strikes_chart",
            "MARKETS_VIEWS", "MARKETS_WINDOWS", "MARKETS_DEFAULT_WINDOW",
-           "MARKET_COLORS", "build_markets_chart", "build_options_history"]
+           "MARKET_COLORS", "build_markets_chart", "build_options_history",
+           "CYCLE_VIEWS", "CYCLE_DEFAULT_VIEW", "build_cycle_chart"]
 
 VOL_BINS = 60
 
@@ -1076,4 +1077,109 @@ def build_options_history(snapshots: pd.DataFrame,
         since = f" depuis le {first:%d/%m %H:%M}" if first is not None else ""
         _options_empty(fig, "historique local en constitution" + since +
                        " — un point toutes les cinq minutes")
+    return fig
+
+
+# ─────────────────────────────────────────────────────────────
+# Cycle : le halving, le sommet, la moyenne de 200 jours
+# ─────────────────────────────────────────────────────────────
+
+CYCLE_VIEWS = ("CYCLES", "MAYER", "REPLI")
+CYCLE_DEFAULT_VIEW = "CYCLES"
+
+#: Une teinte par cycle passé ; le cycle en cours est à l'encre du texte,
+#: plus épais — l'identité ne tient pas à la seule couleur, chaque courbe
+#: porte aussi son année au bout.
+_CYCLE_COLORS = {"2012": C["orange"], "2016": C["purple"], "2020": C["blue"]}
+
+
+def build_cycle_chart(view: str, closes: pd.Series,
+                      uirevision: str = "cycle",
+                      maximized: bool = False) -> go.Figure:
+    """Le cycle en trois vues (§ cycle).
+
+    **CYCLES** superpose les cycles, en multiple du cours du jour du
+    halving, jour pour jour, sur une échelle logarithmique : une même
+    hauteur y vaut un même multiple. **MAYER** trace le cours rapporté à
+    sa moyenne de 200 jours, entre ses deux bornes d'usage. **REPLI**
+    trace la distance au plus haut couru, en % — la profondeur et la
+    durée des marchés baissiers s'y lisent d'un coup.
+    """
+    from btcterm import cycle
+
+    fig = go.Figure()
+    axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["border"],
+                       tickfont=dict(size=9, color=C["muted"]))
+    xaxis, yaxis = dict(**axis_common), dict(**axis_common)
+    right = 8
+
+    if view == "MAYER":
+        ratio = cycle.mayer(closes)
+        if len(ratio):
+            fig.add_trace(go.Scatter(
+                x=ratio.index, y=ratio, name="multiple de Mayer",
+                mode="lines", line=dict(color=C["text"], width=1.4),
+                hovertemplate="%{y:.2f}<extra></extra>"))
+            for level, color, text in (
+                    (cycle.MAYER_HIGH, C["red"], "détaché de sa moyenne"),
+                    (1.0, C["muted"], "moyenne de 200 j"),
+                    (cycle.MAYER_LOW, C["green"], "loin sous sa moyenne")):
+                fig.add_hline(
+                    y=level, line=dict(color=color, width=1, dash="dot"),
+                    annotation_text=f"{level:g} · {text}",
+                    annotation_position="top left",
+                    annotation_font=dict(size=9, color=C["muted"]))
+        yaxis["title_text"] = "cours / MA 200 j" if maximized else None
+    elif view == "REPLI":
+        depth = cycle.drawdown(closes)
+        if len(depth):
+            fig.add_trace(go.Scatter(
+                x=depth.index, y=depth, name="repli depuis le sommet",
+                mode="lines", line=dict(color=C["red"], width=1.3),
+                fill="tozeroy", fillcolor="rgba(255,61,107,0.10)",
+                hovertemplate="%{y:.1f} %<extra></extra>"))
+        yaxis.update(title_text="% du plus haut" if maximized else None,
+                     ticksuffix=" %")
+    else:
+        right = 44
+        for path in cycle.cycle_paths(closes):
+            current = path["current"]
+            color = (C["text"] if current
+                     else _CYCLE_COLORS.get(path["label"], C["cyan"]))
+            fig.add_trace(go.Scatter(
+                x=path["days"], y=path["multiple"],
+                name=f"halving {path['label']}", mode="lines",
+                line=dict(color=color, width=2.4 if current else 1.4),
+                hovertemplate=f"{path['label']} ×%{{y:.2f}}<extra></extra>"))
+            # L'année au bout de la courbe, à l'encre du texte.
+            fig.add_annotation(
+                x=int(path["days"][-1]),
+                y=float(np.log10(path["multiple"][-1])),
+                text=path["label"], showarrow=False, xanchor="left",
+                xshift=4, font=dict(family=MONO, size=9, color=C["text"]))
+        if fig.data:
+            fig.add_hline(y=1, line=dict(color=C["border"], width=1))
+        xaxis.update(title_text="jours depuis le halving"
+                     if maximized else None, rangemode="tozero")
+        yaxis.update(type="log", tickprefix="×",
+                     title_text="multiple du cours du halving"
+                     if maximized else None)
+
+    fig.update_layout(
+        paper_bgcolor=C["panel"], plot_bgcolor=C["panel"],
+        font=dict(family=MONO, color=C["text"], size=10),
+        margin=dict(l=8, r=right, t=18 if maximized else 4, b=4),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor="#1a2035", bordercolor=C["border"],
+                        font_color=C["text"], font_size=10),
+        showlegend=view not in ("MAYER", "REPLI"),
+        legend=dict(orientation="h", y=1.02, x=0, yanchor="bottom",
+                    font=dict(size=9), bgcolor="rgba(0,0,0,0)"),
+        xaxis=xaxis, yaxis=yaxis, uirevision=uirevision,
+    )
+    if not fig.data:
+        fig.add_annotation(
+            text="historique journalier indisponible", xref="paper",
+            yref="paper", x=0.5, y=0.5, showarrow=False,
+            font=dict(family=MONO, size=11, color=C["muted"]))
     return fig

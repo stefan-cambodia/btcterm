@@ -34,8 +34,11 @@ def layout(title=None):
             title if title is not None else
             html.Span("BTC × masse monétaire M2 (US)"),
             html.Div([
-                html.Span(id="macro-stats", style={"fontSize": "10px",
-                                                   "marginRight": "14px"}),
+                # 9 px et des marges courtes, comme les badges des autres
+                # panneaux : la rangée basse porte sept onglets, et la
+                # barre débordait de 30 px à l'arrivée du septième.
+                html.Span(id="macro-stats", style={"fontSize": "9px",
+                                                   "marginRight": "8px"}),
                 # `persistence` : fenêtre et décalage survivent au
                 # rechargement — et au passage par un autre onglet de la
                 # cellule, qui reconstruit ce layout à ses défauts.
@@ -53,7 +56,7 @@ def layout(title=None):
                     value=0, inline=True, className="tf-radio",
                     persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px",
-                           "marginLeft": "12px"},
+                           "marginLeft": "6px"},
                 ),
             ], style={"display": "flex", "alignItems": "center",
                       "whiteSpace": "nowrap"}),

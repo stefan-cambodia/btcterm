@@ -25,6 +25,7 @@ from typing import Any, Callable, Optional
 import pandas as pd
 
 from . import brief
+from . import cycle
 from . import markets as mkt
 from . import options as opt
 from . import sources
@@ -391,6 +392,9 @@ class MarketHub:
     TTL_MARKETS = 300
     MARKETS_SPAN = "2y"
     MARKETS_BTC_DAYS = 730
+    #: Les clôtures du cycle : neuf ans de jours, relus du disque — une
+    #: minute suffit à un panneau qui se lit à l'échelle des mois.
+    TTL_CYCLE = 60
     TTL_FEAR_GREED = 900
     #: La masse monétaire est mensuelle et publiée avec deux mois de
     #: retard : la rafraîchir plus souvent qu'une fois par demi-journée
@@ -1077,7 +1081,7 @@ class MarketHub:
 
     #: Ce que l'état des sources ne montre pas : des calculs tirés des
     #: sources, pas des sources.
-    STATUS_IGNORED = ("signal_stats", "rule_stats")
+    STATUS_IGNORED = ("signal_stats", "rule_stats", "cycle_closes")
     #: Un carnet connecté sans mise à jour depuis ce délai est muet : en
     #: marché ouvert, un carnet BTC bouge à la seconde.
     BOOK_SILENT = 30.0
@@ -1294,6 +1298,22 @@ class MarketHub:
         if daily.attrs.get("demo", False):
             return pd.DataFrame(columns=["time", "close"])
         return daily[["time", "close"]]
+
+    def cycle_closes(self) -> pd.Series:
+        """Toutes les clôtures journalières, celle du jour comprise, pour
+        le panneau du cycle (§ cycle) ; vide sur la série de démonstration.
+
+        Le disque donne les jours clos depuis 2017, la lecture courante le
+        jour en cours : rien n'est demandé de plus à Binance.
+        """
+        def read() -> pd.Series:
+            frames = [self.deep_klines("1d")[["time", "close"]],
+                      self.btc_daily()]
+            frames = [frame for frame in frames if not frame.empty]
+            if not frames:
+                return pd.Series(dtype=float)
+            return cycle.closes(pd.concat(frames, ignore_index=True))
+        return self._cache.get("cycle_closes", self.TTL_CYCLE, read)
 
     def etf_flows(self) -> pd.DataFrame:
         return self._cache.get("etf", self.TTL_ETF, sources.fetch_etf_flows)

@@ -500,6 +500,78 @@ def test_volatilite_implicite_en_hausse():
     print("  ✓ DVOL : un bond au-dessus de la veille sonne une fois")
 
 
+def skew_series(now, valeurs_anciennes, valeurs_recentes, age_h=24.0):
+    """Des instantanés au pas de cinq minutes : un groupe vieux de
+    `age_h` heures, un groupe qui finit maintenant."""
+    def groupe(fin, valeurs):
+        return [(fin - (len(valeurs) - 1 - k) * 300, v)
+                for k, v in enumerate(valeurs)]
+    points = (groupe(now - age_h * 3600, valeurs_anciennes)
+              + groupe(now, valeurs_recentes))
+    return pd.DataFrame({
+        "time": pd.to_datetime([t for t, _ in points], unit="s"),
+        "btc_dominance": [59.0] * len(points),
+        "rr25": [v for _, v in points],
+    })
+
+
+def test_deplacement_du_skew():
+    """Le skew qui se déplace sur 24 h sonne une fois, dit son sens, et
+    ne se laisse pas prendre par un instantané isolé."""
+    def sonneries(e):
+        return [a for a in e.alerts if a.kind == "skew"]
+
+    hub = FakeHub()
+    e = engine(skew_shift_pts=2.0)
+    # L'historique des autres tests n'a pas de colonne rr25 : silence.
+    e.evaluate(hub, now=T0)
+    assert not e.alerts
+
+    # Sous le seuil : −3,0 → −4,5.
+    hub.snapshots = skew_series(T0, [-3.0] * 3, [-4.5] * 3)
+    e.evaluate(hub, now=T0)
+    assert not sonneries(e), "un écart sous le seuil a sonné"
+
+    # Un instantané isolé à −6,0 entre deux lectures normales : la médiane
+    # l'écarte — c'est ce que Deribit a rendu au retour d'une panne.
+    e = engine(skew_shift_pts=2.0)
+    hub.snapshots = skew_series(T0, [-3.0] * 3, [-3.1, -6.0, -3.2])
+    e.evaluate(hub, now=T0)
+    assert not sonneries(e), "une cotation isolée a sonné"
+
+    # Les puts se renchérissent : −3,0 → −5,4, une sonnerie, pas deux.
+    hub.snapshots = skew_series(T0, [-3.0] * 3, [-5.3, -5.4, -5.5])
+    e.evaluate(hub, now=T0 + SLOW_EVERY + 1)
+    hub.snapshots = skew_series(T0 + 2 * (SLOW_EVERY + 1),
+                                [-3.0] * 3, [-5.3, -5.4, -5.5])
+    e.evaluate(hub, now=T0 + 2 * (SLOW_EVERY + 1))
+    assert len(sonneries(e)) == 1, sonneries(e)
+    assert sonneries(e)[0].message == (
+        "skew 25Δ -2.4 pt en 24 h (-5.4) : les puts se renchérissent")
+
+    # Dans l'autre sens, les calls.
+    e = engine(skew_shift_pts=2.0)
+    hub.snapshots = skew_series(T0, [-4.0] * 3, [-1.5] * 3)
+    e.evaluate(hub, now=T0)
+    assert sonneries(e)[0].message.endswith("les calls se renchérissent")
+
+    # Référence trop vieille (40 h, une longue veille) ou trop jeune
+    # (10 h), présent trop mince (deux instantanés) ou trop ancien : silence.
+    for serie, quand in (
+            (skew_series(T0, [-3.0] * 3, [-6.0] * 3, age_h=40), T0),
+            (skew_series(T0, [-3.0] * 3, [-6.0] * 3, age_h=10), T0),
+            (skew_series(T0, [-3.0] * 3, [-6.0] * 2), T0),
+            (skew_series(T0, [-3.0] * 3, [-6.0] * 3), T0 + 3600)):
+        e = engine(skew_shift_pts=2.0)
+        hub.snapshots = serie
+        e.evaluate(hub, now=quand)
+        assert not sonneries(e), "une fenêtre mal couverte a sonné"
+    assert normalize_config({"skew_shift_pts": 3})["skew_shift_pts"] == 3.0
+    assert normalize_config({"skew_shift_pts": -1})["skew_shift_pts"] == 2.0
+    print("  ✓ skew : écart sur 24 h, médiane contre la cotation isolée, "
+          "fenêtre exigée")
+
+
 def test_sonneries_au_journal():
     with tempfile.TemporaryDirectory() as tmp:
         journal = Journal(Path(tmp) / "journal.db")

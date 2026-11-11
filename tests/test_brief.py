@@ -119,7 +119,26 @@ def test_les_sections_lisent_leurs_donnees():
     fg = brief.sentiment_item([{"value": 28, "label": "Fear"},
                                {"value": 25, "label": "Extreme Fear"}])
     assert fg.text == "Fear & Greed 25 (Extreme Fear), 28 la veille", fg
-    print("  ✓ cours, liquidations, gros ordres, ETF, sentiment")
+
+    etat = {"cycle_day": 935, "cycle_multiple": 1.13, "drawdown": -41.0,
+            "days_since_ath": 401, "mayer": 1.0,
+            "halving": {"days_left": 518.3, "estimated": False}}
+    ligne = brief.cycle_item(etat)
+    assert ligne.text == ("J+935 du halving (×1.13) · -41.0 % du sommet, "
+                          "depuis 401 j · Mayer 1.00 · halving dans 518 j"), ligne
+    assert ligne.tone == ""
+    #: Aux bornes du multiple de Mayer, la ligne avertit ; au sommet, elle
+    #: le dit ; une hauteur estimée porte son tilde ; une série trop courte
+    #: pour la moyenne n'a pas de Mayer.
+    haut = brief.cycle_item({**etat, "mayer": 2.5, "drawdown": 0.0,
+                             "halving": {"days_left": 518.3,
+                                         "estimated": True}})
+    assert haut.tone == "warn" and "au sommet" in haut.text
+    assert haut.text.endswith("halving dans ~518 j")
+    assert brief.cycle_item({**etat, "mayer": 0.7}).tone == "warn"
+    assert "Mayer" not in brief.cycle_item({**etat, "mayer": None}).text
+    assert brief.cycle_item(None) is None
+    print("  ✓ cours, liquidations, gros ordres, ETF, sentiment, cycle")
 
 
 def test_l_agenda_annonce_la_prochaine_echeance():
@@ -163,6 +182,13 @@ class HubFactice:
     def fear_greed_history(self):
         return [{"value": 40, "label": "Fear"}]
 
+    def chain_stats(self):
+        raise RuntimeError("blockchain.info injoignable")
+
+    def cycle_closes(self):
+        jours = pd.date_range("2024-04-01", periods=300, freq="D")
+        return pd.Series([60_000.0 + 50 * i for i in range(300)], index=jours)
+
 
 def journal_garni(path: Path, now: float) -> Journal:
     journal = Journal(path)
@@ -196,6 +222,10 @@ def test_la_synthese_se_construit_sans_une_section():
     assert lignes["Liquidations"].text.startswith("longs 1.5 M$")
     assert lignes["Gros ordres"].text.startswith("achats 380 k$")
     assert lignes["News"].tone == "up"
+    #: La hauteur de la chaîne manque : le halving est estimé, et le dit.
+    assert lignes["Cycle"].text.startswith("J+280 du halving"), lignes["Cycle"]
+    assert "au sommet" in lignes["Cycle"].text
+    assert "halving dans ~" in lignes["Cycle"].text
     assert synthese.coverage.startswith("journal : 17 h"), synthese.coverage
 
     texte = synthese.text()

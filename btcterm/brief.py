@@ -8,7 +8,8 @@ qui a été liquidé, qu'est-ce qui arrive aujourd'hui. La synthèse y répond
 en une douzaine de lignes, toutes tirées de ce que le terminal tient
 déjà : le ticker de Binance, les instantanés de marché du journal (§2.7),
 ses liquidations, ses gros ordres et ses alertes, les flux ETF, le Fear &
-Greed, le calendrier macro et les news les mieux notées.
+Greed, le cycle (§ cycle), le calendrier macro et les news les mieux
+notées.
 
 Elle vit en trois endroits :
 
@@ -42,7 +43,7 @@ from typing import Callable, Optional
 
 import pandas as pd
 
-from . import macrocal, newsdb
+from . import cycle, macrocal, newsdb
 
 log = logging.getLogger("btcterm.brief")
 
@@ -395,6 +396,47 @@ def news_items(rows) -> list[Item]:
 # ── Assemblage ───────────────────────────────────────────────
 
 
+def cycle_item(state: Optional[dict]) -> Optional[Item]:
+    """Où en est le cours dans son cycle (§ cycle) : jour depuis le
+    halving, distance au sommet, multiple de Mayer, halving à venir."""
+    if not state:
+        return None
+    parts = []
+    if state["cycle_day"] is not None:
+        parts.append(f"J+{state['cycle_day']} du halving "
+                     f"(×{state['cycle_multiple']:.2f})")
+    if state["drawdown"] > -0.05:
+        parts.append("au sommet")
+    else:
+        parts.append(f"{state['drawdown']:+.1f} % du sommet, "
+                     f"depuis {state['days_since_ath']} j")
+    tone = ""
+    if state["mayer"] is not None:
+        parts.append(f"Mayer {state['mayer']:.2f}")
+        # Aux bornes d'usage seulement : entre les deux, le multiple
+        # situe, il n'avertit pas.
+        if not cycle.MAYER_LOW < state["mayer"] < cycle.MAYER_HIGH:
+            tone = "warn"
+    halving = state["halving"]
+    parts.append(f"halving dans {'~' if halving['estimated'] else ''}"
+                 f"{halving['days_left']:.0f} j")
+    return Item("Cycle", " · ".join(parts), tone,
+                "multiple du cours du jour du halving ; sommet en clôture "
+                "journalière ; Mayer : cours / moyenne de 200 jours ; "
+                "halving compté à dix minutes le bloc")
+
+
+def _cycle_state(hub, now: float) -> Optional[dict]:
+    """La situation du cycle d'après le hub ; la hauteur de la chaîne
+    peut manquer, le compte à rebours est alors estimé."""
+    try:
+        height = (hub.chain_stats() or {}).get("height")
+    except Exception:  # noqa: BLE001 — la hauteur est facultative
+        height = None
+    return cycle.metrics(hub.cycle_closes(), height,
+                         dt.datetime.fromtimestamp(now, dt.timezone.utc))
+
+
 def _funding(hub, snapshots, now: float) -> Optional[float]:
     """Le financement en cours ; à défaut — Binance Futures se tait depuis
     certains pays —, le dernier que le journal a noté."""
@@ -447,6 +489,7 @@ def build(hub, now: Optional[float] = None,
     add("Prime Coinbase", lambda: premium_item(snapshots, now))
     add("Dominance", lambda: dominance_item(
         change(snapshots, "btc_dominance", now)))
+    add("Cycle", lambda: cycle_item(_cycle_state(hub, now)))
     add("Agenda", lambda: agenda_item(now, macrocal.upcoming(
         dt.datetime.fromtimestamp(now, macrocal.NEW_YORK).date())))
     if journal is not None:
