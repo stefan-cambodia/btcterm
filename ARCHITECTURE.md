@@ -2732,19 +2732,20 @@ pour des séances d'ETF, des actions dans le fil des liquidations. Ensuite les
 carnets, portés de quelques niveaux à des centaines sur Binance, OKX, Kraken
 et Bybit ; et sur eux, la liquidité journalisée, son graphique, sa ligne à la
 synthèse et son alerte. Enfin ce que le journal gardait sans le montrer — le
-ruban dans le temps, la base et le put/call —, les gaps du CME parmi les
-niveaux clés, les frais on-chain, et pour le serveur à venir l'alerte sur une
-source en défaut et `/api/health`. Le détail est dans les listes ci-dessous,
+ruban dans le temps, la base et le put/call —, les frais on-chain, et pour
+le serveur à venir l'alerte sur une source en défaut et `/api/health`. Les
+gaps du CME, ajoutés aux niveaux clés l'après-midi, ont été retirés le soir :
+le CME cote en continu depuis mai 2026. Le détail est dans les listes ci-dessous,
 entrée par entrée.
 
 Ce qui reste à revoir tient à des seuils posés sans recul : celui des carnets
 creux (quarante pour cent sous la moyenne) le jour même où l'historique
 commence, celui du skew (deux points en 24 h) — quelques semaines de journal
 les étalonneront. Et à ce qui n'a pas pu se vérifier d'ici : le fil des
-liquidations de Binance, muet depuis le Cambodge, porte peut-être lui aussi
-des contrats qui ne sont pas des cryptomonnaies ; l'alerte sur une source en
-défaut et celle des carnets creux n'ont sonné que dans leurs tests ; la
-fermeture du CME un jour férié donnera un niveau pris à la mauvaise heure.
+filtre des contrats hors cryptomonnaies de Binance, dont le fil est muet
+depuis le Cambodge, n'est éprouvé que par son test et par la lecture du
+catalogue ; l'alerte sur une source en défaut et celle des carnets creux
+n'ont sonné que dans leurs tests.
 L'actif intermittent de la capitalisation est écarté par son nom
 (`sources.INTERMITTENT`) : un autre qui se mettrait à clignoter ne le serait
 qu'à la lecture des anciennes lignes, pas à la collecte.
@@ -3263,22 +3264,19 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   2 928 lignes déjà journalisées (10,3 M$) ont été retirées de
   `journal.db` le même jour, à la demande de l'utilisateur, la base
   d'avant gardée dans `journal-avant-purge-20261111.db`.
-- ~~**Les gaps du CME, à repérer à la main**~~ — les futures du CME
-  ferment du vendredi soir au dimanche soir pendant que le bitcoin cote,
-  et laissent un trou que le cours revient souvent combler : un niveau
-  que beaucoup surveillent, et qu'il fallait aller lire sur un autre
-  graphique. Fait : `analysis.cme_gaps` le lit **sur le comptant**, aux
-  heures de Chicago — du cours à la fermeture du vendredi au cours à la
-  réouverture du dimanche —, sur les bougies d'une heure que le disque
-  tient déjà. C'est le gap des futures à la base près, dans les prix du
-  graphique et sans source de plus ; les bougies quotidiennes de `BTC=F`
-  chez Yahoo, essayées d'abord, sont incomplètes sur les derniers jours
-  (ouverture, plus haut et plus bas confondus), ceux qui comptent ici.
-  Un gap est comblé dès que le cours est revenu toucher la fermeture du
-  vendredi ; les trois plus récents encore ouverts rejoignent les niveaux
-  clés (case `NIV`, touche `N`), en bleu, et pendant le week-end la
-  fermeture du vendredi s'affiche, le gap se formant. Au 11 novembre
-  2026, un seul : « CME 06/11 » à 75 928 $, ouvert de 1,9 %.
+- ~~**Les gaps du CME**~~ — **ajoutés puis retirés le même jour.** Les
+  futures du CME fermaient du vendredi soir au dimanche soir, et laissaient
+  sur leur graphique un trou que le cours revenait souvent combler ; les
+  niveaux clés en ont porté trois, lus sur le comptant aux heures de
+  Chicago. Mais le CME cote ses futures sur cryptomonnaies **24 h/24 et
+  7 j/7 depuis le 29 mai 2026** (communiqué du 19 février 2026) : il n'y a
+  plus de fermeture du week-end, donc plus de gap, et le niveau « CME
+  06/11 » tracé l'après-midi ne correspondait à rien sur le graphique du
+  CME — seulement à ce que le comptant avait fait un week-end. L'erreur
+  est venue d'une règle tenue pour acquise et vérifiée après coup, en
+  cherchant le calendrier des jours fériés. `analysis.cme_gaps`, sa route
+  et ses tests sont retirés. À retenir : un fait de marché daté se vérifie
+  à la source avant d'en faire une fonction.
 - ~~**Une démo statique de six semaines**~~ — `docs/demo` datait du
   30 septembre : son `lwc-price.js` comptait mille lignes quand celui du
   terminal en compte près de deux mille, sans la minute ni les cinq
@@ -3352,10 +3350,14 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 
 - **Les seuils provisoires** — carnets creux et skew (voir le point de
   reprise) : à étalonner sur quelques semaines de journal.
-- **Les jours fériés du CME** — `cme_gaps` lit la fermeture du vendredi à
-  16 h de Chicago, que le marché ait ouvert ou non ce jour-là.
-- **Les liquidations de Binance hors cryptomonnaies** — à vérifier depuis un
-  réseau où le flux futures livre (§2.5).
+- ~~**Les liquidations de Binance hors cryptomonnaies**~~ — vérifié le
+  11 novembre au soir : son catalogue se lit d'ici, et compte 234
+  perpétuels `TRADIFI_PERPETUAL` (actions, matières premières) sur 946
+  contrats. Fait : le fil lit ce catalogue à la connexion, puis toutes les
+  six heures, en tâche de fond, et écarte ces symboles
+  (`fetch_binance_tradfi_symbols`) ; un catalogue illisible laisse la
+  liste d'avant et se redemande dix minutes plus tard. À voir agir depuis
+  un réseau où le flux futures livre.
 
 **À trancher :**
 

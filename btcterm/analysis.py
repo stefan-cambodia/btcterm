@@ -30,7 +30,6 @@ Trois règles gardent cette mesure honnête :
 from __future__ import annotations
 
 from typing import Optional
-from zoneinfo import ZoneInfo
 
 import pandas as pd
 
@@ -351,82 +350,3 @@ def key_levels(daily: pd.DataFrame,
                               else " · " + level["label"])
     return merged
 
-
-# ─────────────────────────────────────────────────────────────
-# Les gaps du CME : ce que le marché a fait pendant sa fermeture
-# ─────────────────────────────────────────────────────────────
-
-#: Les futures bitcoin du CME cotent en heure de Chicago : fermeture le
-#: vendredi à 16 h, réouverture le dimanche à 17 h.
-CHICAGO = ZoneInfo("America/Chicago")
-CME_CLOSE_HOUR = 16
-CME_OPEN_HOUR = 17
-
-#: En deçà, l'écart du week-end n'est pas un gap : du bruit d'une heure.
-CME_GAP_MIN_PCT = 0.3
-
-
-def cme_gaps(hourly: pd.DataFrame, min_pct: float = CME_GAP_MIN_PCT,
-             limit: int = 3) -> list[dict]:
-    """Les gaps du CME encore ouverts, comme niveaux du graphique.
-
-    Le CME ferme du vendredi soir au dimanche soir pendant que le bitcoin
-    cote ; ses futures rouvrent là où le marché est allé sans eux, et
-    laissent sur leur graphique un trou que le cours revient souvent
-    combler — assez souvent pour que le niveau soit surveillé, jamais
-    assez pour qu'on y compte.
-
-    Le trou est lu **sur le comptant**, aux heures du CME : du cours à la
-    fermeture du vendredi au cours à la réouverture du dimanche. C'est le
-    gap des futures à la base près, qui bouge peu en un week-end ; il
-    s'exprime dans les prix du graphique, et ne demande aucune source de
-    plus — les bougies quotidiennes des futures que Yahoo sert sont
-    incomplètes sur les derniers jours, ceux qui comptent ici.
-
-    Un gap est comblé dès que le cours, après la réouverture, est revenu
-    toucher la fermeture du vendredi. Chaque gap ouvert donne un niveau à
-    ce prix : `label` (« CME 06/11 »), `price`, `span` « cme », `kind`
-    « gap », et `gap_pct`, l'écart à la réouverture. Pendant le week-end,
-    la fermeture du vendredi est rendue telle quelle (« CME clôt. »,
-    `kind` « close ») : le gap est en train de se former.
-
-    `hourly` : bougies d'une heure, `time` en UTC. Les `limit` gaps les
-    plus récents, du plus récent au plus ancien.
-    """
-    needed = {"time", "open", "high", "low", "close"}
-    if hourly is None or hourly.empty or not needed <= set(hourly.columns):
-        return []
-    frame = hourly.sort_values("time").reset_index(drop=True)
-    local = (pd.to_datetime(frame["time"]).dt.tz_localize("UTC")
-             .dt.tz_convert(CHICAGO))
-    # La dernière heure cotée par le CME le vendredi, et la première du
-    # dimanche : l'heure d'été est celle de Chicago, pas la nôtre.
-    closes = frame.index[(local.dt.weekday == 4)
-                         & (local.dt.hour == CME_CLOSE_HOUR - 1)]
-    opens = frame.index[(local.dt.weekday == 6)
-                        & (local.dt.hour == CME_OPEN_HOUR)]
-    levels: list[dict] = []
-    for at in closes:
-        friday = float(frame.at[at, "close"])
-        day = local[at].strftime("%d/%m")
-        reopen = next((i for i in opens if i > at
-                       and local[i] - local[at] <= pd.Timedelta(days=3)), None)
-        if reopen is None:
-            # Pas encore rouvert — ou des bougies qui manquent : seul le
-            # week-end en cours a un sens, celui des dernières bougies.
-            if local.iloc[-1] - local[at] <= pd.Timedelta(hours=50):
-                levels.append({"label": "CME clôt.", "price": friday,
-                               "span": "cme", "kind": "close"})
-            continue
-        sunday = float(frame.at[reopen, "open"])
-        gap_pct = (sunday / friday - 1) * 100
-        if abs(gap_pct) < min_pct:
-            continue
-        since = frame.iloc[reopen:]
-        filled = (since["low"].min() <= friday if gap_pct > 0
-                  else since["high"].max() >= friday)
-        if not filled:
-            levels.append({"label": f"CME {day}", "price": friday,
-                           "span": "cme", "kind": "gap",
-                           "gap_pct": round(gap_pct, 2)})
-    return levels[::-1][:limit]

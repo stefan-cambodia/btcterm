@@ -193,7 +193,7 @@ def test_niveaux_cles():
     assert {"H J-1", "B J-1", "O J"} <= etiquettes, etiquettes
     for niveau in page["levels"]:
         assert DB["low"].min() <= niveau["price"] <= DB["high"].max(), niveau
-        assert niveau["span"] in ("day", "week", "month", "cme")
+        assert niveau["span"] in ("day", "week", "month")
 
     demo = client(panne_reseau).get("/api/levels").get_json()
     assert demo["demo"] is True and demo["levels"] == []

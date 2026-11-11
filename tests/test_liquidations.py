@@ -460,6 +460,43 @@ def test_la_carte_des_liquidations():
     print("  ✓ carte par tranche, côtés séparés, paire filtrée, plateformes dites")
 
 
+def test_binance_sans_actions_ni_matieres_premieres():
+    """Binance aussi cote des perpétuels sur actions : son catalogue les
+    nomme, et le fil les écarte."""
+    from btcterm import sources
+
+    catalogue = [
+        {"symbol": "BTCUSDT", "contractType": "PERPETUAL",
+         "underlyingType": "COIN", "underlyingSubType": ["PoW", "Crypto"]},
+        {"symbol": "BTCDOMUSDT", "contractType": "PERPETUAL",
+         "underlyingType": "INDEX", "underlyingSubType": ["Index", "Crypto"]},
+        {"symbol": "TSLAUSDT", "contractType": "TRADIFI_PERPETUAL",
+         "underlyingType": "EQUITY", "underlyingSubType": ["TradFi"]},
+        {"symbol": "XAUUSDT", "contractType": "TRADIFI_PERPETUAL",
+         "underlyingType": "COMMODITY", "underlyingSubType": ["TradFi"]},
+        {"symbol": "BTCUSDT_261225", "contractType": "CURRENT_QUARTER",
+         "underlyingType": "COIN", "underlyingSubType": []},
+    ]
+    hors = sources.binance_tradfi_symbols(catalogue)
+    assert hors == {"TSLAUSDT", "XAUUSDT"}, hors
+    try:
+        sources.binance_tradfi_symbols([])
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("un catalogue vide doit lever")
+
+    feed = LiquidationFeed()
+    feed._handle(message(symbol="TSLAUSDT", side="SELL", price="400", qty="10"))
+    assert len(feed.latest(5)) == 1, "sans catalogue, rien n'est écarté"
+    feed.excluded = hors
+    feed._handle(message(symbol="TSLAUSDT", side="SELL", price="400", qty="10"))
+    feed._handle(message(symbol="XAUUSDT", side="BUY", price="4000", qty="1"))
+    feed._handle(message(symbol="BTCUSDT", side="SELL", price="74000", qty="0.5"))
+    assert [e.symbol for e in feed.latest(5)] == ["BTCUSDT", "TSLAUSDT"]
+    print("  ✓ Binance : contrats TradFi nommés par le catalogue, hors du fil")
+
+
 def test_okx_sans_actions_ni_matieres_premieres():
     """Près de la moitié des perpétuels d'OKX ne sont pas des
     cryptomonnaies : ils sont connus, mais hors du fil."""

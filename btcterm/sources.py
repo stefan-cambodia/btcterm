@@ -666,6 +666,28 @@ def _okx(path: str, **params: str) -> dict[str, Any]:
     return response.json()["data"][0]
 
 
+def fetch_binance_tradfi_symbols() -> frozenset[str]:
+    """Les perpétuels de Binance qui ne portent pas sur des cryptomonnaies.
+
+    Comme OKX, Binance cote des contrats sur actions et matières premières
+    — 234 de ses 946 contrats le 11 novembre 2026, sous le type
+    `TRADIFI_PERPETUAL` —, et son flux de liquidations diffuse tous les
+    symboles. Un catalogue vide lève : il ne dirait pas « aucun ».
+    """
+    response = _http.get(f"{BINANCE_FUTURES}/fapi/v1/exchangeInfo", timeout=20)
+    response.raise_for_status()
+    return binance_tradfi_symbols(response.json().get("symbols") or [])
+
+
+def binance_tradfi_symbols(symbols: list) -> frozenset[str]:
+    if not symbols:
+        raise RuntimeError("Binance Futures : catalogue de contrats vide")
+    return frozenset(
+        item["symbol"] for item in symbols
+        if str(item.get("contractType", "")).startswith("TRADIFI")
+        or "TradFi" in (item.get("underlyingSubType") or []))
+
+
 #: La catégorie qu'OKX donne à ses contrats sur cryptomonnaies
 #: (`instCategory`) ; « 3 » désigne les actions, « 4 » les matières premières.
 OKX_CRYPTO = "1"

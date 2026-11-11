@@ -183,10 +183,7 @@ passée (`S-1`) et du mois passé (`M-1`), et l'ouverture du jour, de la semaine
 et du mois en cours (`O J`, `O S`, `O M`, pointillées) — en UTC, comme les
 bougies de Binance, la semaine partant du lundi. Gris de plus en plus clairs du
 jour au mois, ils ne se confondent pas avec les moyennes ; deux niveaux au même
-prix n'en font qu'un (`B S-1/M-1`). S'y ajoutent, en bleu, les gaps du CME
-encore ouverts (`CME 06/11`) : le cours à la fermeture du vendredi des futures,
-tant que le marché n'est pas revenu le toucher depuis leur réouverture du
-dimanche — lus sur le comptant, aux heures de Chicago. Ce sont des repères où les ordres
+prix n'en font qu'un (`B S-1/M-1`). Ce sont des repères où les ordres
 s'accumulent d'ordinaire, pas des garanties de rebond ; aucun n'est tracé sur
 la série de démonstration.
 
@@ -621,7 +618,7 @@ python tests/test_fullscreen_toggle.py   # bascule plein écran (nécessite Node
 python tests/test_push.py                # pousseur WebSocket, sans navigateur
 python tests/test_journal.py             # journal : événements, épisodes, rétention, univers de capitalisation
 python tests/test_history.py             # historique du cours : disque, rattrapage, panne
-python tests/test_analysis.py            # bilan des signaux : futur, référence, sens, export ; niveaux clés et gaps du CME
+python tests/test_analysis.py            # bilan des signaux : futur, référence, sens, export ; niveaux clés
 python tests/test_alerts.py              # alertes : seuils, fronts, cadences, carnets creux
 python tests/test_wsgi.py                # fabrique gunicorn du régime service
 python tests/test_lwc_serialize.py       # contrat de série du rendu du prix

@@ -140,6 +140,12 @@ class LiquidationFeed(ExchangeConnector):
         #: faire (le hub y branche le journal). Une erreur du rappel ne
         #: doit jamais fermer le flux.
         self.on_event: Optional[Callable[[Liquidation], None]] = None
+        #: Symboles de Binance qui ne sont pas des cryptomonnaies — actions,
+        #: matières premières —, lus à son catalogue (§ sources.
+        #: fetch_binance_tradfi_symbols) et écartés du fil.
+        self.excluded: frozenset[str] = frozenset()
+        self._catalog_due = 0.0
+        self._catalog_task = None
 
     # ── État de connexion ───────────────────────────────────
 
@@ -253,10 +259,43 @@ class LiquidationFeed(ExchangeConnector):
 
     # ── Flux ────────────────────────────────────────────────
 
+    #: Période de relecture du catalogue de Binance, en secondes : après un
+    #: succès, et après un échec — le catalogue se lit mal depuis certains
+    #: réseaux, et le fil ne l'attend pas.
+    CATALOG_EVERY = 6 * 3600.0
+    CATALOG_RETRY = 600.0
+
+    async def _load_excluded(self) -> None:
+        """Lit les contrats hors cryptomonnaies de Binance, sans jamais
+        retenir le fil : un catalogue illisible laisse la liste d'avant."""
+        import asyncio
+
+        from . import sources
+        try:
+            self.excluded = await asyncio.to_thread(
+                sources.fetch_binance_tradfi_symbols)
+            self._catalog_due = time.time() + self.CATALOG_EVERY
+        except Exception:
+            self._catalog_due = time.time() + self.CATALOG_RETRY
+
     async def _stream(self) -> None:
+        import asyncio
+
         async with self._connect(BINANCE_FUTURES_WS) as socket:
             self._mark_connected()
+
+            def refresh() -> None:
+                # En tâche de fond : la lecture peut durer vingt secondes,
+                # le flux n'attend pas. Dès la connexion, pour que les
+                # premières liquidations soient déjà triées.
+                if time.time() >= self._catalog_due:
+                    self._catalog_due = time.time() + self.CATALOG_RETRY
+                    self._catalog_task = asyncio.create_task(
+                        self._load_excluded())
+
+            refresh()
             async for raw in socket:
+                refresh()
                 message = json.loads(raw)
                 # Binance documente un objet par événement, mais le nom
                 # du flux (`@arr`) laisse attendre un tableau : les deux
@@ -273,6 +312,8 @@ class LiquidationFeed(ExchangeConnector):
             # `ap` est le prix moyen d'exécution, `p` le prix limite de
             # l'ordre de liquidation : le premier est le vrai prix payé.
             price = float(order.get("ap") or order.get("p") or 0)
+            if order.get("s") in self.excluded:
+                return          # action ou matière première : hors du fil
             event = Liquidation(
                 time=float(order.get("T", message.get("E", 0))) / 1000,
                 symbol=order.get("s", "?"),

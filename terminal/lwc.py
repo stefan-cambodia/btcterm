@@ -23,7 +23,7 @@ import pandas as pd
 from flask import Response, jsonify, request
 
 from btcterm import indicators as ind
-from btcterm.analysis import cme_gaps, key_levels
+from btcterm.analysis import key_levels
 from btcterm.liquidations import price_map
 from btcterm import sources
 
@@ -52,10 +52,6 @@ VOLUME_MA_COLUMN = "vol_ma20"
 #: trente jours — la même fenêtre que l'open interest Binance, pour que
 #: les deux séries se superposent là où elles coexistent.
 FUNDING_POINTS = 90
-
-#: Bougies d'une heure relues pour les gaps du CME : une quinzaine de
-#: week-ends — au-delà, un gap resté ouvert n'est plus un repère de séance.
-CME_HOURS = 2500
 
 
 def _val(value: float) -> float:
@@ -446,17 +442,8 @@ def register_api(app, hub) -> None:
         """
         daily = hub.klines("1d", 365)
         demo = bool(daily.attrs.get("demo", False))
-        levels = [] if demo else key_levels(daily)
-        if not demo:
-            # Les gaps du CME encore ouverts, lus sur les bougies d'une
-            # heure que le disque tient déjà (§ analysis.cme_gaps) ; une
-            # lecture qui échoue ne retire pas les autres niveaux.
-            try:
-                levels += cme_gaps(hub.deep_klines("1h", CME_HOURS))
-            except Exception:
-                pass
         return jsonify({
-            "levels": levels,
+            "levels": [] if demo else key_levels(daily),
             "demo": demo,
             "stale": bool(daily.attrs.get("stale", False)),
         })
