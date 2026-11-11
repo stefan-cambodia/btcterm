@@ -23,6 +23,8 @@ Ce qui est vérifié ici, sans réseau :
   ne comptent pas comme pannes ;
 - Binance en panne est retenté après un délai qui suit la panne, et les
   lectures refusées pendant ce délai ne se disent pas en panne ;
+- une connexion gardée que le réseau a rompue est rejouée une fois, sur
+  une connexion neuve ; un délai dépassé ne l'est pas ;
 - le cache oublie ce que personne ne lit plus — les pages d'historique,
   clés à usage unique —, mais garde le secours de ce qu'on lit encore.
 
@@ -362,6 +364,85 @@ def test_la_panne_se_lit_en_une_ligne():
     finally:
         sources._http.get = original
     print("  ✓ hôte et cause, sans l'URL ni le pool")
+
+
+def test_une_connexion_rompue_est_rejouee():
+    """La connexion gardée qu'un intermédiaire a oubliée répond par une
+    rupture à l'envoi suivant : la lecture est rejouée sur une connexion
+    neuve, une seule fois ; un délai dépassé, lui, n'est pas rejoué."""
+    import socket
+    import struct
+    import threading
+
+    import requests
+
+    serveur = socket.create_server(("127.0.0.1", 0))
+    port = serveur.getsockname()[1]
+    recues = []
+    reponse = (b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n"
+               b"Connection: keep-alive\r\n\r\nok")
+
+    def servir(scenario):
+        # scenario : par connexion acceptée, la suite de ses réponses.
+        for actes in scenario:
+            prise, _ = serveur.accept()
+            for acte in actes:
+                recues.append(prise.recv(4096))
+                if acte == "sert":
+                    prise.sendall(reponse)
+                elif acte == "rompt":
+                    prise.setsockopt(socket.SOL_SOCKET, socket.SO_LINGER,
+                                     struct.pack("ii", 1, 0))
+                    break
+                else:                      # se tait
+                    time.sleep(0.6)
+                    break
+            prise.close()
+
+    def session():
+        s = requests.Session()
+        s.mount("http://", sources._ReprendRupture())
+        return s
+
+    url = f"http://127.0.0.1:{port}/"
+    # Servie, puis rompue à la relecture ; la reprise ouvre une connexion.
+    fil = threading.Thread(target=servir,
+                           args=([["sert", "rompt"], ["sert"]],), daemon=True)
+    fil.start()
+    http = session()
+    assert http.get(url, timeout=2).text == "ok"
+    assert http.get(url, timeout=2).text == "ok"
+    fil.join(2)
+    assert len(recues) == 3, recues
+
+    # Rompue deux fois de suite : un seul nouvel essai, puis la panne.
+    del recues[:]
+    fil = threading.Thread(target=servir,
+                           args=([["rompt"], ["rompt"]],), daemon=True)
+    fil.start()
+    try:
+        session().get(url, timeout=2)
+    except requests.exceptions.ConnectionError:
+        pass
+    else:
+        raise AssertionError("deux ruptures de suite doivent lever")
+    fil.join(2)
+    assert len(recues) == 2, recues
+
+    # Un délai dépassé n'est pas rejoué : il coûterait deux fois l'attente.
+    del recues[:]
+    fil = threading.Thread(target=servir, args=([["se tait"]],), daemon=True)
+    fil.start()
+    try:
+        session().get(url, timeout=0.2)
+    except requests.exceptions.ReadTimeout:
+        pass
+    else:
+        raise AssertionError("un délai dépassé doit lever")
+    fil.join(2)
+    assert len(recues) == 1, recues
+    serveur.close()
+    print("  ✓ rupture rejouée une fois, délai dépassé laissé tel quel")
 
 
 def test_la_boucle_attend_le_reseau():

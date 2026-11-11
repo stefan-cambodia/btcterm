@@ -23,6 +23,7 @@ from typing import Any, Iterable, Optional
 import numpy as np
 import pandas as pd
 import requests
+from urllib3.exceptions import ProtocolError
 from urllib3.util.retry import Retry
 
 __all__ = [
@@ -56,12 +57,37 @@ _klines_http.mount("https://", requests.adapters.HTTPAdapter(
 #: mesuré le 7 novembre 2026 sur le ticker de Binance, 251 ms et 18,8 ms de
 #: processeur par appel, contre 132 ms et 3,4 ms une fois la connexion
 #: gardée ; et le bandeau relit ce ticker toutes les cinq secondes. Pas de
-#: nouvel essai sur une lecture ratée : urllib3 écarte déjà une connexion
-#: que le serveur a fermée avant de la réutiliser, et un essai de plus
-#: doublerait l'attente des sources lentes (jusqu'à vingt secondes).
+#: nouvel essai sur un délai dépassé — il doublerait l'attente des sources
+#: lentes (jusqu'à vingt secondes) —, mais un seul sur une connexion rompue
+#: (`_ReprendRupture`).
+
+
+class _ReprendRupture(requests.adapters.HTTPAdapter):
+    """Rejoue une fois la lecture qu'une connexion gardée a rompue.
+
+    urllib3 écarte une connexion que le serveur a fermée proprement, pas
+    celle qu'un intermédiaire a oubliée : rien n'est arrivé sur la prise, et
+    c'est l'envoi suivant qui reçoit le « Connection reset by peer ». Les
+    sources lues toutes les cinq ou dix minutes y tombaient — onze des
+    dix-huit pannes du journal entre le 7 et le 11 novembre 2026, toutes
+    sur CoinGecko et blockchain.info, chacune laissant le panneau sur sa
+    valeur de secours jusqu'à la lecture suivante. La rupture se dit tout
+    de suite : la rejouer sur une connexion neuve ne coûte pas un délai de
+    plus. Un délai dépassé ou une connexion refusée ne sont pas rejoués.
+    """
+
+    def send(self, request, **kwargs):
+        try:
+            return super().send(request, **kwargs)
+        except requests.exceptions.ConnectionError as exc:
+            rompue = exc.args and isinstance(exc.args[0], ProtocolError)
+            if not rompue or request.method != "GET":
+                raise
+            return super().send(request, **kwargs)
+
+
 _http = requests.Session()
-_http.mount("https://", requests.adapters.HTTPAdapter(pool_connections=32,
-                                                      pool_maxsize=16))
+_http.mount("https://", _ReprendRupture(pool_connections=32, pool_maxsize=16))
 FX_URL = "https://api.exchangerate-api.com/v4/latest/USD"
 #: Flux des ETF spot — la page « all data » de farside.co.uk plutôt que
 #: sa page d'accueil : celle-ci ne publie plus que les trois dernières
