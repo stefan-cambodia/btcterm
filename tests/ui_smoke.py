@@ -1303,6 +1303,23 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
               browser.wait_for(
                   "(document.getElementById('tape-table') || {textContent: ''})"
                   ".textContent.length > 0", timeout=10))
+        # Le ruban dans le temps : barres et prime, ou l'absence dite.
+        browser.wait_for(
+            "!!document.querySelector('#tape-history .js-plotly-plot')",
+            timeout=30)
+        histoire = browser.js("""
+            const gd = document.querySelector('#tape-history .js-plotly-plot');
+            const titre = document.getElementById('tape-history-title');
+            return {traces: gd.data.map(t => t.name),
+                    notes: (gd.layout.annotations || []).map(a => a.text).join(' '),
+                    titre: titre.textContent,
+                    exces: titre.scrollWidth - titre.clientWidth};
+        """)
+        check("historique : solde des gros ordres ou prime tracés, ou l'absence dite",
+              bool(histoire["traces"]) or "journalisés" in histoire["notes"],
+              histoire["titre"])
+        check("sa légende tient dans la cellule", histoire["exces"] <= 1,
+              f"{histoire['exces']} px de trop")
         # Le carnet reprend sa cellule : la persistance y choisit Kraken.
         browser.js("""
             Array.from(document.querySelectorAll('#cell-book .cell-tab'))

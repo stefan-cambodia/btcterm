@@ -3290,6 +3290,16 @@ journal aura quelques semaines.
   le terminal sur son serveur. Pour qui surveille de dehors,
   `/api/health` dit le même état en une requête : `ok`, `failing`, et le
   détail du panneau SOURCES.
+- ~~**Un ruban sans passé à l'écran**~~ — le journal gardait trente jours
+  de gros ordres et la prime Coinbase toutes les cinq minutes, et le
+  panneau RUBAN, aux trois quarts vide, n'en montrait que l'heure et
+  l'instant. Fait : sous la liste, le solde horaire des gros ordres en
+  barres (achats moins ventes, `hub.tape_flow_history`) et la prime
+  Coinbase en ligne, sur un jour dans la grille et sept en plein écran,
+  à l'heure de la machine ; la ligne se rompt sur les interruptions de
+  séance. Une heure sans barre est une heure sans gros ordre — ou sans
+  terminal : le graphique ne distingue pas les deux, le panneau JOURNAL
+  dit la couverture.
 
 - ~~**Rien ne situait le cours dans son cycle**~~ — le terminal disait la
   journée, la semaine et les marchés voisins, pas la distance au sommet ni au

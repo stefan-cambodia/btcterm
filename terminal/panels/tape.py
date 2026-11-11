@@ -19,6 +19,7 @@ from datetime import datetime
 
 from dash import Input, Output, dcc, html
 
+from ..charts import build_tape_history
 from ..fx import DOLLARS, display
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
@@ -58,8 +59,48 @@ def layout(title=None):
                   "alignItems": "center", "fontFamily": MONO,
                   "fontSize": "9px", "padding": "0 6px 4px",
                   "whiteSpace": "nowrap"}),
-        html.Div(id="tape-table", style={"flex": "1", "overflowY": "auto"}),
+        html.Div(id="tape-table", style={"flex": "1", "overflowY": "auto",
+                                         "minHeight": "0"}),
+        # Le ruban dans le temps : ce que le journal en garde.
+        html.Div("gros ordres, solde par heure · prime Coinbase",
+                 id="tape-history-title",
+                 style={"color": C["muted"], "fontFamily": MONO,
+                        "fontSize": "9px", "padding": "4px 6px 0",
+                        "whiteSpace": "nowrap", "overflow": "hidden"}),
+        dcc.Graph(id="tape-history",
+                  style={"flex": "1", "minHeight": "0"},
+                  config={"displayModeBar": False}),
     ], style=PANEL_STYLE)
+
+
+#: Fenêtre de l'historique, en jours : la journée dans la grille, la
+#: semaine en plein écran.
+HISTORY_DAYS = 1
+HISTORY_DAYS_MAX = 7
+
+
+def render_history(hub, expanded: bool = False):
+    """Le graphique du bas et sa légende : solde horaire des gros ordres et
+    prime Coinbase, sur la fenêtre que la place permet."""
+    days = HISTORY_DAYS_MAX if expanded else HISTORY_DAYS
+    flow = hub.tape_flow_history(days)
+    figure = build_tape_history(flow, hub.market_snapshots(days),
+                                uirevision=f"tape-{days}")
+    net = float(flow["net"].sum()) if not flow.empty else 0.0
+    legende = [
+        html.Span(f"{'7 j' if expanded else '24 h'} · ",
+                  style={"color": C["muted"]}),
+        html.Span("gros ordres ", style={"color": C["muted"]}),
+        html.Span(("+" if net >= 0 else "−") + _montant(abs(net)),
+                  style={"color": C["green"] if net >= 0 else C["red"]},
+                  title="achats moins ventes des ordres de 100 k$ et plus "
+                        "journalisés sur la fenêtre, en barres par heure"),
+        html.Span(" · ", style={"color": C["muted"]}),
+        html.Span("prime Coinbase", style={"color": C["yellow"]},
+                  title="la ligne, à droite : Coinbase en dollars contre "
+                        "Binance en USDT, un relevé toutes les cinq minutes"),
+    ]
+    return figure, legende
 
 
 def _montant(valeur: float, unit: str = "$") -> str:
@@ -168,3 +209,13 @@ def register(app, hub):
         minimum = THRESHOLDS.get(threshold, THRESHOLDS[DEFAULT_THRESHOLD])
         return (table(hub.tape.large(minimum, ROWS), fx),
                 badges(hub.tape), flow_line(hub.tape, fx))
+
+    @app.callback(
+        Output("tape-history", "figure"),
+        Output("tape-history-title", "children"),
+        # Le journal avance par heure et par cinq minutes : l'horloge rare.
+        Input("tick-rare", "n_intervals"),
+        Input("expanded", "data"),
+    )
+    def _refresh_history(_tick, expanded):
+        return render_history(hub, expanded == "tape")

@@ -83,7 +83,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 |---|---|---|
 | **Prix** | chandeliers de 1 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), signaux, bascule `$`/`€`, échelle log, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
-| **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ (onglet du carnet) | 2 s |
+| **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ ; dessous, le solde horaire des gros ordres et la prime Coinbase journalisés (onglet du carnet) | 2 s · 5 min |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian et cadrées sur l'étendue médiane des carnets ; dessous, l'historique journalisé de la liquidité à ±0,1 % du prix (onglet du carnet) | 250 ms · 5 min |
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Liquidations** | positions fermées de force — Binance, toutes paires, OKX, tous ses perpétuels sur cryptomonnaies, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
@@ -635,7 +635,7 @@ python tests/test_options.py             # options : sourire, max pain, base, pa
 python tests/test_markets.py             # marchés : séances, corrélations, tableau
 python tests/test_cycle.py               # cycle : halving, repli, Mayer, panneau
 python tests/test_notify.py              # alertes vers ntfy, sans réseau
-python tests/test_tape.py                # ruban : sens du preneur, flux, panneau
+python tests/test_tape.py                # ruban : sens du preneur, flux, panneau, historique
 python tests/test_brief.py               # synthèse : écarts, couverture, liquidité, envoi du matin
 
 python -m terminal.app &                 # puis, terminal lancé :

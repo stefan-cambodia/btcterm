@@ -31,7 +31,7 @@ from .theme import C, MONO
 
 __all__ = ["VOL_BINS", "prepare_price_frame",
            "build_depth_chart", "depth_window",
-           "liquidity_series", "build_liquidity_chart", "prepare_macro_frame", "macro_stats",
+           "liquidity_series", "build_liquidity_chart", "build_tape_history", "prepare_macro_frame", "macro_stats",
            "build_macro_chart", "build_dominance_chart",
            "build_chain_chart", "build_fear_greed_chart",
            "fear_greed_color", "FEAR_GREED_ZONES",
@@ -260,9 +260,7 @@ def build_liquidity_chart(series: pd.DataFrame, gap: float = 900.0,
 
     # Le journal date en UTC ; une courbe d'une journée se lit à l'heure
     # de la machine, comme le reste du terminal.
-    local = dt.datetime.now().astimezone().tzinfo
-    times = (pd.to_datetime(series["time"]).dt.tz_localize("UTC")
-             .dt.tz_convert(local).dt.tz_localize(None))
+    times = _local_times(series["time"].tolist())
     x, bids, asks = [], [], []
     previous = None
     for moment, bid, ask in zip(times, series["bid"], series["ask"]):
@@ -282,6 +280,78 @@ def build_liquidity_chart(series: pd.DataFrame, gap: float = 900.0,
         for nom, cote, couleur in (("achats", bids, C["green"]),
                                    ("ventes", asks, C["red"]))
     ]
+    return {"data": data, "layout": layout}
+
+
+def _local_times(times) -> pd.Series:
+    """Des instants UTC du journal, à l'heure de la machine."""
+    local = dt.datetime.now().astimezone().tzinfo
+    return (pd.to_datetime(pd.Series(times)).dt.tz_localize("UTC")
+            .dt.tz_convert(local).dt.tz_localize(None))
+
+
+def build_tape_history(flow: pd.DataFrame, snapshots: pd.DataFrame,
+                       uirevision: str = "tape") -> dict:
+    """Le ruban dans le temps : le solde horaire des gros ordres en barres,
+    la prime Coinbase en ligne.
+
+    Deux lectures de la même question — qui pousse le marché — que le
+    panneau ne donnait qu'à l'instant : les ordres de cent mille dollars et
+    plus, achats moins ventes, heure par heure ; et la prime Coinbase, la
+    demande américaine, que seul le journal garde (§ tape). La ligne se
+    rompt sur les interruptions de séance, que `snapshots` marque (`gap`).
+    """
+    axis = {"gridcolor": C["grid"], "zerolinecolor": C["border"],
+            "tickfont": {"size": 9, "color": C["muted"]}, "automargin": True}
+    layout = {
+        "paper_bgcolor": C["panel"], "plot_bgcolor": C["panel"],
+        "font": {"family": MONO, "color": C["text"], "size": 10},
+        "margin": {"l": 8, "r": 8, "t": 2, "b": 4},
+        "showlegend": False, "hovermode": "x unified", "bargap": 0.15,
+        "hoverlabel": {"bgcolor": "#1a2035", "bordercolor": C["border"],
+                       "font": {"color": C["text"], "size": 10}},
+        "uirevision": uirevision,
+        "xaxis": dict(axis),
+        "yaxis": {"ticksuffix": " M$", **axis},
+        "yaxis2": {"overlaying": "y", "side": "right", "ticksuffix": " %",
+                   "showgrid": False, "zeroline": False, **{
+                       **axis, "tickfont": {"size": 9, "color": C["yellow"]}}},
+    }
+    data = []
+    if flow is not None and not flow.empty:
+        net = [round(float(v) / 1e6, 2) for v in flow["net"]]
+        data.append({
+            "type": "bar", "name": "solde des gros ordres",
+            "x": [t.isoformat() for t in _local_times(flow["time"])],
+            "y": net,
+            "marker": {"color": [C["green"] if v >= 0 else C["red"]
+                                 for v in net]},
+            "hovertemplate": "gros ordres %{y:+.1f} M$<extra></extra>"})
+    prime = None
+    if snapshots is not None and not snapshots.empty \
+            and "cb_premium" in snapshots.columns:
+        rupture = (snapshots["gap"].astype(bool) if "gap" in snapshots.columns
+                   else False)
+        prime = snapshots[snapshots["cb_premium"].notna() | rupture]
+        if prime["cb_premium"].notna().sum() < 2:
+            prime = None
+    if prime is not None:
+        data.append({
+            "type": "scatter", "mode": "lines", "name": "prime Coinbase",
+            "x": [t.isoformat() for t in _local_times(prime["time"])],
+            "y": [None if pd.isna(v) else round(float(v), 3)
+                  for v in prime["cb_premium"]],
+            "yaxis": "y2", "connectgaps": False,
+            "line": {"color": C["yellow"], "width": 1.3},
+            "hovertemplate": "prime Coinbase %{y:+.2f} %<extra></extra>"})
+    if not data:
+        layout["annotations"] = [{
+            "text": "ni gros ordre ni prime Coinbase journalisés sur la fenêtre",
+            "xref": "paper", "yref": "paper", "x": 0.5, "y": 0.5,
+            "showarrow": False,
+            "font": {"family": MONO, "size": 10, "color": C["muted"]}}]
+        layout["xaxis"]["visible"] = layout["yaxis"]["visible"] = False
+        layout["yaxis2"]["visible"] = False
     return {"data": data, "layout": layout}
 
 

@@ -1547,6 +1547,31 @@ class MarketHub:
         df["time"] = pd.to_datetime(df.pop("ts"), unit="s")
         return df.rename(columns={"bid_btc": "bid", "ask_btc": "ask"})[columns]
 
+    def tape_flow_history(self, days: float = 1) -> pd.DataFrame:
+        """Le solde horaire des gros ordres journalisés : `time` (début de
+        l'heure, UTC), `buy`, `sell` et `net`, en dollars.
+
+        Le panneau RUBAN ne garde qu'une heure ; le journal tient trente
+        jours d'ordres de cent mille dollars et plus (§ tape). Une heure
+        sans ligne est une heure sans gros ordre — ou sans terminal : la
+        série ne distingue pas les deux, le panneau JOURNAL dit la
+        couverture.
+        """
+        columns = ["time", "buy", "sell", "net"]
+        if self.journal is None:
+            return pd.DataFrame(columns=columns)
+        end = time.time()
+        rows = self.journal.trades_between(end - days * 86_400, end)
+        if not rows:
+            return pd.DataFrame(columns=columns)
+        df = pd.DataFrame([dict(row) for row in rows])
+        df["time"] = pd.to_datetime(df["ts"], unit="s").dt.floor("h")
+        sides = (df.pivot_table(index="time", columns="side",
+                                values="notional", aggfunc="sum")
+                 .reindex(columns=["buy", "sell"]).fillna(0.0).reset_index())
+        sides["net"] = sides["buy"] - sides["sell"]
+        return sides[columns]
+
     def market_interruptions(self, days: float = 1) -> list[tuple[float, float]]:
         """Les interruptions de séance sur `days` jours : (avant, après)."""
         if self.journal is None:

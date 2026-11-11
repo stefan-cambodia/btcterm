@@ -190,6 +190,66 @@ def test_les_gros_ordres_vont_au_journal_et_en_reviennent():
         journal.close()
     print("  ✓ au journal, rendus au démarrage sans doublon, bilan du jour, purgés")
 
+def test_le_ruban_dans_le_temps():
+    """Le journal rend le solde horaire des gros ordres, et le panneau le
+    trace avec la prime Coinbase — rompue sur les interruptions."""
+    import tempfile
+    import time
+    from pathlib import Path
+    from types import SimpleNamespace as N
+
+    import pandas as pd
+
+    from btcterm.hub import MarketHub
+    from btcterm.journal import Journal
+    from terminal.charts import build_tape_history
+    from terminal.panels import tape as panneau
+
+    with tempfile.TemporaryDirectory() as tmp:
+        hub = MarketHub(collect_news=False, keep_journal=False)
+        assert hub.tape_flow_history().empty, "sans journal, rien"
+        hub.journal = Journal(Path(tmp) / "journal.db")
+        assert hub.tape_flow_history().empty
+        heure = (int(time.time()) // 3600) * 3600 - 2 * 3600
+        for ecart, cote, montant in ((60, "buy", 500_000), (900, "buy", 250_000),
+                                     (1800, "sell", 300_000),
+                                     (3700, "sell", 400_000)):
+            hub.journal.record_trade(N(time=heure + ecart, exchange="Binance",
+                                       side=cote, price=1.0, quantity=montant,
+                                       notional=float(montant)))
+        flux = hub.tape_flow_history(days=1)
+        assert list(flux.columns) == ["time", "buy", "sell", "net"]
+        assert flux["net"].tolist() == [450_000.0, -400_000.0], flux
+        assert flux["buy"].tolist() == [750_000.0, 0.0]
+        hub.journal.close()
+
+    t0 = pd.Timestamp("2026-11-11 00:00")
+    instants = pd.DataFrame({
+        "time": [t0, t0 + pd.Timedelta(minutes=5),
+                 t0 + pd.Timedelta(minutes=5, seconds=1),
+                 t0 + pd.Timedelta(hours=3)],
+        "cb_premium": [-0.10, -0.12, float("nan"), -0.05],
+        "gap": [False, False, True, False]})
+    figure = build_tape_history(flux, instants)
+    barres, prime = figure["data"]
+    assert barres["type"] == "bar" and barres["y"] == [0.45, -0.4]
+    assert len(set(barres["marker"]["color"])) == 2, "achats et ventes, deux couleurs"
+    assert prime["yaxis"] == "y2" and prime["y"] == [-0.1, -0.12, None, -0.05]
+    # Rien à tracer : le graphique le dit au lieu de rester blanc.
+    vide = build_tape_history(flux.iloc[0:0], instants.iloc[0:0])
+    assert vide["data"] == [] and "journalisés" in str(vide["layout"])
+    # Un seul relevé de prime ne fait pas une ligne ; les barres restent.
+    assert len(build_tape_history(flux, instants.iloc[:1])["data"]) == 1
+
+    faux = N(tape_flow_history=lambda days: flux,
+             market_snapshots=lambda days: instants)
+    _, legende = panneau.render_history(faux)
+    texte = str(legende)
+    assert "24 h" in texte and "+50 k$" in texte, texte
+    assert "7 j" in str(panneau.render_history(faux, expanded=True)[1])
+    print("  ✓ solde horaire des gros ordres et prime Coinbase, dans le temps")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nRuban — {len(tests)} vérifications\n" + "─" * 60)
