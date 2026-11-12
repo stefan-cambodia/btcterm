@@ -158,6 +158,54 @@ def test_la_hauteur_vient_du_collecteur():
     print("  ✓ hauteur de la chaîne dans l'instantané du réseau")
 
 
+def test_les_etf_face_a_l_emission():
+    """Les flux en bitcoins, face à ce que les mineurs produisent.
+
+    La récompense suit les halvings ; l'émission court tous les jours du
+    calendrier ; chaque séance se convertit à sa clôture. Une séance sans
+    cours connu n'est pas inventée : la conversion dit sa couverture.
+    """
+    assert cycle.BLOCKS_PER_DAY == 144
+    assert [cycle.block_subsidy(datetime(*jour)) for jour in
+            ((2012, 11, 27), (2012, 11, 28), (2020, 5, 10), (2024, 4, 19),
+             (2024, 4, 20), (2026, 11, 12))] == [50, 25, 12.5, 6.25, 3.125, 3.125]
+    assert cycle.daily_issuance(datetime(2026, 11, 12)) == 450
+    assert cycle.daily_issuance(pd.Timestamp("2024-04-19", tz="UTC")) == 900
+
+    clotures = pd.Series([100_000.0, 90_000.0, 80_000.0],
+                         index=pd.to_datetime(["2026-11-09", "2026-11-12",
+                                               "2026-11-13"]))
+    # Lundi 9 au vendredi 13 : la séance du mercredi prend la clôture du
+    # lundi, la dernière connue avant elle.
+    flux = pd.DataFrame({"Date": pd.to_datetime(["2026-11-09", "2026-11-11",
+                                                 "2026-11-13"]),
+                         "IBIT": [0.0, 0.0, 0.0],
+                         "Total": [90.0, 45.0, -40.0]})
+    offre = cycle.etf_supply(flux, clotures)
+    assert offre["btc"] == 900 + 450 - 500, offre
+    assert offre["calendar_days"] == 5 and offre["issuance"] == 2_250
+    assert abs(offre["ratio"] - 850 / 2_250) < 1e-12
+    assert offre["priced"] == offre["sessions"] == 3
+    assert cycle.etf_supply(flux, clotures, 1)["btc"] == -500
+    assert cycle.supply_text(offre) == "≈ +850 BTC, 0.4× l'émission"
+
+    # Une séance d'avant le premier cours : convertie, elle serait inventée.
+    plus_tot = pd.concat([pd.DataFrame({"Date": [pd.Timestamp("2026-11-02")],
+                                        "IBIT": [0.0], "Total": [500.0]}),
+                          flux], ignore_index=True)
+    partielle = cycle.etf_supply(plus_tot, clotures)
+    assert partielle["priced"] == 3 and partielle["sessions"] == 4
+    assert cycle.supply_text(partielle).endswith("(3/4 séances)")
+
+    assert cycle.etf_supply(pd.DataFrame(), clotures) is None
+    assert cycle.etf_supply(flux, pd.Series(dtype=float)) is None
+    assert cycle.supply_text(None) == ""
+    assert [cycle.btc_amount(v) for v in (-15_445.8, 820.4, 0.2)] == \
+        ["-15.4 k BTC", "+820 BTC", "+0 BTC"]
+    print("  ✓ récompense par halving, 450 BTC/jour, flux convertis à leur "
+          "clôture, couverture dite")
+
+
 def test_le_panneau_tient_avec_et_sans_donnees():
     from terminal.charts import CYCLE_VIEWS, build_cycle_chart
     from terminal.panels import cycle as panneau

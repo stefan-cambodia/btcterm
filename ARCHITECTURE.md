@@ -1212,7 +1212,20 @@ réseau (`tests/test_cycle.py`) :
   semaines, le rapport du Pi cycle (moyenne de 111 jours sur deux fois celle
   de 350), et ce que valaient les cycles précédents au même jour. Une mesure
   qui demande plus de profondeur que la série n'en a revient vide plutôt
-  qu'approchée.
+  qu'approchée ;
+- `etf_supply` — les flux nets des ETF d'une fenêtre en bitcoins, face à
+  l'émission des mineurs : chaque séance convertie au cours de clôture de son
+  jour (la dernière connue avant lui, à défaut), l'émission comptée tous les
+  jours du calendrier, week-ends compris, à la récompense en vigueur
+  (`block_subsidy` : cinquante bitcoins divisés par deux à chaque halving
+  passé, 144 blocs par jour — 450 BTC depuis avril 2024). C'est la lecture
+  offre-demande que les dollars ne donnent pas : le 12 novembre 2026, les
+  ETF avaient rendu 28 200 BTC en trente séances, une fois et demie ce que
+  les mineurs produisaient dans le même temps, et absorbé 656 000 BTC
+  depuis leur lancement, 1,3 fois l'émission de la période. Une estimation :
+  les émetteurs achètent au fil de la séance, et la clôture UTC tombe quatre
+  heures après celle de New York. Une séance d'avant le premier cours connu
+  n'est pas convertie, et `supply_text` le dit (« 686/712 séances »).
 
 Le hub assemble la série (`cycle_closes`) : les jours clos du disque et le
 jour en cours de la lecture courante, gardés une minute. Ce n'est pas une
@@ -1662,6 +1675,13 @@ l'écrit dans son texte, puisqu'elle part aussi vers le téléphone ; l'alerte d
 flux le précise ; et l'export `etf_bitcoin_flows.py` garde leurs tirets. Les
 `attrs` de pandas suivent le tableau au travers du cache et des découpages
 (`tail`, sélection de colonnes).
+
+**En bitcoins, face à l'émission.** En plein écran, le net de la fenêtre se
+lit aussi en bitcoins et en multiple de l'émission des mineurs sur la même
+période (`cycle.etf_supply`, §2.15) — « ≈ -28.2 k BTC · 1.5× l'émission » —,
+l'infobulle disant ce que chacun a produit ou absorbé ; la synthèse en fait
+autant pour les cinq dernières séances. La grille n'en dit rien : sa barre
+de titre tient à peine le total.
 
 La bascule s'ouvre par le bouton ⛶ — **toujours visible**, une première version
 qui ne l'affichait qu'au survol s'étant révélée introuvable — ou par un
@@ -3558,6 +3578,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Des flux ETF qu'on ne pouvait rapporter à l'offre**~~ — fait le
+  12 novembre 2026 (§2.15, §3.4) : le net d'une fenêtre en bitcoins, face à
+  l'émission des mineurs, en plein écran et à la synthèse.
 - ~~**Un net d'arbitrage compté aux mauvais frais**~~ — le tableau des
   frais se disait maker, quand le moteur paie le taker des deux côtés, et
   gardait pour Kraken 0,26 %, son ancien taker : 0,80 % aujourd'hui au

@@ -284,8 +284,11 @@ def trades_item(rows) -> Item:
         f"{_hhmm(biggest['ts'])}")
 
 
-def etf_item(frame: Optional[pd.DataFrame]) -> Item:
-    """Le dernier jour de flux publié, et les cinq dernières séances."""
+def etf_item(frame: Optional[pd.DataFrame],
+             closes: Optional[pd.Series] = None) -> Item:
+    """Le dernier jour de flux publié, et les cinq dernières séances — en
+    bitcoins aussi, face à l'émission des mineurs, quand les clôtures
+    journalières sont là (§ cycle.etf_supply)."""
     if frame is None or frame.empty:
         return Item("ETF", "flux indisponibles", "muted")
     column = "Total" if "Total" in frame.columns else frame.columns[-1]
@@ -300,9 +303,14 @@ def etf_item(frame: Optional[pd.DataFrame]) -> Item:
     # part aussi vers le téléphone, où il n'y a pas de survol.
     pending = etf_pending(frame)
     partiel = (f", partiel ({', '.join(pending)} à venir)" if pending else "")
+    supply = cycle.supply_text(cycle.etf_supply(known, closes, 5)
+                               if closes is not None else None)
     return Item("ETF", f"{last:+z,.0f} M$ le {day:%d/%m}{partiel} · 5 séances "
-                       f"{week:+z,.0f} M$", "warn" if pending else _tone(last),
-                "flux nets des ETF spot américains, farside.co.uk")
+                       f"{week:+z,.0f} M$" + (f" {supply}" if supply else ""),
+                "warn" if pending else _tone(last),
+                "flux nets des ETF spot américains, farside.co.uk ; en "
+                "bitcoins au cours de clôture de chaque jour, face aux "
+                "450 BTC émis chaque jour")
 
 
 def sentiment_item(history: list[dict]) -> Item:
@@ -528,7 +536,7 @@ def build(hub, now: Optional[float] = None,
         add("Liquidité", lambda: liquidity_item(
             journal.depth_between(start, now),
             getattr(hub, "DEPTH_BAND", 0.1)))
-    add("ETF", lambda: etf_item(hub.etf_flows()))
+    add("ETF", lambda: etf_item(hub.etf_flows(), hub.cycle_closes()))
     add("Sentiment", lambda: sentiment_item(hub.fear_greed_history()))
     add("Volatilité", lambda: volatility_item(change(snapshots, "dvol", now),
                                               change(snapshots, "rr25", now)))

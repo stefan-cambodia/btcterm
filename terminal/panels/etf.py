@@ -17,6 +17,8 @@ from __future__ import annotations
 import pandas as pd
 from dash import Input, Output, dcc, html
 
+from btcterm import cycle
+
 from ..charts import (ETF_DEFAULT_WINDOW, ETF_WINDOWS, build_etf_chart,
                       etf_stats, format_flow)
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
@@ -110,6 +112,24 @@ def _badges(stats: dict, window: str, verbose: bool):
         montant(stats["window"], f"flux net cumulé sur la fenêtre ({window})"),
     ]
 
+    # La fenêtre en bitcoins, face à ce que les mineurs ont produit dans le
+    # même temps (§ cycle.etf_supply) : la lecture offre-demande que les
+    # dollars ne donnent pas.
+    supply = stats.get("supply")
+    if supply and supply.get("ratio") is not None:
+        sens = "absorbé" if supply["btc"] >= 0 else "rendu"
+        couverture = ("" if supply["priced"] >= supply["sessions"] else
+                      f" — {supply['priced']} séances sur {supply['sessions']}"
+                      " converties, l'historique des cours commençant après")
+        children.append(html.Span(
+            f" ≈ {cycle.btc_amount(supply['btc'])} · "
+            f"{abs(supply['ratio']):.1f}× l'émission",
+            style={"color": C["green"] if supply["btc"] >= 0 else C["red"]},
+            title=(f"les ETF ont {sens} {abs(supply['btc']):,.0f} BTC sur "
+                   f"{supply['calendar_days']} jours, quand les mineurs en "
+                   f"émettaient {supply['issuance']:,.0f} — chaque séance "
+                   f"convertie au cours de clôture du jour{couverture}")))
+
     if not stats["full"]:
         children += [
             muet(" · stock "),
@@ -153,12 +173,18 @@ def register(app, hub):
                     html.Span(f"source indisponible : {exc}",
                               style={"color": C["muted"]}), style)
 
+        stats = etf_stats(frame, days)
+        try:
+            stats["supply"] = cycle.etf_supply(frame, hub.cycle_closes(), days)
+        except Exception:  # noqa: BLE001 — une conversion en moins, pas un panneau
+            stats["supply"] = None
+
         # La révision suit la fenêtre et l'agrandissement : changer l'un
         # ou l'autre doit recadrer, un rafraîchissement de cinq minutes
         # non — c'est ce qui préserve le zoom pendant une séance.
         return (
             build_etf_chart(frame, days, maximized=maximized,
                             uirevision=f"etf:{window}:{maximized}"),
-            _badges(etf_stats(frame, days), window, verbose=maximized),
+            _badges(stats, window, verbose=maximized),
             style,
         )

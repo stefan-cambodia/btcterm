@@ -36,7 +36,8 @@ import pandas as pd
 __all__ = ["Halving", "HALVINGS", "HALVING_INTERVAL", "BLOCK_MINUTES",
            "MAYER_LOW", "MAYER_HIGH", "WEEKS_200",
            "closes", "next_halving", "mayer", "drawdown", "cycle_paths",
-           "metrics"]
+           "metrics", "BLOCKS_PER_DAY", "block_subsidy", "daily_issuance",
+           "etf_supply", "btc_amount", "supply_text"]
 
 #: Blocs entre deux halvings, et rythme visé par le protocole.
 HALVING_INTERVAL = 210_000
@@ -71,6 +72,88 @@ HALVINGS = (
     Halving(630_000, datetime(2020, 5, 11)),
     Halving(840_000, datetime(2024, 4, 20)),
 )
+
+
+#: Blocs par jour au rythme visé, dix minutes : l'émission journalière se
+#: compte là-dessus. Le rythme réel s'en écarte de quelques pour cent selon
+#: l'ajustement de difficulté — moins que l'incertitude des flux convertis.
+BLOCKS_PER_DAY = 24 * 60 // int(BLOCK_MINUTES)
+
+
+def block_subsidy(day: datetime) -> float:
+    """La récompense de bloc en vigueur ce jour-là (UTC), en BTC : cinquante
+    au lancement, divisée par deux à chaque halving passé."""
+    day = pd.Timestamp(day)
+    if day.tzinfo is not None:
+        day = day.tz_convert(None)
+    passed = sum(1 for halving in HALVINGS if halving.date <= day)
+    return 50.0 / 2 ** passed
+
+
+def daily_issuance(day: datetime) -> float:
+    """Les bitcoins neufs d'une journée : 450 depuis avril 2024."""
+    return block_subsidy(day) * BLOCKS_PER_DAY
+
+
+def etf_supply(frame: Optional[pd.DataFrame], series: pd.Series,
+               sessions: Optional[int] = None) -> Optional[dict]:
+    """Les flux nets des ETF d'une fenêtre, en bitcoins, face à l'émission.
+
+    Les flux sont en millions de dollars ; chaque jour se convertit au
+    cours de clôture de ce jour-là (`series`, celle de `closes`) — à
+    défaut, la dernière clôture connue avant lui. C'est une estimation :
+    les émetteurs achètent au fil de la séance, et la clôture UTC tombe
+    quatre heures après celle de New York. L'émission, elle, court tous
+    les jours du calendrier, week-ends compris, du premier jour de la
+    fenêtre au dernier : comparer les deux dit combien de jours de
+    production des mineurs les ETF ont absorbés — ou rendus.
+
+    `sessions` borne la fenêtre aux dernières séances, comme `etf_stats`.
+    Rend `None` sans flux ou sans cours ; sinon `btc` (net, signé),
+    `issuance` (BTC émis sur la période), `ratio` (le premier rapporté au
+    second), `calendar_days`, `sessions` et `priced` (séances converties).
+    """
+    if frame is None or frame.empty or series is None or series.empty:
+        return None
+    total = "Total" if "Total" in frame.columns else frame.columns[-1]
+    view = frame if sessions is None else frame.tail(sessions)
+    dates = pd.to_datetime(view["Date"]).dt.normalize()
+    prices = series.reindex(series.index.union(dates)).ffill().reindex(dates)
+    flows = pd.to_numeric(view[total], errors="coerce").to_numpy()
+    priced = [(flow, price) for flow, price in zip(flows, prices.to_numpy())
+              if price == price and price > 0 and flow == flow]
+    if not priced:
+        return None
+    btc = float(sum(flow * 1e6 / price for flow, price in priced))
+    first, last = dates.iloc[0], dates.iloc[-1]
+    calendar = pd.date_range(first, last, freq="D")
+    issuance = float(sum(daily_issuance(day) for day in calendar))
+    return {"btc": btc, "issuance": issuance,
+            "ratio": btc / issuance if issuance else None,
+            "calendar_days": len(calendar), "sessions": len(view),
+            "priced": len(priced)}
+
+
+def btc_amount(value: float) -> str:
+    """« -15.4 k BTC », « +820 BTC » : la quantité, signée, à l'échelle."""
+    if abs(value) >= 10_000:
+        return f"{value / 1000:+z,.1f} k BTC"
+    return f"{value:+z,.0f} BTC"
+
+
+def supply_text(supply: Optional[dict]) -> str:
+    """« ≈ -15.4 k BTC, 4.9× l'émission » — vide sans conversion possible.
+
+    Une conversion partielle (des séances sans cours) le dit : le chiffre
+    ne vaut alors que pour les séances converties.
+    """
+    if not supply or supply.get("ratio") is None:
+        return ""
+    text = (f"≈ {btc_amount(supply['btc'])}, "
+            f"{abs(supply['ratio']):.1f}× l'émission")
+    if supply["priced"] < supply["sessions"]:
+        text += f" ({supply['priced']}/{supply['sessions']} séances)"
+    return text
 
 
 def closes(frame: Optional[pd.DataFrame]) -> pd.Series:

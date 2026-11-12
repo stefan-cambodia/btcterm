@@ -137,6 +137,14 @@ def test_barre_de_titre():
     plein = str(panneau._badges(etf_stats(frame, None), "TOUT", verbose=True))
     assert "stock" not in plein, \
         "sur la fenêtre pleine, net et stock sont le même chiffre"
+
+    # La fenêtre en bitcoins face à l'émission : en plein écran seulement.
+    from btcterm import cycle
+    stats = etf_stats(frame, 5)
+    stats["supply"] = cycle.etf_supply(
+        frame, pd.Series([50_000.0], index=[frame["Date"].iloc[0]]), 5)
+    assert "l'émission" in str(panneau._badges(stats, "30 J", verbose=True))
+    assert "l'émission" not in str(panneau._badges(stats, "30 J", verbose=False))
     print("  ✓ barre de titre : compacte, dépliée, sans chiffre répété")
 
 

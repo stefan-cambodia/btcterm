@@ -130,6 +130,11 @@ def test_les_sections_lisent_leurs_donnees():
     ligne = brief.etf_item(flux)
     assert ligne.text == "+120 M$ le 06/11 · 5 séances -310 M$", ligne
     assert brief.etf_item(pd.DataFrame()).tone == "muted"
+    # Avec les clôtures : les cinq séances en bitcoins, face à l'émission.
+    clotures = pd.Series([100_000.0], index=pd.to_datetime(["2026-11-01"]))
+    ligne = brief.etf_item(flux, clotures)
+    assert ligne.text == ("+120 M$ le 06/11 · 5 séances -310 M$ "
+                          "≈ -3,102 BTC, 3.4× l'émission"), ligne.text
 
     fg = brief.sentiment_item([{"value": 28, "label": "Fear"},
                                {"value": 25, "label": "Extreme Fear"}])
