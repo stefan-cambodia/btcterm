@@ -704,6 +704,13 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("le rappel du geste est visible en plein écran", browser.js(
             "const h = document.querySelector('#price-lwc .lwc-zoom-hint');"
             "return !!h && getComputedStyle(h).display !== 'none';"))
+        # Le cadre vise la dernière clôture : la fenêtre doit la montrer.
+        # Le plein écran garde désormais celle qu'on regardait, qui peut
+        # être loin dans le passé — il recadrait avant sur toute la série,
+        # dernière bougie comprise, et ce test s'en remettait à lui.
+        browser.js("const n = window.lwcPrice.debug().bars;"
+                   "window.lwcPrice.pan(n - 150, n - 1);")
+        time.sleep(1.5)
         avant = browser.js("return window.lwcPrice.debug();")
         check("l'axe des prix s'auto-ajuste au départ",
               avant["autoScale"] is True)
