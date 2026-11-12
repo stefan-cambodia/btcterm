@@ -143,8 +143,10 @@ CREATE TABLE IF NOT EXISTS market_snapshots (
     pc_oi            REAL,           -- put/call en open interest
     basis90          REAL,           -- base annualisée du future à 3 mois, %/an
     cb_premium       REAL,           -- prime Coinbase sur Binance, %
-    cap_excluded     REAL            -- part retirée de la cap. totale, %
+    cap_excluded     REAL,           -- part retirée de la cap. totale, %
                                      --   (NULL : écrit avant ce retrait)
+    kr_premium       REAL,           -- prime coréenne (Upbit), %
+    kr_won           REAL            -- sa part due au won : USDT d'Upbit, %
 );
 CREATE INDEX IF NOT EXISTS idx_snapshots_ts ON market_snapshots (ts);
 
@@ -171,7 +173,8 @@ CREATE INDEX IF NOT EXISTS idx_book_heatmap_ts ON book_heatmap (ts);
 SNAPSHOT_FIELDS = ("btc_dominance", "stable_share",
                    "total_cap_usd", "total_volume_usd", "oi_usd",
                    "funding_rate", "dvol", "atm30_iv", "rr25", "pc_oi",
-                   "basis90", "cb_premium", "cap_excluded")
+                   "basis90", "cb_premium", "cap_excluded",
+                   "kr_premium", "kr_won")
 
 #: Colonnes apparues après la création de `market_snapshots` : ajoutées
 #: par ALTER TABLE à l'ouverture d'une base antérieure, NULL sur les
@@ -179,7 +182,8 @@ SNAPSHOT_FIELDS = ("btc_dominance", "stable_share",
 _MIGRATIONS = {
     "market_snapshots": ("funding_rate REAL", "dvol REAL", "atm30_iv REAL",
                          "rr25 REAL", "pc_oi REAL", "basis90 REAL",
-                         "cb_premium REAL", "cap_excluded REAL"),
+                         "cb_premium REAL", "cap_excluded REAL",
+                         "kr_premium REAL", "kr_won REAL"),
     "liquidations": ("exchange TEXT",),
 }
 

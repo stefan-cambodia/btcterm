@@ -848,6 +848,24 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("Échap restaure la grille",
               browser.js("return document.getElementById('cell-price').className;") == "cell")
 
+        print("\nPrimes régionales")
+        # La boucle du hub relit Upbit chaque minute : la ligne arrive vite,
+        # sauf source muette — elle reste alors vide, sans rien inventer.
+        browser.wait_for("(document.getElementById('arb-premiums')?.textContent"
+                         " || '').includes('Corée')", timeout=20)
+        primes = browser.js("""
+            const el = document.getElementById('arb-premiums');
+            return {texte: el.textContent, exces: el.scrollWidth - el.clientWidth};
+        """)
+        check("primes Coinbase et Corée sous le titre de l'arbitrage, ou rien",
+              primes["texte"] == "" or (primes["texte"].startswith("primes · ")
+                                        and primes["exces"] <= 1),
+              primes["texte"] or "aucune source lisible")
+        check("la prime coréenne se décompose en won et bitcoin",
+              "Corée" not in primes["texte"]
+              or ("= won" in primes["texte"] and "+ BTC" in primes["texte"]),
+              primes["texte"][-40:])
+
         print("\nOnglets de cellule")
         check("le carnet est l'onglet actif", browser.js(
             "return document.querySelector('#cell-book .cell-tab-active').textContent;")
@@ -858,7 +876,21 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             Array.from(document.querySelectorAll('#cell-book .cell-tab'))
                  .find(t => t.textContent === 'PROFONDEUR').click();
         """)
-        time.sleep(2.5)
+        # Le fond du graphique, relu dès son montage : sans figure
+        # d'attente, Plotly dessinait un cadre blanc jusqu'au premier rendu.
+        fonds = set()
+        fin = time.time() + 2.5
+        while time.time() < fin:
+            fond = browser.js("""
+                const gd = document.querySelector('#depth-chart .js-plotly-plot');
+                return gd && gd._fullLayout ? gd._fullLayout.paper_bgcolor : null;
+            """)
+            if fond:
+                fonds.add(fond)
+            time.sleep(0.05)
+        check("aucun éclair blanc à l'ouverture de l'onglet",
+              bool(fonds) and not fonds & {"#fff", "white", "rgb(255, 255, 255)"},
+              ", ".join(sorted(fonds)))
         check("l'onglet profondeur affiche son graphique",
               browser.js("return !!document.getElementById('depth-chart');"))
         check("et remplace le carnet",

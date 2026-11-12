@@ -43,7 +43,7 @@ from typing import Callable, Optional
 
 import pandas as pd
 
-from . import cycle, macrocal, newsdb
+from . import cycle, macrocal, newsdb, premiums
 from . import options as opt
 from .sources import etf_pending
 from .journal import liquidity_totals
@@ -367,6 +367,29 @@ def premium_item(rows, now: float) -> Optional[Item]:
                 "américaine, et une part de décote de l'USDT")
 
 
+def korea_item(rows, now: float) -> Optional[Item]:
+    """La prime coréenne (§ premiums) : la dernière, sa moyenne sur la
+    fenêtre, et la part qu'y prend le won. Signalée au-delà de
+    `KOREA_HOT`, ou quand elle vire à la décote."""
+    values = [row for row in rows
+              if row.get("kr_premium") is not None
+              and row["ts"] >= now - HOURS * 3600]
+    if not values:
+        return None
+    last = values[-1]
+    average = sum(row["kr_premium"] for row in values) / len(values)
+    text = f"{last['kr_premium']:+z.2f} % · moyenne {average:+z.2f} %"
+    if last.get("kr_won") is not None:
+        text += f" · dont won {last['kr_won']:+z.2f} %"
+    tone = ("warn" if average >= premiums.KOREA_HOT
+            else "down" if average < 0 else "")
+    return Item("Prime coréenne", text, tone,
+                "le bitcoin d'Upbit en wons, converti au change du moment, "
+                "contre le cours mondial ; le won : l'USDT d'Upbit contre le "
+                "dollar, la part que le contrôle des changes rend "
+                "structurelle")
+
+
 #: Relevés de liquidité exigés pour en parler : une heure de service.
 LIQUIDITY_MIN = 12
 #: Écart à la moyenne en deçà duquel le carnet est dit creux, en %.
@@ -593,6 +616,7 @@ def build(hub, now: Optional[float] = None,
                                               change(snapshots, "rr25", now),
                                               *_gamma(hub)))
     add("Prime Coinbase", lambda: premium_item(snapshots, now))
+    add("Prime coréenne", lambda: korea_item(snapshots, now))
     add("Dominance", lambda: dominance_item(
         change(snapshots, "btc_dominance", now)))
     add("Cycle", lambda: cycle_item(_cycle_state(hub, now),

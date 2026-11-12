@@ -15,7 +15,7 @@ from __future__ import annotations
 
 from dash import Input, Output, dcc, html
 
-from ..charts import build_macro_chart, macro_stats, prepare_macro_frame
+from ..charts import placeholder, build_macro_chart, macro_stats, prepare_macro_frame
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
 #: Fenêtres d'observation, en mois. Binance ne cote le Bitcoin que depuis
@@ -76,7 +76,7 @@ def layout(title=None):
                       "whiteSpace": "nowrap"}),
         ], style=TITLE_STYLE),
         dcc.Graph(
-            id="macro-chart",
+            id="macro-chart", figure=placeholder(),
             style={"flex": "1", "minHeight": "0"},
             config={"scrollZoom": True, "displaylogo": False,
                     "modeBarButtonsToRemove": ["select2d", "lasso2d"]},

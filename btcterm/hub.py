@@ -29,6 +29,7 @@ from . import cycle
 from . import heatmap
 from . import markets as mkt
 from . import options as opt
+from . import premiums
 from . import sources
 from .indicators import volatility
 from .alerts import Alert, AlertEngine
@@ -386,6 +387,13 @@ class MarketHub:
     #: minute suffit à un tableau de positionnement, et ménage Deribit — la
     #: requête rend près d'un millier d'instruments. DVOL est journalier.
     TTL_OPTIONS = 60
+    #: La prime coréenne (§ korea_premium) : Upbit relu chaque minute par la
+    #: boucle d'observation, le won toutes les cinq ; au-delà de
+    #: `KOREA_MAX_AGE`, un prix d'Upbit ne se compare plus au cours du
+    #: moment — la prime se tait plutôt que de comparer deux instants.
+    KOREA_EVERY = 60.0
+    TTL_KRW = 300
+    KOREA_MAX_AGE = 180.0
     TTL_DVOL = 600
     #: Fenêtre de la volatilité réalisée comparée à DVOL : trente jours,
     #: l'horizon de l'indice.
@@ -559,6 +567,9 @@ class MarketHub:
         #: colonne écrite, et la dernière erreur — que la boucle avalait, et
         #: qu'aucun écran n'aurait dite.
         self._heatmap_at: Optional[float] = None
+        #: Tenu pendant qu'un thread relit Upbit et le won : la boucle
+        #: d'observation n'en lance pas un second (§ _spawn_korea).
+        self._korea_lock = threading.Lock()
         self._heatmap_error: Optional[str] = None
         self._observe_thread: Optional[threading.Thread] = None
         #: Levé quand le hub s'arrête — ou, en régime service, dès que
@@ -759,8 +770,12 @@ class MarketHub:
         next_sweep = time.monotonic() + self.CACHE_SWEEP_EVERY
         next_depth = time.monotonic() + self.DEPTH_SAMPLE_EVERY
         next_purge = time.monotonic() + self.PURGE_EVERY
+        next_korea = time.monotonic()
         while not self._observe_stop.wait(1.0):
             self._after_sleep()
+            if time.monotonic() >= next_korea:
+                next_korea = time.monotonic() + self.KOREA_EVERY
+                self._spawn_korea()
             if time.monotonic() >= next_depth:
                 next_depth = time.monotonic() + self.DEPTH_SAMPLE_EVERY
                 self._sample_depth()
@@ -1333,6 +1348,49 @@ class MarketHub:
         except Exception:
             return opt.option_chain([])
 
+    def _spawn_korea(self) -> bool:
+        """Relit Upbit et le won dans un thread à lui : deux appels réseau,
+        jusqu'à huit secondes chacun en panne, que la boucle d'observation —
+        alertes, arbitrage, carte du carnet — n'a pas à attendre. Un seul
+        à la fois ; rend faux si le précédent tourne encore."""
+        if not self._korea_lock.acquire(blocking=False):
+            return False
+
+        def run():
+            try:
+                self._refresh_korea()
+            finally:
+                self._korea_lock.release()
+
+        threading.Thread(target=run, name="korea", daemon=True).start()
+        return True
+
+    def _refresh_korea(self) -> None:
+        """Upbit à chaque passage, le won quand son cache a vieilli. Une
+        source en panne est dite par le cache — journal du service et
+        panneau SOURCES — ; l'autre se lit quand même."""
+        for key, ttl, fetch in (
+                ("upbit", self.KOREA_EVERY / 2, sources.fetch_upbit_quotes),
+                ("krw", self.TTL_KRW, sources.fetch_krw_rate)):
+            try:
+                self._cache.get(key, ttl, fetch)
+            except Exception:  # noqa: BLE001 — le cache l'a notée
+                pass
+
+    def korea_premium(self, now: Optional[float] = None) -> Optional[dict]:
+        """La prime coréenne du moment (§ premiums.korea), sans jamais
+        toucher au réseau : la boucle d'observation tient Upbit et le won
+        en cache. `None` sans eux, ou si la dernière lecture d'Upbit a plus
+        de `KOREA_MAX_AGE` secondes — Upbit en panne, la prime d'il y a
+        dix minutes face au cours d'à présent ne dirait rien de juste."""
+        quotes = self._cache.peek("upbit")
+        fx = self._cache.peek("krw")
+        if quotes is None or fx is None:
+            return None
+        now = time.time() if now is None else now
+        if now - quotes.get("at", 0.0) > self.KOREA_MAX_AGE:
+            return None
+        return premiums.korea(quotes, fx, self.reference_price())
 
     def option_chain_cached(self) -> pd.DataFrame:
         """La chaîne d'options déjà en cache, sans jamais toucher au réseau
@@ -1537,6 +1595,7 @@ class MarketHub:
         options = opt.summary(chain, futures)
 
         shares = agregats.get("shares") or {}
+        korea = self.korea_premium()
         fields = {
             "btc_dominance": shares.get("BTC"),
             "stable_share": (sum(part for nom, part in shares.items()
@@ -1566,6 +1625,9 @@ class MarketHub:
             "cb_premium": (premium * 100 if (premium := self.tape
                            .coinbase_premium(self.SNAPSHOT_EVERY)) is not None
                            else None),
+            # La prime coréenne et sa part due au won (§ premiums), en %.
+            "kr_premium": korea["premium"] * 100 if korea else None,
+            "kr_won": korea["won"] * 100 if korea else None,
         }
         if all(value is None for value in fields.values()):
             return

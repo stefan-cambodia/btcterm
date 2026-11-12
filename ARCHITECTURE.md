@@ -1183,6 +1183,38 @@ l'écart, qui ne se lit qu'au-delà de quelques centièmes. Le titre du RUBAN la
 porte, et l'instantané de marché la note toutes les cinq minutes
 (`cb_premium`) : un historique qu'aucune API gratuite ne sert.
 
+**La prime coréenne** (`btcterm/premiums.py`) est la sœur lointaine de la
+prime Coinbase : le bitcoin d'Upbit, en wons, converti au change du moment et
+comparé au cours mondial — la « prime kimchi », la demande des particuliers
+coréens derrière le contrôle des changes (21,6 % le 19 mai 2021, 10,3 % le
+6 mars 2024, relevés CryptoQuant repris par la presse). `premiums.korea` la
+décompose exactement, `(1 + prime) = (1 + won) × (1 + bitcoin)` : le **won**
+est l'USDT d'Upbit contre le dollar, le prix structurel de la sortie du won
+vers la cryptomonnaie ; le **bitcoin**, le bitcoin contre l'USDT d'Upbit face
+au cours mondial, la demande propre. Le premier relevé, le 12 novembre 2026,
+a donné +1,37 % = won +1,39 % et bitcoin −0,03 % : toute la prime était
+celle du won, ce qu'un chiffre seul aurait fait passer pour de l'appétit.
+
+Sources, vérifiées le même jour : le ticker public d'Upbit (`KRW-BTC`,
+`KRW-USDT`, sans clé ; le nom passe par un alias, `api.upbitit.cool`, que
+Cloudflare voit aussi — adresses AWS à Séoul, certificat `*.upbit.com`) ; le
+won au cours de Yahoo (`KRW=X`, 1 334,04 et vieux d'une seconde ce jour-là),
+la référence de la BCE (Frankfurter) en secours — publiée une fois par jour
+ouvré, elle s'écarte du marché d'un demi-pour-cent les jours agités, l'ordre
+de grandeur de la prime. Le cours mondial est celui des carnets du terminal,
+tous en USDT : l'USDT et le dollar s'écartent de quelques centièmes.
+
+Le hub ne la lit jamais depuis l'interface : la boucle d'observation lance,
+chaque minute, un thread qui relit Upbit et, toutes les cinq minutes, le won
+(`_spawn_korea`, un seul à la fois — deux appels jusqu'à huit secondes en
+panne, que les alertes et l'arbitrage n'ont pas à attendre). `korea_premium`
+compose la prime à partir du cache, sans réseau, et se tait quand la
+dernière lecture d'Upbit a plus de trois minutes (`KOREA_MAX_AGE`) : un prix
+d'il y a dix minutes face au cours du moment ne dirait rien de juste. Le
+relevé de marché l'écrit (`kr_premium`, `kr_won`, en %), le panneau SOURCES
+montre les deux sources, et `tests/test_premiums.py` vérifie le tout sans
+réseau.
+
 ### 2.14 `brief` — la journée en une page
 
 Chaque panneau dit son présent ; aucun ne disait ce que la nuit avait changé,
@@ -1907,6 +1939,15 @@ Chaque module de `panels/` expose exactement deux fonctions :
 Un panneau ne fait aucun appel réseau : il demande au hub, qui mutualise. Il
 n'écrit rien non plus — le panneau news lit la base en lecture seule, c'est le
 collecteur du hub qui l'alimente (§2.4).
+
+Tout `dcc.Graph` porte une **figure d'attente** (`charts.placeholder`) :
+fond du terminal, « chargement… » au centre. Sans elle, Plotly dessine sa
+figure par défaut — un cadre blanc gradué de −1 à 6 — jusqu'au retour du
+premier rendu : un éclair blanc à chaque changement d'onglet, puisqu'un
+panneau caché n'est pas dans la page, et vingt secondes de cadre blanc au
+panneau MACRO quand DBnomics tardait à servir M2. `test_terminal_wiring`
+parcourt les mises en page de la grille et refuse un graphique sans elle ;
+`ui_smoke` relit le fond de la PROFONDEUR dès son montage.
 
 ### 3.8 Contrôle visuel
 
@@ -3820,6 +3861,16 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
   (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
   synthèse hors de ses bornes.
+- ~~**La demande asiatique invisible**~~ — fait le 12 novembre 2026
+  (§2.13) : la prime coréenne, décomposée en won et bitcoin, sous le titre
+  de l'ARBITRAGE à côté de la prime Coinbase, journalisée et à la synthèse.
+- ~~**Des graphiques qui s'ouvraient en blanc**~~ — constaté le 12 novembre
+  2026 sur une capture du panneau MACRO, resté blanc plus de vingt secondes
+  après un redémarrage. Fait (§3.7) : une figure d'attente sombre sur tout
+  graphique Plotly, vérifiée par les tests.
+- ~~**Un calendrier qui attendait Deribit**~~ — constaté le 12 novembre 2026
+  par `ui_smoke` (§2.6) : l'onglet lit désormais la chaîne d'options en
+  cache, sans réseau.
 - ~~**Des mineurs qu'on ne voyait pas capituler**~~ — fait le 12 novembre
   2026 (§2.15) : les hash ribbons sur le graphique ON-CHAIN, et le prochain
   ajustement de difficulté estimé au badge.

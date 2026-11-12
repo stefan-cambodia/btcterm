@@ -104,14 +104,14 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
 | **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ ; dessous, le solde horaire des gros ordres et la prime Coinbase journalisés (onglet du carnet) | 2 s · 5 min |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian et cadrées sur l'étendue médiane des carnets ; dessous, l'historique journalisé de la liquidité à ±0,1 % du prix (onglet du carnet) | 250 ms · 5 min |
-| **Arbitrage** | écarts inter-plateformes nets des frais taker du premier palier (Kraken 0,80 %, Coinbase 0,60 %, les autres 0,10 %), triés par rentabilité | 250 ms |
+| **Arbitrage** | écarts inter-plateformes nets des frais taker du premier palier (Kraken 0,80 %, Coinbase 0,60 %, les autres 0,10 %), triés par rentabilité ; sous le titre, les primes régionales — Coinbase, et la Corée (Upbit) décomposée en won et bitcoin | 250 ms, primes 2 s |
 | **Liquidations** | positions fermées de force — Binance, toutes paires, OKX, tous ses perpétuels sur cryptomonnaies, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
 | **Flux ETF** | entrées/sorties nettes des ETF spot ; en plein écran, cumul depuis le lancement, classement des émetteurs, fenêtre réglable (30 j / 90 j / 1 an / tout) et son net en bitcoins face à l'émission des mineurs (« ≈ -28.2 k BTC · 1.5× l'émission »). Un jour encore en cours de publication est dit « partiel », sa barre pâlie, les fonds attendus nommés au survol | 5 min |
 | **Position** | la position tenue, saisie à la main : résultat, distance au stop, multiple du risque ; taille qu'autorise un risque choisi, stop à quelques ATR ; résultat au bandeau. Rien ne quitte le navigateur (onglet des flux ETF) | 2 s |
 | **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; financement, prime et open interest comparés sur Binance, Bybit et OKX , et le portage annualisé — financement de chaque plateforme et base du future Deribit à trois mois, dans la même unité (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
-| **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF (et en bitcoins, face à l'émission), Fear & Greed, DVOL et skew, prime Coinbase, dominance, cycle (halving, sommet, Mayer, MVRV), prochaines échéances macro, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
+| **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF (et en bitcoins, face à l'émission), Fear & Greed, DVOL et skew, prime Coinbase, prime coréenne, dominance, cycle (halving, sommet, Mayer, MVRV), prochaines échéances macro, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — et grosses échéances d'options Deribit (montant, max pain, put/call), avec compte à rebours (onglet des news) | 5 min |
 | **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, franchissement du gamma flip des options, bascules du cycle (MVRV en zone extrême, capitulation des mineurs), échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite, déplacement du skew (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US) ou contre l'offre de stablecoins (`STB`), décalage réglable et corrélations | 5 min |
@@ -466,6 +466,22 @@ disque, qui commence en août 2017 — le cycle de 2016 n'y entre qu'à son
 quatre-centième jour —, et de la hauteur de la chaîne chez blockchain.info ;
 sans elle, la date est estimée et porte un tilde. Le panneau reste en dollars.
 
+**Primes régionales** — sous le titre de l'ARBITRAGE, les écarts qu'aucun
+arbitrage ne ferme vite. La prime **Coinbase** (le bitcoin en dollars à
+Coinbase contre Binance en USDT) lit la demande américaine. La prime
+**coréenne** — la « prime kimchi » — lit celle des particuliers coréens, qui
+achètent en wons sur Upbit derrière un contrôle des changes : 21,6 % au
+plus haut le 19 mai 2021, 10,3 % le 6 mars 2024. Elle se décompose
+exactement en deux facteurs, `Corée = won + BTC` (composés, pas additionnés) :
+le **won**, l'USDT d'Upbit contre le dollar, est le prix de la sortie du won
+vers la cryptomonnaie, structurel, autour de 1,4 % ; le **BTC**, le bitcoin
+contre l'USDT d'Upbit face au cours mondial, est la demande propre au
+bitcoin. Le 12 novembre 2026, la prime de 1,4 % était tout entière celle du
+won : aucun appétit coréen pour le bitcoin. Au-delà de 3 %, elle passe en
+orange. Le won est le cours en séance de Yahoo, la référence de la BCE en
+secours ; la synthèse en donne la moyenne sur 24 h, et le relevé de marché
+la journalise toutes les cinq minutes.
+
 **Options** — le carnet, le perpétuel et les liquidations disent ce que le
 marché fait ; les options disent ce qu'il craint et ce qu'il paie pour s'en
 couvrir. Le panneau lit Deribit, sans clé, et propose trois vues. **VOL**
@@ -699,6 +715,7 @@ python tests/test_orderbook.py           # carnets : niveaux fantômes, synchron
 python tests/test_arbitrage.py           # arbitrage : net des deux frais taker, frais vérifiés à la source
 python tests/test_lwc_vwap.py            # VWAP ancré : ancrage, périodes UTC, moyenne et bandes pondérées
 python tests/test_heatmap.py             # carte du carnet : colonnes, journal, matrice, purge, endpoint
+python tests/test_premiums.py            # prime coréenne : décomposition, Upbit et won, cache seul, journal, écran
 python tests/test_cache.py               # cache du hub : secours, fraîcheur, pannes dites
 python tests/test_macrocal.py            # calendrier macro tenu à la main, lu dans le fuseau de la machine
 python tests/test_terminal_wiring.py     # panneaux posés et branchés, badges lents, frais on-chain

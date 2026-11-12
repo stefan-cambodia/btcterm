@@ -23,7 +23,7 @@ from dash import Input, Output, dcc, html
 
 from btcterm import cycle
 
-from ..charts import build_chain_chart
+from ..charts import placeholder, build_chain_chart
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
 #: Fenêtre des séries. Un an montre un cycle de difficulté complet sans
@@ -46,7 +46,7 @@ def layout(title=None):
                              "marginLeft": "10px"}),
         ], style=TITLE_STYLE),
         dcc.Graph(
-            id="onchain-chart",
+            id="onchain-chart", figure=placeholder(),
             style={"flex": "1", "minHeight": "0"},
             config={"scrollZoom": True, "displaylogo": False,
                     "modeBarButtonsToRemove": ["select2d", "lasso2d"]},

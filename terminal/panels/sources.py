@@ -50,6 +50,8 @@ FAMILIES = {
     "m2": "Masse monétaire M2 · DBnomics",
     "stables": "Offre de stablecoins · DefiLlama",
     "eur": "Change €/$",
+    "upbit": "Prime coréenne · Upbit",
+    "krw": "Change ₩/$ · Yahoo, BCE",
     "fear_greed_history": "Fear & Greed · alternative.me",
 }
 

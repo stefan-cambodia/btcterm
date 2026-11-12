@@ -25,7 +25,7 @@ from dash import Input, Output, dcc, html
 
 from btcterm import cycle
 
-from ..charts import CYCLE_DEFAULT_VIEW, CYCLE_VIEWS, build_cycle_chart
+from ..charts import placeholder, CYCLE_DEFAULT_VIEW, CYCLE_VIEWS, build_cycle_chart
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
 _MOIS = ("janv.", "févr.", "mars", "avr.", "mai", "juin", "juil.",
@@ -51,7 +51,7 @@ def layout(title=None):
                       "whiteSpace": "nowrap", "overflow": "hidden"}),
         ], style=TITLE_STYLE),
         html.Div([
-            dcc.Graph(id="cycle-chart",
+            dcc.Graph(id="cycle-chart", figure=placeholder(),
                       style={"flex": "1", "minWidth": "0", "minHeight": "0"},
                       config={"displaylogo": False, "scrollZoom": True,
                               "modeBarButtonsToRemove": ["select2d",

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 from dash import Input, Output, dcc, html
 
-from ..charts import build_dominance_chart
+from ..charts import placeholder, build_dominance_chart
 from ..fx import DOLLARS, display
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
@@ -35,7 +35,7 @@ def layout(title=None):
                              "marginLeft": "10px"}),
         ], style=TITLE_STYLE),
         dcc.Graph(
-            id="dominance-chart",
+            id="dominance-chart", figure=placeholder(),
             style={"flex": "1", "minHeight": "0"},
             config={"displayModeBar": False},
         ),

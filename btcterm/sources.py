@@ -95,6 +95,15 @@ _http.mount("https://", _ReprendRupture(pool_connections=32, pool_maxsize=16))
 #: de référence de la BCE (Frankfurter v1, sans clé). Voir `fetch_eur_rate`.
 FX_MARKET_URL = f"{BINANCE_REST}/ticker/price"
 FX_REFERENCE_URL = "https://api.frankfurter.dev/v1/latest"
+#: Le ticker public d'Upbit, première place coréenne : le bitcoin et l'USDT
+#: en wons, sans clé (§ fetch_upbit_quotes).
+UPBIT_TICKER = "https://api.upbit.com/v1/ticker"
+#: Le won contre le dollar chez Yahoo, au fil du marché (§ fetch_krw_rate).
+KRW_MARKET_SYMBOL = "KRW=X"
+#: Plage plausible du won pour un dollar : 900 à 1 600 depuis vingt ans ;
+#: au-delà de ces bornes larges, la réponse est une panne qui a pris la
+#: forme d'un cours.
+KRW_PLAUSIBLE = (500.0, 5_000.0)
 #: Flux des ETF spot — la page « all data » de farside.co.uk plutôt que
 #: sa page d'accueil : celle-ci ne publie plus que les trois dernières
 #: semaines, quand l'autre sert le même tableau depuis le lancement des
@@ -438,6 +447,62 @@ def fetch_eur_rate() -> float:
             return float(response.json()["rates"]["EUR"])
         except Exception as reference:  # noqa: BLE001
             raise RuntimeError(f"marché EUR/USDT : {brief_error(marche)} ; "
+                               f"référence BCE : {brief_error(reference)}"
+                               ) from reference
+
+
+def fetch_upbit_quotes() -> dict[str, float]:
+    """Le dernier prix du bitcoin et de l'USDT en wons chez Upbit.
+
+    Rend `btc` et `usdt` (₩) et `at`, l'instant de la lecture — pas celui
+    du dernier échange, que le ticker date aussi : la fraîcheur qui compte
+    est celle de la lecture, comparée au cours mondial du moment. Lève
+    sans les deux prix : l'un sans l'autre ne décompose pas la prime.
+    """
+    response = _http.get(UPBIT_TICKER, params={"markets": "KRW-BTC,KRW-USDT"},
+                         timeout=8)
+    response.raise_for_status()
+    prices = {row.get("market"): float(row["trade_price"])
+              for row in response.json() if row.get("trade_price")}
+    btc, usdt = prices.get("KRW-BTC"), prices.get("KRW-USDT")
+    if not btc or not usdt or btc <= 0 or usdt <= 0:
+        raise ValueError("Upbit : KRW-BTC ou KRW-USDT absent de la réponse")
+    return {"btc": btc, "usdt": usdt, "at": time.time()}
+
+
+def fetch_krw_rate() -> dict[str, Any]:
+    """Wons pour un dollar : `rate`, et `source` — « marché » ou « BCE ».
+
+    Le marché d'abord : le cours de Yahoo (`KRW=X`) suit la séance, quand
+    la référence de la BCE ne se publie qu'une fois par jour ouvré — le
+    won bouge d'un demi-pour-cent dans une journée agitée, l'ordre de
+    grandeur de la prime elle-même. La référence en secours (Frankfurter
+    v1, sans clé). Lève si aucune ne répond, ou ne répond rien de
+    plausible (`KRW_PLAUSIBLE`).
+    """
+    low, high = KRW_PLAUSIBLE
+    try:
+        response = _http.get(f"{YAHOO_CHART}/{KRW_MARKET_SYMBOL}",
+                             params={"range": "1d", "interval": "5m"},
+                             headers=YAHOO_HEADERS, timeout=8)
+        response.raise_for_status()
+        meta = response.json()["chart"]["result"][0]["meta"]
+        rate = float(meta["regularMarketPrice"])
+        if not low < rate < high:
+            raise ValueError(f"USD/KRW {rate} hors de toute plage plausible")
+        return {"rate": rate, "source": "marché"}
+    except Exception as marche:  # noqa: BLE001 — le secours est là pour ça
+        try:
+            response = _http.get(FX_REFERENCE_URL,
+                                 params={"base": "USD", "symbols": "KRW"},
+                                 timeout=8)
+            response.raise_for_status()
+            rate = float(response.json()["rates"]["KRW"])
+            if not low < rate < high:
+                raise ValueError(f"USD/KRW {rate} hors de toute plage plausible")
+            return {"rate": rate, "source": "BCE"}
+        except Exception as reference:  # noqa: BLE001
+            raise RuntimeError(f"marché USD/KRW : {brief_error(marche)} ; "
                                f"référence BCE : {brief_error(reference)}"
                                ) from reference
 

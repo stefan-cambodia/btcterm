@@ -24,7 +24,7 @@ import time
 
 from dash import Input, Output, State, dcc, html
 
-from ..charts import (build_depth_chart, build_liquidity_chart,
+from ..charts import (placeholder, build_depth_chart, build_liquidity_chart,
                       liquidity_series)
 from ..fx import display, spread_text
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
@@ -102,13 +102,13 @@ def depth_layout(title=None):
                              "marginLeft": "10px"}),
         ], style=TITLE_STYLE),
         dcc.Graph(
-            id="depth-chart",
+            id="depth-chart", figure=placeholder(),
             style={"flex": "2", "minHeight": "0"},
             config={"displayModeBar": False, "scrollZoom": True},
         ),
         # La mémoire de la profondeur : le même carnet, dans le temps.
         dcc.Graph(
-            id="depth-history",
+            id="depth-history", figure=placeholder(),
             style={"flex": "1", "minHeight": "0"},
             config={"displayModeBar": False},
         ),

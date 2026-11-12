@@ -541,6 +541,40 @@ def test_aucune_fonction_des_scripts_n_est_declaree_deux_fois():
     assert not doublons, f"fonctions déclarées deux fois : {doublons}"
     print("  ✓ aucune fonction de premier niveau déclarée deux fois")
 
+
+def test_aucun_graphique_ne_s_ouvre_en_blanc():
+    """Tout `dcc.Graph` posé par une mise en page porte une figure
+    d'attente sombre : sans elle, Plotly dessine un cadre blanc gradué de
+    -1 à 6 jusqu'au premier rendu — à chaque changement d'onglet, et
+    vingt secondes durant quand une source tarde."""
+    from dash import dcc
+    from terminal.theme import C
+
+    def graphes(node):
+        if isinstance(node, (list, tuple)):
+            for child in node:
+                yield from graphes(child)
+        elif isinstance(node, dcc.Graph):
+            yield node
+        elif hasattr(node, "children"):
+            yield from graphes(node.children)
+
+    # Les mises en page de la grille, onglets compris : la PROFONDEUR n'a
+    # pas de module à elle, c'est `orderbook.depth_layout`.
+    vus, blancs = 0, []
+    for onglets in CELLS.values():
+        for nom, _, mise_en_page in onglets:
+            for graphe in graphes(mise_en_page()):
+                vus += 1
+                figure = getattr(graphe, "figure", None) or {}
+                fond = (figure.get("layout") or {}).get("paper_bgcolor")
+                if fond != C["panel"]:
+                    blancs.append(getattr(graphe, "id", nom))
+    assert vus >= 10, f"{vus} graphiques seulement : la recherche s'est perdue"
+    assert not blancs, f"graphiques sans figure d'attente : {blancs}"
+    print(f"  ✓ {vus} graphiques, tous avec leur figure d'attente sombre")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCâblage du terminal — {len(tests)} vérifications\n" + "─" * 60)

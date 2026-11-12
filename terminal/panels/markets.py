@@ -20,7 +20,7 @@ from dash import Input, Output, dcc, html
 
 from btcterm import markets as mkt
 
-from ..charts import (MARKETS_DEFAULT_WINDOW, MARKETS_VIEWS, MARKETS_WINDOWS,
+from ..charts import (placeholder, MARKETS_DEFAULT_WINDOW, MARKETS_VIEWS, MARKETS_WINDOWS,
                       build_markets_chart)
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
@@ -53,7 +53,7 @@ def layout(title=None):
                       "whiteSpace": "nowrap", "overflow": "hidden"}),
         ], style=TITLE_STYLE),
         html.Div([
-            dcc.Graph(id="markets-chart",
+            dcc.Graph(id="markets-chart", figure=placeholder(),
                       style={"flex": "1", "minWidth": "0", "minHeight": "0"},
                       config={"displaylogo": False, "scrollZoom": True,
                               "modeBarButtonsToRemove": ["select2d",

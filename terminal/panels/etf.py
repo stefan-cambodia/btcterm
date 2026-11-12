@@ -19,7 +19,7 @@ from dash import Input, Output, dcc, html
 
 from btcterm import cycle
 
-from ..charts import (ETF_DEFAULT_WINDOW, ETF_WINDOWS, build_etf_chart,
+from ..charts import (placeholder, ETF_DEFAULT_WINDOW, ETF_WINDOWS, build_etf_chart,
                       etf_stats, format_flow)
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
@@ -53,7 +53,7 @@ def layout(title=None):
             ], style={"display": "flex", "alignItems": "center",
                       "whiteSpace": "nowrap"}),
         ], style=TITLE_STYLE),
-        dcc.Graph(id="etf-chart", style={"flex": "1", "minHeight": "0"},
+        dcc.Graph(id="etf-chart", figure=placeholder(), style={"flex": "1", "minHeight": "0"},
                   config={"displayModeBar": False}),
     ], style=PANEL_STYLE)
 

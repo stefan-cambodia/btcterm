@@ -28,7 +28,7 @@ from dash import Input, Output, State, dcc, html, no_update
 
 from btcterm import options as opt
 
-from ..charts import (OPTIONS_DEFAULT_VIEW, OPTIONS_VIEWS,
+from ..charts import (placeholder, OPTIONS_DEFAULT_VIEW, OPTIONS_VIEWS,
                       build_gex_chart, build_options_history,
                       build_strikes_chart, build_term_chart, build_vol_chart)
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
@@ -79,7 +79,7 @@ def layout(title=None):
             className="tf-radio", style=_PICKER_HIDDEN,
             persistence=True, persistence_type="local",
         ),
-        dcc.Graph(id="options-chart", style={"flex": "1", "minHeight": "0"},
+        dcc.Graph(id="options-chart", figure=placeholder(), style={"flex": "1", "minHeight": "0"},
                   config={"displaylogo": False, "scrollZoom": True,
                           "modeBarButtonsToRemove": ["select2d", "lasso2d"]}),
         dcc.Interval(id="options-tick", interval=REFRESH_MS),

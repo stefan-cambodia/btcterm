@@ -49,6 +49,26 @@ __all__ = ["VOL_BINS", "prepare_price_frame",
 VOL_BINS = 60
 
 
+def placeholder(text: str = "chargement…") -> dict:
+    """La figure d'attente d'un graphique, aux couleurs du terminal.
+
+    Un `dcc.Graph` sans figure dessine celle de Plotly par défaut — un
+    cadre blanc gradué de -1 à 6 — jusqu'au retour de son premier rendu.
+    Un panneau caché n'étant pas dans la page, chaque changement d'onglet
+    en remonte un : un éclair blanc à chaque fois, et vingt secondes de
+    cadre blanc quand DBnomics tardait à servir M2. Un dictionnaire, pas
+    une `go.Figure` : il ne coûte rien à poser dans chaque mise en page.
+    """
+    return {"data": [], "layout": {
+        "paper_bgcolor": C["panel"], "plot_bgcolor": C["panel"],
+        "xaxis": {"visible": False}, "yaxis": {"visible": False},
+        "margin": {"l": 0, "r": 0, "t": 0, "b": 0},
+        "annotations": [{"text": text, "xref": "paper", "yref": "paper",
+                         "x": 0.5, "y": 0.5, "showarrow": False,
+                         "font": {"family": MONO, "size": 11,
+                                  "color": C["muted"]}}]}}
+
+
 def prepare_price_frame(df: pd.DataFrame) -> pd.DataFrame:
     """Enrichit un OHLCV brut des colonnes attendues par le graphique prix."""
     df = df.copy()

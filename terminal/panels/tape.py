@@ -19,7 +19,7 @@ from datetime import datetime
 
 from dash import Input, Output, dcc, html
 
-from ..charts import build_tape_history
+from ..charts import placeholder, build_tape_history
 from ..fx import DOLLARS, display
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
@@ -67,7 +67,7 @@ def layout(title=None):
                  style={"color": C["muted"], "fontFamily": MONO,
                         "fontSize": "9px", "padding": "4px 6px 0",
                         "whiteSpace": "nowrap", "overflow": "hidden"}),
-        dcc.Graph(id="tape-history",
+        dcc.Graph(id="tape-history", figure=placeholder(),
                   style={"flex": "1", "minHeight": "0"},
                   config={"displayModeBar": False}),
     ], style=PANEL_STYLE)
