@@ -479,6 +479,32 @@ def register_api(app, hub) -> None:
             "stale": bool(daily.attrs.get("stale", False)),
         })
 
+    @app.server.get("/api/trades")
+    def _trades():
+        """Les gros ordres de la plage visible, en tranches (`trade_buckets`).
+
+        `from` et `to` en secondes epoch, `step` la largeur d'une tranche :
+        celle d'une bougie, bornée entre la minute et le jour — au-delà, le
+        navigateur regroupe les jours dans ses semaines et ses mois. Lus
+        dans le journal, qui garde trente jours de gros ordres (100 k$ et
+        plus, § tape) ; une plage sans ordre, ou un terminal sans journal,
+        rend une réponse vide qui dit pourquoi. Les prix sont en dollars.
+        """
+        t_from = request.args.get("from", type=int)
+        t_to = request.args.get("to", type=int)
+        step = request.args.get("step", type=int)
+        if t_from is None or t_to is None or t_to <= t_from or not step:
+            return jsonify({"error": "bornes from/to et step requis"}), 400
+        step = min(max(step, 60), 86_400)
+        if hub.journal is None:
+            return jsonify({"empty": True, "reason": "journal désactivé"})
+        tranches = hub.journal.trade_buckets(t_from, t_to, step)
+        if tranches is None:
+            return jsonify({"empty": True,
+                            "reason": "aucun gros ordre journalisé sur "
+                                      "cette plage"})
+        return jsonify(tranches)
+
     @app.server.get("/api/liqmap")
     def _liqmap():
         """Carte des liquidations de la plage visible (`Journal.liquidation_map`).

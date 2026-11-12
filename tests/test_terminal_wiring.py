@@ -517,6 +517,30 @@ def test_l_heure_du_serveur_se_dit_quand_elle_differe():
     assert "hdr-zone.children" in sorties and "browser-zone.data" in sorties
     print("  ✓ heure du serveur : muette d'accord, dite et réglable sinon")
 
+
+def test_aucune_fonction_des_scripts_n_est_declaree_deux_fois():
+    """Dans un script, une seconde déclaration de fonction au même niveau
+    remplace la première sans un mot. Le 12 novembre 2026, la couche des
+    gros ordres a déclaré `barIndexAt(bars, t)` dans lwc-price.js, qui
+    avait déjà `barIndexAt(time)` : les tracés appelaient la nouvelle avec
+    un seul argument, n'obtenaient plus aucune bougie, et ne dessinaient
+    plus rien — seul le contrôle d'interface l'a vu. Les fonctions de
+    premier niveau (celles de la fermeture qui enveloppe chaque script, à
+    quatre espaces au plus) doivent porter des noms distincts."""
+    import re
+    from collections import Counter
+
+    dossier = Path(__file__).resolve().parent.parent / "terminal" / "assets"
+    doublons = {}
+    for script in sorted(dossier.glob("*.js")):
+        noms = re.findall(r"^ {0,4}function ([A-Za-z_$][\w$]*)\s*\(",
+                          script.read_text(), flags=re.M)
+        repetes = [nom for nom, n in Counter(noms).items() if n > 1]
+        if repetes:
+            doublons[script.name] = repetes
+    assert not doublons, f"fonctions déclarées deux fois : {doublons}"
+    print("  ✓ aucune fonction de premier niveau déclarée deux fois")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCâblage du terminal — {len(tests)} vérifications\n" + "─" * 60)

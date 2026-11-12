@@ -69,6 +69,7 @@ const KEYS_HELP = [
     "T        tracer une ligne de tendance",
     "N        niveaux clés : veille, semaine, mois",
     "M        carte des liquidations",
+    "O        gros ordres sur le graphique",
     "F        plein écran du panneau sous la souris",
     "/        ligne de commande",
     "?        cette aide",
@@ -83,7 +84,7 @@ const KEYS_HELP = [
     "Ligne de commande",
     "un panneau       etf, perp, analyse, alertes…",
     "un intervalle    1m, 5m, 4h, 1d, 1M…",
-    "eur, usd, log, cvd, rsi, crsi, vol, profil, niv, carte, signaux, capture",
+    "eur, usd, log, cvd, rsi, crsi, vol, profil, niv, carte, ord, signaux, capture",
     "ligne, effacer   tracer une ligne, retirer toutes les lignes",
     "alerte 80000     seuil de cours, en dollars",
 ].join("\n");
@@ -170,6 +171,9 @@ function shortcut(key) {
     case "m":
         return labels("#price-extras label")
             .find((label) => label.textContent.trim() === "LIQ");
+    case "o":
+        return labels("#price-extras label")
+            .find((label) => label.textContent.trim() === "ORD");
     default:
         return null;
     }

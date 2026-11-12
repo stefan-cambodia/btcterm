@@ -605,6 +605,45 @@ class Journal:
                 "SELECT * FROM large_trades WHERE ts BETWEEN ? AND ?"
                 " ORDER BY ts", (start, end)).fetchall()
 
+    def trade_buckets(self, start: float, end: float,
+                      step: int) -> Optional[dict]:
+        """Les gros ordres d'une plage, sommés par tranche de `step` secondes
+        et par côté — pour les bulles du graphique du prix.
+
+        Chaque tranche : `[début, côté, notionnel, prix moyen pondéré,
+        nombre, plus gros]`, le côté étant celui du preneur (`buy` | `sell`).
+        S'y ajoutent les totaux de la plage par côté et les plateformes
+        présentes ; `None` sans un ordre. Les tranches commencent aux
+        multiples de `step` depuis l'epoch, comme les bougies de Binance
+        jusqu'au jour : le navigateur les range dans ses bougies, semaine
+        et mois compris.
+        """
+        if not self.path.exists():
+            return None
+        with self._lock:
+            db = self._connection()
+            rows = db.execute(
+                "SELECT CAST(ts / ? AS INTEGER) * ? AS bucket, side, "
+                "TOTAL(notional), TOTAL(price * notional), COUNT(*), "
+                "MAX(notional) FROM large_trades WHERE ts BETWEEN ? AND ? "
+                "GROUP BY bucket, side ORDER BY bucket",
+                (step, step, start, end)).fetchall()
+            if not rows:
+                return None
+            places = db.execute(
+                "SELECT group_concat(DISTINCT exchange) FROM large_trades "
+                "WHERE ts BETWEEN ? AND ?", (start, end)).fetchone()[0]
+        buckets = [[int(bucket), side, notional, weighted / notional,
+                    count, biggest]
+                   for bucket, side, notional, weighted, count, biggest in rows
+                   if notional > 0]
+        return {"buckets": buckets,
+                "buy": sum(b[2] for b in buckets if b[1] == "buy"),
+                "sell": sum(b[2] for b in buckets if b[1] == "sell"),
+                "count": sum(b[4] for b in buckets),
+                "exchanges": sorted((places or "").split(",")),
+                "step": step}
+
     def episodes_between(self, start: float, end: float) -> list[sqlite3.Row]:
         """Les épisodes dont la fenêtre chevauche [start, end]."""
         if not self.path.exists():

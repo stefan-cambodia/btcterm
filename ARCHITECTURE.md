@@ -2128,6 +2128,23 @@ pendant le sommeil de la machine. Elle a été construite pour la cible d'un ser
 permanence. La case a fait déborder la barre de titre de 29 px : ses libellés
 y passent à 0,06 em d'espacement. `/liq` reste à l'onglet des liquidations.
 
+Les **gros ordres** (case `ORD`, touche `O`, `/ord`) sont le pendant de la
+carte du côté de ce qui s'exécute : le ruban journalise chaque ordre de
+100 k$ et plus (§2.13), et le graphique les pose en bulles sur les
+chandeliers — une par bougie et par côté, à leur prix moyen pondéré, d'une
+surface proportionnelle au notionnel, les achats au marché en vert à gauche
+de la bougie, les ventes en rouge à droite : centrées, les deux couleurs se
+mêlaient en un gris dès que les deux côtés traitaient au même prix. Le
+journal somme par tranche (`Journal.trade_buckets`, `/api/trades`) d'une
+bougie, bornée entre la minute et le jour ; le navigateur range les tranches
+dans ses bougies par recherche dichotomique sur leurs temps réels, ce qui
+couvre la semaine et le mois sans rien demander de plus au serveur. Les plus
+grosses bulles sont posées d'abord, les petites restent visibles dessus. La
+légende s'empile sous celle de la carte quand les deux sont cochées. Trente
+jours de journal, environ 600 ordres par jour : la réponse reste de
+quelques centaines de tranches. La case a trouvé sa place dans la barre de
+titre, qui gardait une centaine de pixels libres.
+
 ### 3.14 Le panneau ANALYSE : mettre les signaux à l'épreuve
 
 Le graphique pose des flèches d'achat et de vente depuis l'origine, sans que rien
@@ -3578,6 +3595,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Des gros ordres qu'on ne voyait pas où ils avaient traité**~~ — fait
+  le 12 novembre 2026 (§3.13) : la case ORD les pose en bulles sur le
+  graphique du prix, par bougie et par côté, au prix moyen pondéré.
 - ~~**Des flux ETF qu'on ne pouvait rapporter à l'offre**~~ — fait le
   12 novembre 2026 (§2.15, §3.4) : le net d'une fenêtre en bitcoins, face à
   l'émission des mineurs, en plein écran et à la synthèse.

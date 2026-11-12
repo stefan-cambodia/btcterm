@@ -311,6 +311,11 @@
         if (extras.indexOf("liq") !== -1) {
             buildLiqMap();
         }
+        // Gros ordres — la case ORD : où les gros ont traité, et dans
+        // quel sens.
+        if (extras.indexOf("trades") !== -1) {
+            buildTrades();
+        }
 
         // L'historique se charge au pan, comme sur tradingview.com :
         // approcher du début des données déclenche la page antérieure.
@@ -1183,12 +1188,164 @@
 
     // La légende de la carte, sous celle des moyennes : en bas du pane, le
     // volume la recouvrait. Un fond la garde lisible sur les chandeliers.
-    function liqCaption(ctx, text) {
+    // `row` empile les légendes des couches : la carte, puis les ordres.
+    function liqCaption(ctx, text, row) {
+        var top = 34 + 14 * (row || 0);
         var width = ctx.measureText(text).width;
         ctx.fillStyle = "rgba(14,17,23,0.8)";
-        ctx.fillRect(4, 34, width + 6, 13);
+        ctx.fillRect(4, top, width + 6, 13);
         ctx.fillStyle = "#94a3b8";
-        ctx.fillText(text, 7, 44);
+        ctx.fillText(text, 7, top + 10);
+    }
+
+    // ── Gros ordres ─────────────────────────────────────────
+    //
+    // Les ordres de 100 k$ et plus que le ruban a journalisés (§ tape), en
+    // bulles sur les chandeliers : une par bougie et par côté, à leur prix
+    // moyen pondéré, d'une surface proportionnelle au montant — vert pour
+    // les achats au marché, rouge pour les ventes. Ce que le carnet ne dit
+    // pas : où les gros ont réellement traité, et dans quel sens. Le
+    // serveur somme par tranche d'une bougie, au plus le jour
+    // (/api/trades) ; les semaines et les mois regroupent ici leurs jours.
+    // Les bulles les plus grosses sont posées d'abord : les petites
+    // restent visibles par-dessus.
+    var TRADES_EVERY = 60000;
+    var TRADES_RADIUS = 14;
+
+    function buildTrades() {
+        var canvas = document.createElement("canvas");
+        canvas.className = "lwc-profile";
+        state.el.appendChild(canvas);
+        state.tradesCanvas = canvas;
+        state.tradesData = null;
+        state.tradesTimer = null;
+        state.tradesShown = 0;
+        state.chart.timeScale().subscribeVisibleTimeRangeChange(
+            function () {
+                drawTrades();
+                scheduleTrades();
+            });
+        state.tradesPoll = setInterval(fetchTrades, TRADES_EVERY);
+    }
+
+    function scheduleTrades() {
+        if (!state.tradesCanvas) { return; }
+        if (state.tradesTimer) { clearTimeout(state.tradesTimer); }
+        state.tradesTimer = setTimeout(fetchTrades, 300);
+    }
+
+    function fetchTrades() {
+        if (!state.chart || !state.packet || !state.tradesCanvas) { return; }
+        var range = state.chart.timeScale().getVisibleRange();
+        if (!range) { return; }
+        // Comme la carte : la dernière bougie court jusqu'à sa clôture,
+        // jusqu'à maintenant pour celle en cours.
+        var bars = state.packet.bars;
+        var n = bars.length;
+        var step = n > 1 ? bars[n - 1].time - bars[n - 2].time : 86400;
+        var from = clock().actual(range.from);
+        var until = clock().actual(range.to);
+        var to = Math.ceil(until) + step;
+        if (n && until >= bars[n - 1].time) {
+            to = Math.max(to, Math.ceil(Date.now() / 1000));
+        }
+        var seq = state.seq;
+        fetch("/api/trades?from=" + Math.floor(from) + "&to=" + to
+              + "&step=" + Math.max(60, Math.min(step, 86400)))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (seq !== state.seq || !state.tradesCanvas) { return; }
+                state.tradesData = data;
+                drawTrades();
+            })
+            .catch(function () { /* le prochain mouvement retentera */ });
+    }
+
+    // Les tranches du serveur rangées dans les bougies affichées : une
+    // entrée par bougie et par côté, notionnel sommé, prix moyen pondéré.
+    // `barIndexAt` (§ tracés) donne la bougie qui contient chaque tranche.
+    function tradeGroups(buckets) {
+        var groups = {};
+        (buckets || []).forEach(function (b) {
+            var i = barIndexAt(b[0]);
+            if (i < 0) { return; }
+            var key = i + ":" + b[1];
+            var g = groups[key];
+            if (!g) {
+                g = groups[key] = {index: i, side: b[1], notional: 0,
+                                   weighted: 0, count: 0};
+            }
+            g.notional += b[2];
+            g.weighted += b[3] * b[2];
+            g.count += b[4];
+        });
+        return Object.keys(groups).map(function (key) {
+            var g = groups[key];
+            g.price = g.weighted / g.notional;
+            return g;
+        });
+    }
+
+    function drawTrades() {
+        var canvas = state.tradesCanvas;
+        if (!canvas || !state.chart || !state.series || !state.packet) {
+            return;
+        }
+        var paneHeight = state.chart.panes()[0].getHeight();
+        var scaleWidth = state.chart.priceScale("right").width();
+        var paneWidth = state.el.clientWidth - scaleWidth;
+        canvas.width = paneWidth;
+        canvas.height = paneHeight;
+        var ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, paneWidth, paneHeight);
+        state.tradesShown = 0;
+        var data = state.tradesData;
+        if (!data) { return; }
+        ctx.font = "9px " + state.conf.mono;
+        var row = state.liqCanvas ? 1 : 0;
+        if (data.empty) {
+            liqCaption(ctx, "gros ordres : " + (data.reason || "aucun"), row);
+            return;
+        }
+        var bars = state.packet.bars;
+        var groups = tradeGroups(data.buckets);
+        var max = 0;
+        groups.forEach(function (g) { max = Math.max(max, g.notional); });
+        if (!(max > 0)) { return; }
+        groups.sort(function (a, b) { return b.notional - a.notional; });
+        var theme = state.conf.theme;
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var ts = state.chart.timeScale();
+        var candles = state.series.candles;
+        var at = clock();
+        groups.forEach(function (g) {
+            var x = ts.timeToCoordinate(at.shown(bars[g.index].time));
+            var y = candles.priceToCoordinate(g.price * rate);
+            if (x === null || y === null || x < 0 || x > paneWidth
+                    || y < 0 || y > paneHeight) {
+                return;
+            }
+            var r = Math.max(2.5, TRADES_RADIUS * Math.sqrt(g.notional / max));
+            var buy = g.side === "buy";
+            // Achats et ventes d'une même bougie tombent souvent au même
+            // prix : centrées, leurs couleurs se mêlaient en un gris. Les
+            // achats s'écartent à gauche, les ventes à droite.
+            var cx = x + (buy ? -1 : 1) * r * 0.4;
+            ctx.beginPath();
+            ctx.arc(cx, y, r, 0, 2 * Math.PI);
+            ctx.fillStyle = buy ? "rgba(0,212,170,0.42)"
+                                : "rgba(255,61,107,0.42)";
+            ctx.fill();
+            ctx.lineWidth = 1.5;
+            ctx.strokeStyle = buy ? theme.green : theme.red;
+            ctx.stroke();
+            state.tradesShown += 1;
+        });
+        liqCaption(ctx, "gros ordres achats " + (data.buy / 1e6).toFixed(1)
+                   + " M$ · ventes " + (data.sell / 1e6).toFixed(1)
+                   + " M$ · " + data.count + " · "
+                   + data.exchanges.join(", ")
+                   + " · vert : achats, rouge : ventes", row);
     }
 
     // ── Seuils d'alerte ─────────────────────────────────────
@@ -1321,6 +1478,16 @@
         }
         state.liqCanvas = null;
         state.liqData = null;
+        if (state.tradesPoll) {
+            clearInterval(state.tradesPoll);
+            state.tradesPoll = null;
+        }
+        if (state.tradesTimer) {
+            clearTimeout(state.tradesTimer);
+            state.tradesTimer = null;
+        }
+        state.tradesCanvas = null;
+        state.tradesData = null;
         if (state.profileTimer) {
             clearTimeout(state.profileTimer);
             state.profileTimer = null;
@@ -1396,6 +1563,10 @@
         if (state.liqCanvas) {
             drawLiqMap();
             scheduleLiqMap();
+        }
+        if (state.tradesCanvas) {
+            drawTrades();
+            scheduleTrades();
         }
         // Les lignes portent des prix en unités de série : la bascule
         // de devise les reprend au taux.
@@ -1882,6 +2053,12 @@
                     ? (state.liqData.empty ? state.liqData.reason
                        : {count: state.liqData.count,
                           exchanges: state.liqData.exchanges})
+                    : null,
+                trades: state.tradesData
+                    ? (state.tradesData.empty ? state.tradesData.reason
+                       : {count: state.tradesData.count,
+                          exchanges: state.tradesData.exchanges,
+                          shown: state.tradesShown})
                     : null,
                 levels: (state.levelLines || []).map(function (line) {
                     return line.options().title;

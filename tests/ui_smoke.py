@@ -423,6 +423,21 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "window.lwcPrice.debug() && window.lwcPrice.debug().liqmap === null",
             timeout=15))
 
+        # O : les gros ordres du ruban en bulles, lus au journal — ou la
+        # raison de leur absence, dite sur le graphique.
+        browser.press("o")
+        bulles = browser.wait_for(
+            "window.lwcPrice.debug() && window.lwcPrice.debug().trades !== null",
+            timeout=15)
+        lus = browser.js("return window.lwcPrice.debug().trades;")
+        check("O pose les gros ordres, ou dit pourquoi il n'y en a pas",
+              bulles and (isinstance(lus, str) or lus.get("count", 0) > 0),
+              str(lus)[:80])
+        browser.press("o")
+        check("O les retire", browser.wait_for(
+            "window.lwcPrice.debug() && window.lwcPrice.debug().trades === null",
+            timeout=15))
+
         browser.press("/")
         check("/ ouvre la ligne de commande", browser.wait_for(
             "document.activeElement === document.querySelector('.command-bar input')",

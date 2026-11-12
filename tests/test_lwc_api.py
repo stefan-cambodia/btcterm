@@ -337,6 +337,60 @@ def test_carte_des_liquidations():
     print("  ✓ carte lue au journal, plage vide et journal absent dits")
 
 
+def test_les_gros_ordres_en_tranches():
+    """`/api/trades` somme les gros ordres du journal par tranche et par
+    côté — notionnel, prix moyen pondéré, nombre, plus gros —, borne la
+    tranche entre la minute et le jour, et dit pourquoi elle est vide."""
+    import tempfile
+    from btcterm.journal import Journal
+    from btcterm.tape import Trade
+
+    web = client()
+    assert web.get("/api/trades?from=1&to=2").status_code == 400, "step requis"
+    assert web.get("/api/trades?from=9&to=3&step=60").status_code == 400
+    sans = web.get("/api/trades?from=1&to=2&step=60").get_json()
+    assert sans["empty"] and sans["reason"] == "journal désactivé"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        sources.fetch_klines = faux_fetch_klines
+        hub = MarketHub(collect_news=False, keep_journal=False)
+        hub.journal = Journal(Path(tmp) / "journal.db")
+        heure = 1_794_445_200          # 12 novembre 2026, 3 h UTC
+        for t, plateforme, cote, prix, quantite in (
+                (heure + 10, "Binance", "buy", 74_000.0, 2.0),
+                (heure + 20, "Bybit", "buy", 76_000.0, 2.0),
+                (heure + 30, "Binance", "sell", 73_000.0, 3.0),
+                (heure + 3_700, "Coinbase", "buy", 75_000.0, 1.5)):
+            hub.journal.record_trade(Trade(time=t, exchange=plateforme,
+                                           side=cote, price=prix,
+                                           quantity=quantite))
+        web = create_app(hub).server.test_client()
+        def lire(step):
+            return web.get("/api/trades", query_string={
+                "from": heure, "to": heure + 7_200, "step": step}).get_json()
+
+        tranches = lire(3_600)
+        assert tranches["count"] == 4 and tranches["step"] == 3_600
+        assert tranches["exchanges"] == ["Binance", "Bybit", "Coinbase"]
+        assert tranches["buy"] == 148_000 + 152_000 + 112_500
+        assert tranches["sell"] == 219_000
+        premiere = {(b[0], b[1]): b for b in tranches["buckets"]}
+        achat = premiere[(heure, "buy")]
+        assert achat[2] == 300_000 and achat[4] == 2 and achat[5] == 152_000
+        assert abs(achat[3] - (74_000 * 148_000 + 76_000 * 152_000) / 300_000) < 1e-6, \
+            "prix moyen pondéré par le notionnel"
+        assert premiere[(heure + 3_600, "buy")][3] == 75_000
+        assert lire(10)["step"] == 60 and lire(10**7)["step"] == 86_400, \
+            "la tranche reste entre la minute et le jour"
+        assert len(lire(86_400)["buckets"]) == 2, "un jour, deux côtés"
+        vide = web.get("/api/trades", query_string={
+            "from": 1, "to": 1000, "step": 60}).get_json()
+        assert vide["empty"] and "aucun" in vide["reason"]
+        hub.journal.close()
+    print("  ✓ gros ordres sommés par tranche et par côté, prix moyen pondéré, "
+          "tranche bornée, vide dit")
+
+
 def test_api_perp_hors_ligne():
     """Sources en panne : deux listes vides, statut 200 — le panneau
     l'écrit, le terminal vit."""
