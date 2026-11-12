@@ -332,7 +332,7 @@ d'elle, le marché qui monte, et un carnet qui ne se croise pas.
 | Change | `fetch_eur_rate` |
 | Institutionnel | `fetch_etf_flows` |
 | Macro | `fetch_m2_supply` |
-| Marché à terme | `fetch_funding_history`, `fetch_open_interest`, `fetch_perp_snapshot`, `fetch_bybit_perp`, `fetch_okx_perp` |
+| Marché à terme | `fetch_funding_history`, `fetch_open_interest`, `fetch_perp_snapshot`, `fetch_long_short`, `fetch_bybit_perp`, `fetch_okx_perp` |
 | Agrégats de marché | `fetch_market_global` |
 | Chaîne | `fetch_chain_chart`, `fetch_chain_stats` |
 | News | `fetch_rss_entries`, `fetch_cryptopanic_posts`, `fetch_fear_greed`, `fetch_fear_greed_history` |

@@ -745,6 +745,7 @@ python tests/test_arbitrage.py           # arbitrage : net des deux frais taker,
 python tests/test_lwc_vwap.py            # VWAP ancré : ancrage, périodes UTC, moyenne et bandes pondérées
 python tests/test_heatmap.py             # carte du carnet : colonnes, journal, matrice, purge, endpoint
 python tests/test_premiums.py            # prime coréenne : décomposition, Upbit et won, cache seul, journal, écran
+python tests/test_positioning.py         # positionnement : foule et gros en %, journal, prolongement, titre
 python tests/test_cache.py               # cache du hub : secours, fraîcheur, pannes dites
 python tests/test_macrocal.py            # calendrier macro tenu à la main, lu dans le fuseau de la machine
 python tests/test_terminal_wiring.py     # panneaux posés et branchés, badges lents, frais on-chain
