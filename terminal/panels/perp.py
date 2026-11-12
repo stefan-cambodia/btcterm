@@ -14,7 +14,9 @@ sortent les liquidations en cascade.
 Rendu Lightweight Charts, comme le panneau prix : le serveur ne sert que
 des données — `/api/perp` (terminal/lwc.py) — et le navigateur dessine
 (assets/lwc-perp.js) : financement en histogramme signé, open interest
-en ligne sur son axe gauche, crosshair commun. Ce module ne pose que la
+en ligne sur son axe gauche, crosshair commun ; dessous, la part des
+longs de la foule (tous les comptes) contre celle de l'argent des gros
+(les positions des 20 % de comptes à la plus forte marge). Ce module ne pose que la
 barre de titre et deux relais clientside — configuration au montage et
 au plein écran, poll à l'horloge rare ; ces données bougent par tranches
 de 4 à 8 heures, aucun canal push n'est justifié.
@@ -166,8 +168,10 @@ def _countdown(next_funding_ms: int) -> str:
 
 
 def _badges(snapshot: dict, open_interest, verbose: bool = False,
-            fx=DOLLARS):
-    """Financement courant, échéance, open interest et part des longs.
+            fx=DOLLARS, top_long: float | None = None):
+    """Financement courant, échéance, open interest et part des longs —
+    en plein écran, celle de l'argent des gros à côté de celle de la
+    foule ; dans la grille, le pane du positionnement la donne.
 
     Les intitulés sont muets dans la grille — la barre de titre y est
     large de trois cents pixels, et des chiffres qui passent à la ligne
@@ -231,6 +235,15 @@ def _badges(snapshot: dict, open_interest, verbose: bool = False,
                       style={"color": color},
                       title="part des comptes positionnés à la hausse"),
         ]
+    if verbose and top_long is not None:
+        children += [
+            label(" · gros "),
+            html.Span(f"{top_long:.0f} %",
+                      style={"color": C["text"]},
+                      title="part des positions à la hausse chez les gros "
+                            "comptes — les 20 % à la plus forte marge —, "
+                            "pondérée par la taille : l'argent, pas les têtes"),
+        ]
     return html.Span(children, style={"fontFamily": MONO})
 
 
@@ -255,8 +268,14 @@ def register(app, hub):
         # de zone que se lit l'agrandissement, pas sur le sien.
         fx = display(hub, currency)
         rows = hub.perp_compare()
+        verbose = maximized == "etf"
+        top_long = None
+        if verbose:
+            positions = hub.long_short()
+            if not positions.empty and positions["top"].notna().any():
+                top_long = float(positions["top"].dropna().iloc[-1])
         return (_badges(hub.perp_snapshot(), hub.open_interest_extended(),
-                        verbose=maximized == "etf", fx=fx),
+                        verbose=verbose, fx=fx, top_long=top_long),
                 _compare(rows, fx), carry(rows, hub.futures_curve()))
 
     app.clientside_callback(

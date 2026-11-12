@@ -6,7 +6,11 @@
 // passé par les instantanés journalisés. Tout le dessin vit ici :
 // histogramme signé pour le financement (les longs paient en vert, les
 // shorts en rouge), ligne d'open interest sur son axe gauche en
-// milliards, crosshair commun.
+// milliards, crosshair commun. Dessous, un pane du positionnement : la
+// part des longs de la foule (tous les comptes) et celle de l'argent des
+// gros (les positions des 20 % de comptes à la plus forte marge), autour
+// de 50 % — quand la foule charge un côté que les gros allègent, c'est
+// elle, d'ordinaire, qui paie.
 //
 // Le point d'entrée est window.lwcPerp.configure(cfg, conf), appelé par
 // le callback clientside de panels/perp.py au montage et à chaque
@@ -25,6 +29,8 @@
         chart: null,
         funding: null,  // série histogramme
         oi: null,       // série ligne
+        crowd: null,    // part des longs, tous comptes — pane 1
+        top: null,      // part des longs, argent des gros — pane 1
         note: null,     // « marché à terme indisponible »
         fitted: false,  // fitContent déjà fait — le zoom d'analyse survit
         seq: 0
@@ -91,6 +97,29 @@
             crosshairMarkerVisible: true
         });
 
+        // Le positionnement, en %, dans son pane : chaque courbe nommée sur
+        // son étiquette, 50 % en pointillé — l'équilibre.
+        function percent(color, width, title) {
+            return state.chart.addSeries(LWC.LineSeries, {
+                color: color, lineWidth: width, title: title,
+                priceFormat: {type: "custom", minMove: 0.1,
+                              formatter: function (v) {
+                                  return v.toFixed(0) + " %";
+                              }},
+                priceLineVisible: false, lastValueVisible: true,
+                crosshairMarkerVisible: true
+            }, 1);
+        }
+        state.crowd = percent(theme.orange, 1, "foule");
+        state.top = percent(theme.text, 2, "gros");
+        state.top.createPriceLine({price: 50, color: theme.border,
+                                   lineWidth: 1,
+                                   lineStyle: LWC.LineStyle.Dashed,
+                                   axisLabelVisible: false});
+        var panes = state.chart.panes();
+        panes[0].setStretchFactor(300);
+        if (panes[1]) { panes[1].setStretchFactor(110); }
+
         var note = document.createElement("div");
         note.className = "lwc-perp-note";
         note.textContent = "marché à terme indisponible";
@@ -112,6 +141,8 @@
         state.chart = null;
         state.funding = null;
         state.oi = null;
+        state.crowd = null;
+        state.top = null;
         state.note = null;
         state.fitted = false;
         if (state.el) { state.el.textContent = ""; }
@@ -128,9 +159,11 @@
                 var theme = state.conf.theme;
                 // Une horloge pour les deux séries : elles partagent l'axe,
                 // l'ordre strict des temps affichés vaut pour leur union.
+                var crowd = packet.crowd || [];
+                var top = packet.top || [];
                 var at = window.btcClock && !(state.cfg && state.cfg.utc)
                     ? window.btcClock.create(true)
-                        .addAll(packet.funding, packet.oi)
+                        .addAll(packet.funding, packet.oi, crowd, top)
                     : null;
                 function shown(t) { return at ? at.shown(t) : t; }
                 state.funding.setData(packet.funding.map(function (p) {
@@ -144,6 +177,14 @@
                 state.oi.setData(packet.oi.map(function (p) {
                     return {time: shown(p.time), value: p.value * rate};
                 }));
+                function percents(points) {
+                    return points.map(function (p) {
+                        return p.value === undefined ? {time: shown(p.time)}
+                            : {time: shown(p.time), value: p.value};
+                    });
+                }
+                state.crowd.setData(percents(crowd));
+                state.top.setData(percents(top));
                 var vide = !packet.funding.length && !packet.oi.length;
                 state.note.style.display = vide ? "flex" : "none";
                 if (fit && !vide && !state.fitted) {
@@ -192,6 +233,24 @@
         poll: function () {
             if (!state.chart) { return; }
             refetch(false);
+        },
+
+        // Sonde du smoke test : ce que les séries portent vraiment.
+        debug: function () {
+            if (!state.chart) { return null; }
+            function last(series) {
+                var data = series.data();
+                for (var i = data.length - 1; i >= 0; i--) {
+                    if (data[i].value !== undefined) { return data[i].value; }
+                }
+                return null;
+            }
+            return {panes: state.chart.panes().length,
+                    funding: state.funding.data().length,
+                    oi: state.oi.data().length,
+                    crowd: state.crowd.data().length,
+                    top: state.top.data().length,
+                    crowdLast: last(state.crowd), topLast: last(state.top)};
         }
     };
 })();

@@ -191,6 +191,7 @@ def test_le_releve_la_journalise():
         hub.market_global = lambda: {}
         hub.open_interest = lambda **kw: pd.DataFrame(columns=["time", "oi", "oi_usd"])
         hub.perp_snapshot = lambda: {}
+        hub.long_short = lambda **kw: pd.DataFrame(columns=["time", "crowd", "top"])
         hub.option_chain = lambda: opt.option_chain([])
         hub.futures_curve = lambda: opt.futures_curve([])
         hub.dvol = lambda: pd.DataFrame(columns=["time", "open", "high", "low", "close"])

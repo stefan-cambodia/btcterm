@@ -392,6 +392,9 @@ class MarketHub:
     #: `KOREA_MAX_AGE`, un prix d'Upbit ne se compare plus au cours du
     #: moment — la prime se tait plutôt que de comparer deux instants.
     KOREA_EVERY = 60.0
+    #: La part des longs (§ long_short) : Binance la sert par pas de quatre
+    #: heures, un quart d'heure de cache suffit largement.
+    TTL_LONG_SHORT = 15 * 60
     TTL_KRW = 300
     KOREA_MAX_AGE = 180.0
     TTL_DVOL = 600
@@ -1596,6 +1599,12 @@ class MarketHub:
 
         shares = agregats.get("shares") or {}
         korea = self.korea_premium()
+        positions = self.long_short()
+        if self._cache.stale("long_short:4h:180"):
+            positions = positions.iloc[0:0]
+        top_long = (float(positions["top"].dropna().iloc[-1])
+                    if not positions.empty and positions["top"].notna().any()
+                    else None)
         fields = {
             "btc_dominance": shares.get("BTC"),
             "stable_share": (sum(part for nom, part in shares.items()
@@ -1625,6 +1634,12 @@ class MarketHub:
             "cb_premium": (premium * 100 if (premium := self.tape
                            .coinbase_premium(self.SNAPSHOT_EVERY)) is not None
                            else None),
+            # La part des longs : la foule à l'heure (instantané du
+            # perpétuel), l'argent des gros au dernier pas de quatre heures
+            # — Binance n'en garde que trente jours (§ long_short_extended).
+            "crowd_long": (perp["long_account"] * 100
+                           if perp.get("long_account") is not None else None),
+            "top_long": top_long,
             # La prime coréenne et sa part due au won (§ premiums), en %.
             "kr_premium": korea["premium"] * 100 if korea else None,
             "kr_won": korea["won"] * 100 if korea else None,
@@ -1885,6 +1900,39 @@ class MarketHub:
         # la sérialisation en fait des points blancs, et la courbe se
         # rompt là où le journal n'a rien vu.
         resampled = (history.set_index("time")["oi_usd"]
+                     .resample(self._OI_RULES.get(period, "4h")).last()
+                     .reset_index())
+        return pd.concat([resampled, base], ignore_index=True)
+
+    def long_short(self, period: str = "4h", limit: int = 180) -> pd.DataFrame:
+        """La part des longs, la foule et les gros, en % (§ sources.
+        fetch_long_short) — trente jours, gardés un quart d'heure ; vide
+        si Binance se tait et que le cache n'a rien."""
+        try:
+            return self._cache.get(
+                f"long_short:{period}:{limit}", self.TTL_LONG_SHORT,
+                lambda: sources.fetch_long_short(self.symbol, period, limit))
+        except Exception:
+            return pd.DataFrame(columns=["time", "crowd", "top"])
+
+    def long_short_extended(self, period: str = "4h",
+                            limit: int = 180) -> pd.DataFrame:
+        """La part des longs prolongée vers le passé par le journal, comme
+        l'open interest : Binance ne garde que trente jours, le relevé de
+        marché note les deux parts toutes les cinq minutes (`crowd_long`,
+        `top_long`), rééchantillonnées au pas de Binance."""
+        base = self.long_short(period=period, limit=limit)
+        history = self.market_snapshots()
+        if history.empty:
+            return base
+        history = (history.dropna(subset=["crowd_long", "top_long"], how="all")
+                   [["time", "crowd_long", "top_long"]]
+                   .rename(columns={"crowd_long": "crowd", "top_long": "top"}))
+        if not base.empty:
+            history = history[history["time"] < base["time"].iloc[0]]
+        if history.empty:
+            return base
+        resampled = (history.set_index("time")
                      .resample(self._OI_RULES.get(period, "4h")).last()
                      .reset_index())
         return pd.concat([resampled, base], ignore_index=True)

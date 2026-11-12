@@ -175,7 +175,8 @@ def serialize_price_frame(df: pd.DataFrame) -> dict:
 
 
 def serialize_perp(
-    funding: pd.DataFrame, open_interest: pd.DataFrame
+    funding: pd.DataFrame, open_interest: pd.DataFrame,
+    positions: pd.DataFrame | None = None
 ) -> dict:
     """Le panneau perpétuel, prêt pour `/api/perp`.
 
@@ -187,6 +188,9 @@ def serialize_perp(
     dédoublonnées — et un NaN, qui ne vient que du prolongement par le
     journal (§ hub.open_interest_extended), devient un point blanc où
     la courbe se rompt.
+
+    `positions` — la part des longs, la foule et les gros, en % (§ hub.
+    long_short_extended) — voyage en deux séries, `crowd` et `top`.
     """
     points_funding: list[dict] = []
     if not funding.empty:
@@ -198,7 +202,10 @@ def serialize_perp(
         oi = open_interest.rename(columns={"oi_usd": "value"})
         points_oi = frame_to_lines(oi, ("value",),
                                    whitespace=True).get("value", [])
-    return {"funding": points_funding, "oi": points_oi}
+    lines = ({} if positions is None or positions.empty
+             else frame_to_lines(positions, ("crowd", "top"), whitespace=True))
+    return {"funding": points_funding, "oi": points_oi,
+            "crowd": lines.get("crowd", []), "top": lines.get("top", [])}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -410,6 +417,7 @@ def register_api(app, hub) -> None:
         payload = serialize_perp(
             hub.funding_history_extended(limit=FUNDING_POINTS),
             hub.open_interest_extended(),
+            hub.long_short_extended(),
         )
         # Comme pour le prix : le navigateur convertit, sans refetch de
         # série à faire côté serveur.

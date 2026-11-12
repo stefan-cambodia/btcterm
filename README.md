@@ -109,7 +109,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
 | **Flux ETF** | entrées/sorties nettes des ETF spot ; en plein écran, cumul depuis le lancement, classement des émetteurs, fenêtre réglable (30 j / 90 j / 1 an / tout) et son net en bitcoins face à l'émission des mineurs (« ≈ -28.2 k BTC · 1.5× l'émission »). Un jour encore en cours de publication est dit « partiel », sa barre pâlie, les fonds attendus nommés au survol | 5 min |
 | **Position** | la position tenue, saisie à la main : résultat, distance au stop, multiple du risque ; taille qu'autorise un risque choisi, stop à quelques ATR ; résultat au bandeau. Rien ne quitte le navigateur (onglet des flux ETF) | 2 s |
-| **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; financement, prime et open interest comparés sur Binance, Bybit et OKX , et le portage annualisé — financement de chaque plateforme et base du future Deribit à trois mois, dans la même unité (onglet des flux ETF) | 5 min |
+| **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; dessous, le positionnement — la part des longs de la foule contre celle de l'argent des gros ; financement, prime et open interest comparés sur Binance, Bybit et OKX , et le portage annualisé — financement de chaque plateforme et base du future Deribit à trois mois, dans la même unité (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
 | **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF (et en bitcoins, face à l'émission), Fear & Greed, DVOL et skew, prime Coinbase, prime coréenne, dominance, cycle (halving, sommet, Mayer, MVRV), prochaines échéances macro, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — et grosses échéances d'options Deribit (montant, max pain, put/call), avec compte à rebours (onglet des news) | 5 min |
@@ -134,6 +134,17 @@ les longs paient aux shorts toutes les huit heures, l'open interest mesure la
 taille des positions ouvertes. Un financement élevé sur un open interest qui
 gonfle décrit un marché endetté d'un seul côté — la configuration d'où sortent
 les liquidations en cascade.
+
+Sous le financement, un pane du **positionnement** compare deux parts des longs
+publiées par Binance : celle de la **foule** — tous les comptes, chacun pour
+un (orange) — et celle de l'**argent des gros** — les positions des 20 % de
+comptes à la plus forte marge, pondérées par leur taille (blanc) —, autour de
+50 %. Le 12 novembre 2026, 75 % de la foule était à la hausse, mais 70 % de
+l'argent des gros seulement ; comptés par tête, les gros étaient 77 %. Quand
+la foule charge un côté que les gros allègent, c'est d'ordinaire elle qui
+paie. Binance ne sert que trente jours ; le relevé de marché note les deux
+parts toutes les cinq minutes et le graphique se prolonge par le journal,
+comme l'open interest. En plein écran, le titre ajoute la part des gros.
 
 **Onglets** — une cellule peut héberger plusieurs panneaux, choisis par les
 onglets posés à la place du titre. Par défaut, cinq cellules en portent :

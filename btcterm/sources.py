@@ -815,6 +815,53 @@ def fetch_open_interest(
     })
 
 
+def fetch_long_short(
+    symbol: str = "BTCUSDT", period: str = "4h", limit: int = 180
+) -> pd.DataFrame:
+    """La part des longs, la foule contre les gros, en % — trente jours.
+
+    Deux séries de Binance Futures, au même pas :
+
+    - `crowd` — `globalLongShortAccountRatio` : la part des **comptes**
+      positionnés à la hausse, tous comptes confondus ;
+    - `top` — `topLongShortPositionRatio` : la part des **positions** à la
+      hausse chez les gros comptes, les 20 % à la plus forte marge —
+      pondérée par la taille, donc par l'argent engagé.
+
+    Le 12 novembre 2026 : 74,8 % de la foule à la hausse, 69,5 % de
+    l'argent des gros — qui, comptés par tête, étaient 77,0 %. Retourne
+    `time` / `crowd` / `top` ; une série absente reste à NaN, l'autre
+    passe. Lève si les deux manquent : un vide se ferait mettre en cache.
+    """
+    series = {}
+    errors = []
+    for name, path in (("crowd", "globalLongShortAccountRatio"),
+                       ("top", "topLongShortPositionRatio")):
+        try:
+            response = _http.get(
+                f"{BINANCE_FUTURES}/futures/data/{path}",
+                params={"symbol": symbol, "period": period, "limit": limit},
+                timeout=12)
+            response.raise_for_status()
+            rows = response.json()
+            if not rows:
+                raise ValueError("réponse vide")
+            series[name] = pd.Series(
+                [float(row["longAccount"]) * 100 for row in rows],
+                index=pd.to_datetime([row["timestamp"] for row in rows],
+                                     unit="ms"))
+        except Exception as exc:  # noqa: BLE001 — l'autre série passe
+            errors.append(f"{path} : {brief_error(exc, 60)}")
+    if not series:
+        raise RuntimeError("Binance Futures injoignable — " + " ; ".join(errors))
+    frame = pd.DataFrame(series).sort_index()
+    for name in ("crowd", "top"):
+        if name not in frame:
+            frame[name] = np.nan
+    frame.index.name = "time"
+    return frame.reset_index()[["time", "crowd", "top"]]
+
+
 def fetch_bybit_perp(symbol: str = "BTCUSDT") -> dict[str, float]:
     """Financement, prix marqué et indice, open interest du perpétuel Bybit."""
     response = _http.get(

@@ -169,23 +169,32 @@ def test_l_instantane_n_ecrit_que_le_frais():
     def faux_deribit(kind="option", currency="BTC"):
         raise ConnectionError("Deribit")
 
+    # La part des longs vient de Binance Futures aussi : elle tombe avec.
+    def faux_long_short(symbol, period, limit):
+        if not reponses["perp"]:
+            raise ConnectionError("Binance")
+        return pd.DataFrame({"time": [pd.Timestamp("2026-08-25")],
+                             "crowd": [74.8], "top": [69.5]})
+
     def faux_dvol(days=365, currency="BTC"):
         raise ConnectionError("Deribit")
 
     originaux = (sources.fetch_market_global, sources.fetch_open_interest,
                  sources.fetch_perp_snapshot, sources.fetch_deribit_summary,
-                 sources.fetch_dvol)
+                 sources.fetch_dvol, sources.fetch_long_short)
     sources.fetch_market_global = faux_global
     sources.fetch_open_interest = faux_oi
     sources.fetch_perp_snapshot = faux_perp
     # Deribit muet de bout en bout : le test porte sur les trois autres.
     sources.fetch_deribit_summary = faux_deribit
     sources.fetch_dvol = faux_dvol
+    sources.fetch_long_short = faux_long_short
     try:
         with tempfile.TemporaryDirectory() as tmp:
             hub = MarketHub(collect_news=False, keep_journal=False)
             hub.journal = Journal(Path(tmp) / "journal.db")
             hub.TTL_GLOBAL = hub.TTL_OPEN_INTEREST = hub.TTL_PERP = 0
+            hub.TTL_LONG_SHORT = 0
             t0 = time.time()
             hub.record_market_snapshot(now=t0)
             # Binance tombe : CoinGecko s'écrit, le reste reste NULL —
@@ -201,11 +210,13 @@ def test_l_instantane_n_ecrit_que_le_frais():
             assert rows[0]["oi_usd"] == 8.4e9 and rows[0]["funding_rate"] == 6e-5
             assert rows[1]["btc_dominance"] == 59.0
             assert rows[1]["oi_usd"] is None and rows[1]["funding_rate"] is None
+            assert rows[0]["top_long"] == 69.5 and rows[1]["top_long"] is None, \
+                "la part des gros servie de secours ne s'écrit pas"
             hub.journal.close()
     finally:
         (sources.fetch_market_global, sources.fetch_open_interest,
          sources.fetch_perp_snapshot, sources.fetch_deribit_summary,
-         sources.fetch_dvol) = originaux
+         sources.fetch_dvol, sources.fetch_long_short) = originaux
     print("  ✓ NULL pour la source en panne, même quand le cache la sert encore")
 
 

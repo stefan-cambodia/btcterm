@@ -61,10 +61,13 @@ def panne_reseau(*args, **kwargs):
     raise ConnectionError("source injoignable (simulée)")
 
 
-def client(fetch=faux_fetch_klines):
-    """Un terminal assemblé sur un hub jamais démarré, sources mockées."""
+def client(fetch=faux_fetch_klines, long_short=panne_reseau):
+    """Un terminal assemblé sur un hub jamais démarré, sources mockées —
+    la part des longs comprise, que `/api/perp` lit aussi : sans elle, le
+    test partait sur le réseau."""
     sources.fetch_klines = fetch
     sources.fetch_eur_rate = lambda: 0.9
+    sources.fetch_long_short = long_short
     hub = MarketHub(collect_news=False, keep_journal=False)
     return create_app(hub).server.test_client()
 
@@ -327,10 +330,18 @@ def test_api_perp_series_et_unites():
         "oi": [80_000.0] * limit,
         "oi_usd": [1.2e10] * limit,
     })
-    web = client()
+    def positions(symbol, period, limit):
+        return pd.DataFrame({
+            "time": pd.date_range(debut, periods=limit, freq="4h"),
+            "crowd": [74.8] * limit, "top": [69.5] * (limit - 1) + [float("nan")]})
+    web = client(long_short=positions)
     page = web.get("/api/perp").get_json()
 
     assert len(page["funding"]) == 90, "90 points de financement — 30 jours"
+    assert len(page["crowd"]) == len(page["top"]) == 180
+    assert page["crowd"][0]["value"] == 74.8 and page["top"][0]["value"] == 69.5
+    assert page["top"][-1] == {"time": page["crowd"][-1]["time"]}, \
+        "un trou de la série des gros devient un point blanc"
     assert page["funding"][0]["value"] == 0.01, "le taux voyage en %"
     assert page["funding"][1]["value"] == -0.01
     assert len(page["oi"]) == 180
@@ -475,6 +486,7 @@ def test_api_perp_hors_ligne():
     assert reponse.status_code == 200
     page = reponse.get_json()
     assert page["funding"] == [] and page["oi"] == []
+    assert page["crowd"] == [] and page["top"] == []
     assert isinstance(page["eur_rate"], float), "le taux voyage avec la série"
     print("  ✓ hors ligne : listes vides, jamais une erreur")
 

@@ -730,7 +730,11 @@ rythme de la séance détruirait ce que leur accumulation devait bâtir.
 Trois lecteurs côté hub : `market_snapshots()` rend l'historique en
 DataFrame — la tendance du panneau dominance —, et
 `open_interest_extended()` comme `funding_history_extended()`
-prolongent les séries Binance vers le passé sur les instantanés,
+prolongent les séries Binance vers le passé sur les instantanés — comme
+`long_short_extended()` la part des longs de la foule et des gros
+(`crowd_long`, `top_long`, notées depuis le 12 novembre 2026 ;
+`sources.fetch_long_short`, `globalLongShortAccountRatio` et
+`topLongShortPositionRatio`, trente jours chez Binance) —,
 rééchantillonnés au pas de leur source (4 h ; 8 h sur la grille des
 règlements, étiquette à droite — le dernier relevé avant l'échéance
 reconstitue le taux réglé) pour une couture invisible. Une base
@@ -3890,6 +3894,10 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
   (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
   synthèse hors de ses bornes.
+- ~~**La foule sans les gros**~~ — fait le 12 novembre 2026 (§2.7) : un
+  pane du positionnement sous le financement du PERPÉTUEL, la part des
+  longs de tous les comptes contre celle de l'argent des gros, prolongée
+  par le journal au-delà des trente jours de Binance.
 - ~~**Une bougie sans heure de clôture**~~ — fait le 12 novembre 2026
   (§3.2) : le temps qui reste avant la clôture, à la seconde, sur
   l'étiquette du dernier prix.

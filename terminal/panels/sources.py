@@ -36,6 +36,7 @@ FAMILIES = {
     "perp": "Perpétuel · Binance Futures",
     "funding": "Financement · Binance Futures",
     "oi": "Open interest · Binance Futures",
+    "long_short": "Positionnement · Binance Futures",
     "perp_bybit": "Perpétuel · Bybit",
     "perp_okx": "Perpétuel · OKX",
     "options": "Chaîne d'options · Deribit",

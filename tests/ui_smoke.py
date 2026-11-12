@@ -1081,6 +1081,18 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("et tout tient dans la largeur", browser.js(
             "const e = document.getElementById('perp-compare');"
             "return e.scrollWidth <= e.clientWidth;"))
+        # Le positionnement : un second pane, la foule et les gros en %,
+        # entre 0 et 100 — ou vide, Binance Futures injoignable.
+        browser.wait_for("window.lwcPerp && window.lwcPerp.debug()"
+                         " && window.lwcPerp.debug().top > 0", timeout=20)
+        position = browser.js("return window.lwcPerp.debug();") or {}
+        check("le positionnement a son pane : la foule et les gros, en %",
+              position.get("panes") == 2
+              and (position.get("top", 0) == 0
+                   or (0 < (position.get("crowdLast") or -1) < 100
+                       and 0 < (position.get("topLast") or -1) < 100)),
+              f"foule {position.get('crowdLast')} · gros {position.get('topLast')}"
+              f" · {position.get('top')} points")
 
         print("\nOnglet position")
         browser.js("window.btcCommand('position');")
