@@ -2340,6 +2340,26 @@ module `options` (§2.11) en quatre vues :
   étiquettes du forward et du max pain s'écartent l'une de l'autre, la plus
   basse à gauche de sa ligne : centrées, elles se chevauchaient dès que les
   deux niveaux étaient proches.
+- **GEX** — l'exposition gamma des teneurs de marché, par strike
+  (`options.gamma_exposure`) : pour chaque option vivante, le gamma de
+  Black-76 sur le forward de son échéance (`gamma`, vérifié contre la dérivée
+  du delta) × l'open interest × le prix² × 1 % — les dollars que les teneurs
+  achètent ou vendent pour rester couverts quand le prix bouge de 1 %. Toutes
+  échéances additionnées, une option à moins d'une heure de la sienne écartée :
+  son gamma, concentré au strike, écraserait le reste. Le signe suit la
+  convention du GEX « naïf » (`GEX_SIGNS`) : teneurs acheteurs des calls —
+  les clients en vendent pour du rendement —, vendeurs des puts — les clients
+  en achètent pour se couvrir ; c'est une hypothèse, écrite sur le
+  graphique, la chaîne ne disant pas qui tient quoi. `gamma_profile`
+  recalcule le total pour des prix hypothétiques à ±20 %, les forwards
+  suivant le prix, et `gamma_flip` y trouve le prix où il change de signe,
+  le plus proche du prix du jour. Le 12 novembre 2026 : −113 M$ par 1 % au
+  prix du jour, la masse des puts de 70 000 à 75 000 $, et un flip à
+  75 500 $. La grille montre le net par strike, vert ou rouge, avec le prix
+  et le flip ; le plein écran la part des calls et des puts, et dessous la
+  courbe du total. Le second graphique gardait le quadrillage blanc de
+  Plotly — `_options_layout` ne parait que le premier jeu d'axes —, d'où un
+  style posé sur tous les axes.
 
 Le titre porte DVOL, le skew 25 delta à un mois et le ratio put/call ; le plein
 écran y ajoute la réalisée et la prime, la volatilité à un mois, le put/call
@@ -3691,6 +3711,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Des options sans leur effet sur le spot**~~ — fait le 12 novembre 2026
+  (§3.16) : la vue GEX, l'exposition gamma des teneurs par strike, son
+  profil selon le prix et le gamma flip, convention dite.
 - ~~**Des heures sans profil**~~ — fait le 12 novembre 2026 (§3.14) : la
   vue « heures » du panneau ANALYSE, l'amplitude moyenne par jour et par
   heure sur un an de bougies horaires.

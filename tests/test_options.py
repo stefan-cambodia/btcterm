@@ -252,6 +252,64 @@ def test_forward_et_max_pain_ne_se_chevauchent_pas():
     print("  ✓ étiquettes écartées l'une de l'autre ; échéances sous la barre")
 
 
+def test_l_exposition_gamma_des_teneurs():
+    """Le gamma est la dérivée du delta ; le GEX naïf compte les calls en
+    positif et les puts en négatif ; le flip est le prix où le total change
+    de signe ; le graphique dit sa convention."""
+    from terminal import charts
+
+    forward, strike, annees, iv = 75_000.0, 80_000.0, 30 / 365, 0.5
+    pas = 1.0
+    derivee = (opt.call_delta(forward + pas, strike, annees, iv)
+               - opt.call_delta(forward - pas, strike, annees, iv)) / (2 * pas)
+    assert abs(float(opt.gamma(forward, strike, annees, iv)) - derivee) < 1e-9
+
+    def chaine(*lignes_):
+        return opt.option_chain(list(lignes_))
+
+    call = ligne("BTC-13NOV26-75000-C", iv=50, oi=100)
+    put = ligne("BTC-13NOV26-75000-P", iv=50, oi=100)
+    seul_call = opt.gamma_exposure(chaine(call), NOW)
+    seul_put = opt.gamma_exposure(chaine(put), NOW)
+    assert seul_call["total"] > 0 > seul_put["total"]
+    assert abs(seul_call["total"] + seul_put["total"]) < 1e-6
+    deux = opt.gamma_exposure(chaine(call, put), NOW)
+    assert abs(deux["total"]) < 1e-6 and list(deux["table"]["strike"]) == [75_000]
+    # Gamma × OI × prix² × 1 % : se vérifie à la main. Deribit expire à
+    # 8 h UTC : du 6 à 6 h au 13 à 8 h, cent soixante-dix heures.
+    g = float(opt.gamma(75_000, 75_000, 170 / (365 * 24), 0.5))
+    assert abs(seul_call["total"] - g * 100 * 74_900 ** 2 * 0.01) \
+        < 1e-6 * seul_call["total"]
+    assert opt.gamma_exposure(chaine(), NOW) is None
+    perime = ligne("BTC-5NOV26-75000-C", iv=50, oi=100)
+    assert opt.gamma_exposure(chaine(perime), NOW) is None, "échéance passée"
+
+    # Des puts sous le prix, des calls au-dessus : le total change de signe
+    # entre les deux, et le flip tombe là.
+    melange = chaine(ligne("BTC-13NOV26-70000-P", iv=50, oi=300),
+                     ligne("BTC-13NOV26-80000-C", iv=50, oi=300))
+    profil = opt.gamma_profile(melange, NOW)
+    flip = opt.gamma_flip(profil, 74_900)
+    assert 70_000 < flip < 80_000, flip
+    assert opt.gamma_flip(profil.iloc[0:1]) is None
+    plat = profil.assign(gex=1.0)
+    assert opt.gamma_flip(plat) is None, "sans changement de signe, pas de flip"
+
+    gex = opt.gamma_exposure(melange, NOW)
+    petite = charts.build_gex_chart(gex, profil, flip)
+    assert [t.name for t in petite.data] == ["GEX net"]
+    textes = [a.text for a in petite.layout.annotations]
+    assert any("convention" in t for t in textes)
+    assert any(t.startswith("flip ") for t in textes)
+    grande = charts.build_gex_chart(gex, profil, flip, maximized=True)
+    assert [t.name for t in grande.data] == ["calls", "puts", "total"]
+    vide = charts.build_gex_chart(None, None, None)
+    assert "indisponible" in vide.layout.annotations[0].text
+    assert "GEX" in charts.OPTIONS_VIEWS
+    print("  ✓ gamma = dérivée du delta, calls +, puts −, flip entre les deux, "
+          "convention dite")
+
+
 def test_le_vide_vaut_panne():
     class Reponse:
         def __init__(self, payload):

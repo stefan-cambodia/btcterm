@@ -1303,6 +1303,7 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         #: figure vide qui annonce son absence. Un délai fixe lisait sous
         #: charge la figure de la vue précédente.
         signature = {"TERME": "à la monnaie", "STRIKES": "calls",
+                     "GEX": "GEX net",
                      "HISTO": "skew 25Δ", "VOL": "DVOL (implicite 30 j)"}
 
         def options_view(label):
@@ -1354,6 +1355,15 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("STRIKES : la barre de titre tient, échéances comprises",
               strikes["deborde"] <= 1 and terme["deborde"] <= 1,
               f"{strikes['deborde']} px de trop")
+        gex = options_view("GEX")
+        convention = browser.js("""
+            const gd = document.querySelector('#options-chart .js-plotly-plot');
+            return (gd.layout.annotations || []).map(a => a.text).join(' | ');
+        """)
+        check("GEX : le net par strike et sa convention, ou vide annoté",
+              gex["vide"] or ("GEX net" in gex["traces"]
+                              and "convention" in convention),
+              convention[:90])
         histo = options_view("HISTO")
         annotation = browser.js("""
             const gd = document.querySelector('#options-chart .js-plotly-plot');

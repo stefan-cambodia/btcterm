@@ -29,8 +29,8 @@ from dash import Input, Output, State, dcc, html, no_update
 from btcterm import options as opt
 
 from ..charts import (OPTIONS_DEFAULT_VIEW, OPTIONS_VIEWS,
-                      build_options_history, build_strikes_chart,
-                      build_term_chart, build_vol_chart)
+                      build_gex_chart, build_options_history,
+                      build_strikes_chart, build_term_chart, build_vol_chart)
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
 #: Rafraîchissement propre au panneau : la chaîne d'options vit à la
@@ -229,6 +229,12 @@ def register(app, hub):
             figure = build_options_history(
                 hub.market_snapshots(HISTORY_DAYS), maximized=maximized,
                 uirevision=f"options:history:{maximized}")
+        elif view == "GEX":
+            gex = opt.gamma_exposure(chain, now)
+            profile = opt.gamma_profile(chain, now)
+            flip = opt.gamma_flip(profile, gex["spot"] if gex else None)
+            figure = build_gex_chart(gex, profile, flip, maximized=maximized,
+                                     uirevision=f"options:gex:{maximized}")
         elif view == "TERME":
             figure = build_term_chart(opt.term_structure(chain, now), futures,
                                       maximized=maximized,

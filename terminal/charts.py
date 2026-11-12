@@ -40,6 +40,7 @@ __all__ = ["VOL_BINS", "prepare_price_frame",
            "etf_total_column", "format_flow",
            "ETF_WINDOWS", "ETF_DEFAULT_WINDOW",
            "OPTIONS_VIEWS", "OPTIONS_DEFAULT_VIEW", "build_vol_chart",
+           "build_gex_chart",
            "build_term_chart", "build_strikes_chart",
            "MARKETS_VIEWS", "MARKETS_WINDOWS", "MARKETS_DEFAULT_WINDOW",
            "MARKET_COLORS", "build_markets_chart", "build_options_history",
@@ -1074,7 +1075,7 @@ def _etf_empty(message: str) -> go.Figure:
 
 #: Les trois vues du panneau options, dans l'ordre du sélecteur.
 OPTIONS_VIEWS = {"VOL": "vol", "TERME": "term", "STRIKES": "strikes",
-                 "HISTO": "history"}
+                 "GEX": "gex", "HISTO": "history"}
 OPTIONS_DEFAULT_VIEW = "VOL"
 
 #: Strikes montrés autour du forward, en fraction : au-delà, l'open interest
@@ -1244,6 +1245,89 @@ def build_strikes_chart(table: pd.DataFrame, forward: float | None,
                           annotation_position=side)
     if view.empty:
         _options_empty(fig, "open interest indisponible")
+    return fig
+
+
+def build_gex_chart(gex: dict | None, profile: pd.DataFrame | None,
+                    flip: float | None, uirevision: str = "options:gex",
+                    maximized: bool = False) -> go.Figure:
+    """L'exposition gamma des teneurs de marché, par strike (§ options.
+    gamma_exposure), en millions de dollars par 1 % de mouvement.
+
+    Dans la grille, le GEX net de chaque strike, vert s'il tasse le marché,
+    rouge s'il l'étire, avec le prix du jour et le « gamma flip » — le prix
+    où le total change de signe. En plein écran, la part des calls et celle
+    des puts, et dessous le GEX total pour des prix hypothétiques : la
+    courbe qui coupe zéro au flip. La convention de signe est écrite sur le
+    graphique : c'est une hypothèse, pas une donnée.
+    """
+    if gex is None or gex["table"].empty:
+        fig = go.Figure()
+        _options_layout(fig, uirevision, maximized)
+        return _options_empty(fig, "chaîne d'options indisponible")
+    table = gex["table"]
+    if maximized:
+        fig = make_subplots(rows=2, cols=1, row_heights=[0.62, 0.38],
+                            vertical_spacing=0.1, shared_xaxes=True,
+                            subplot_titles=(
+                                "GEX par strike, calls et puts (M$ par 1 %)",
+                                "GEX total selon le prix (M$ par 1 %)"))
+        for column, name, color in (("calls", "calls", C["green"]),
+                                    ("puts", "puts", C["red"])):
+            fig.add_trace(go.Bar(
+                x=table["strike"], y=table[column] / 1e6, name=name,
+                marker=dict(color=color, opacity=0.8),
+                hovertemplate=(f"{name} %{{y:+,.1f}} M$ · strike "
+                               "%{x:,.0f}<extra></extra>")), row=1, col=1)
+        if profile is not None and not profile.empty:
+            fig.add_trace(go.Scatter(
+                x=profile["price"], y=profile["gex"] / 1e6, name="total",
+                mode="lines", line=dict(color=C["yellow"], width=2),
+                hovertemplate=("à %{x:,.0f} : %{y:+,.0f} M$ par 1 %"
+                               "<extra></extra>")), row=2, col=1)
+            fig.add_hline(y=0, line=dict(color=C["muted"], width=1),
+                          row=2, col=1)
+        fig.update_layout(barmode="relative")
+    else:
+        fig = go.Figure(go.Bar(
+            x=table["strike"], y=table["net"] / 1e6, name="GEX net",
+            marker=dict(color=[C["green"] if v >= 0 else C["red"]
+                               for v in table["net"]], opacity=0.85),
+            hovertemplate="GEX net %{y:+,.1f} M$ · strike %{x:,.0f}<extra></extra>"))
+    _options_layout(fig, uirevision, maximized)
+    fig.update_layout(bargap=0.2, hovermode="closest", showlegend=maximized)
+    if maximized:
+        # `_options_layout` ne pare que le premier jeu d'axes : sans ceci,
+        # le second graphique gardait le quadrillage blanc de Plotly.
+        axis = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
+                    tickfont=dict(size=9, color=C["muted"]))
+        fig.update_xaxes(**axis)
+        fig.update_yaxes(**axis)
+    spot = gex["spot"]
+    # Le prix et le flip en verticales, chacune son étiquette du côté
+    # opposé à l'autre — la règle des strikes (forward et max pain).
+    lower = (None if flip is None else "prix" if spot <= flip else "flip")
+    for value, label, color, dash in ((spot, "prix", C["text"], "dash"),
+                                      (flip, "flip", C["yellow"], "dot")):
+        if value is None:
+            continue
+        side = ("top" if lower is None else
+                "top left" if label == lower else "top right")
+        fig.add_vline(x=value, line=dict(color=color, width=1, dash=dash),
+                      annotation_text=f"{label} {value:,.0f}",
+                      annotation_font=dict(size=9, color=color),
+                      annotation_position=side)
+    total = gex["total"] / 1e6
+    regime = ("tasse le marché" if total >= 0 else "étire le marché")
+    fig.add_annotation(
+        text=(f"GEX net {total:+z,.0f} M$ par 1 % — {regime} · convention : "
+              "teneurs acheteurs de calls, vendeurs de puts"),
+        xref="paper", yref="paper", x=0, y=1, xanchor="left", yanchor="bottom",
+        showarrow=False, font=dict(family=MONO, size=9, color=C["muted"]))
+    if maximized:
+        for note in fig.layout.annotations:
+            if note.text and note.text.startswith("GEX "):
+                note.font = dict(family=MONO, size=9, color=C["muted"])
     return fig
 
 

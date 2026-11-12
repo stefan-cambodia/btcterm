@@ -108,7 +108,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 | **Marchés** | le bitcoin face au S&P 500, au Nasdaq, à l'or, au dollar et au taux à 10 ans : performance comparée en base 100 ou corrélation glissante sur 30 séances, tableau des cours, variations et corrélations à 30 et 90 séances (onglet de la macro) | 5 min |
 | **Cycle** | où en est le bitcoin depuis le halving et depuis le sommet : compte à rebours du prochain halving, cycles superposés en multiple du cours du jour du halving, multiple de Mayer et son rang, repli depuis le plus haut, moyenne de 200 semaines, Pi cycle (onglet de la macro) | 5 min |
 | **Sources** | l'état de chaque source — carnets, fils de liquidations, API REST, tâches de fond : ok, secours, panne, muet ou coupé, âge de la dernière donnée fraîche et dernière erreur ; ouvert aussi par l'avertissement « ⚠ N sources » du bandeau (onglet de l'arbitrage) | 10 s |
-| **Options** | marché des options Deribit en quatre vues : DVOL contre volatilité réalisée ; volatilité par échéance avec ses ailes 25 delta, au-dessus de la base annualisée des futures ; open interest par strike d'une échéance, forward et max pain ; historique du skew et de la volatilité, noté par le journal. Skew, put/call, open interest total au titre ; DVOL aussi au bandeau (onglet de la macro) | 1 min |
+| **Options** | marché des options Deribit en cinq vues : DVOL contre volatilité réalisée ; volatilité par échéance avec ses ailes 25 delta, au-dessus de la base annualisée des futures ; open interest par strike d'une échéance, forward et max pain ; exposition gamma des teneurs de marché (GEX) par strike et son « gamma flip » ; historique du skew et de la volatilité, noté par le journal. Skew, put/call, open interest total au titre ; DVOL aussi au bandeau (onglet de la macro) | 1 min |
 
 Les **liquidations** sont le pendant du perpétuel : quand une position à levier
 ne couvre plus sa marge, la plateforme la ferme au marché, et ces fermetures
@@ -451,7 +451,15 @@ qui se paie —, au-dessus de la base annualisée des futures à échéance, le
 pendant à terme du financement du perpétuel. **STRIKES** montre l'open interest
 d'une échéance par strike, calls contre puts, avec le forward et le max pain :
 le prix où les acheteurs d'options perdraient le plus à l'échéance, une
-lecture du positionnement et non une prévision. **HISTO** relit ce que seul le
+lecture du positionnement et non une prévision. **GEX** estime l'exposition gamma
+des teneurs de marché, par strike, en millions de dollars par 1 % de
+mouvement : ce qu'ils doivent acheter ou vendre pour rester couverts quand le
+prix bouge. Positive, ils vendent la hausse et achètent la baisse — le marché se
+tasse ; négative, ils suivent le mouvement — il s'étire. Le « gamma flip » est le
+prix où le total change de signe ; en plein écran, la part des calls et des
+puts, et le GEX total selon le prix. La convention de signe — teneurs acheteurs
+des calls, vendeurs des puts — est une hypothèse usuelle, écrite sur le
+graphique : la chaîne ne dit pas qui tient quoi. **HISTO** relit ce que seul le
 journal garde : Deribit ne sert gratuitement l'historique que de DVOL, et le
 terminal note toutes les cinq minutes la volatilité à un mois, le skew, le
 put/call et la base depuis le 6 novembre 2026 — la vue se remplit à l'usage. Le titre donne le skew 25 delta

@@ -35,7 +35,8 @@ import numpy as np
 import pandas as pd
 
 __all__ = [
-    "MIN_DAYS", "call_delta", "front_expiry", "futures_curve", "max_pain",
+    "MIN_DAYS", "call_delta", "gamma", "gamma_exposure", "gamma_profile",
+    "gamma_flip", "front_expiry", "futures_curve", "max_pain",
     "option_chain", "parse_instrument", "put_call_ratio", "strike_table",
     "summary", "term_structure",
 ]
@@ -89,6 +90,127 @@ def call_delta(forward: float, strike: float, years: float, iv: float) -> float:
         return 1.0 if forward > strike else 0.0
     d1 = (math.log(forward / strike) + 0.5 * iv * iv * years) / (iv * math.sqrt(years))
     return 0.5 * (1.0 + math.erf(d1 / math.sqrt(2.0)))
+
+
+def gamma(forward, strike, years, iv):
+    """Gamma en Black-76, taux nul : φ(d1) / (F σ √T) — le même pour un
+    call et un put. Vectorisé : scalaires ou tableaux numpy."""
+    forward, strike, years, iv = (np.asarray(x, dtype=float)
+                                  for x in (forward, strike, years, iv))
+    root = iv * np.sqrt(years)
+    d1 = (np.log(forward / strike) + 0.5 * iv * iv * years) / root
+    return np.exp(-0.5 * d1 * d1) / math.sqrt(2.0 * math.pi) / (forward * root)
+
+
+#: Le GEX « naïf » suppose les teneurs de marché acheteurs des calls (les
+#: clients en vendent, pour du rendement) et vendeurs des puts (les clients
+#: en achètent, pour se couvrir) : +1 pour un call, −1 pour un put. C'est
+#: une convention, pas une donnée — la chaîne ne dit pas qui tient quoi.
+GEX_SIGNS = {"C": 1.0, "P": -1.0}
+
+#: Une option à moins d'une heure de son échéance n'a plus qu'un gamma
+#: concentré au strike, qui écraserait le reste : elle n'est pas comptée.
+GEX_MIN_YEARS = 1.0 / (365.0 * 24.0)
+
+
+def _gex_rows(chain: pd.DataFrame, now: pd.Timestamp):
+    """Les options vivantes, en tableaux : strike, signe, OI, années,
+    volatilité, forward — et le prix de l'indice."""
+    rows = chain[(chain["oi"] > 0) & (chain["iv"] > 0)]
+    years = ((rows["expiry"] - now).dt.total_seconds()
+             / (365.0 * 86_400)).to_numpy()
+    keep = years >= GEX_MIN_YEARS
+    rows = rows[keep]
+    if rows.empty:
+        return None
+    return {"strike": rows["strike"].to_numpy(dtype=float),
+            "sign": rows["kind"].map(GEX_SIGNS).to_numpy(dtype=float),
+            "oi": rows["oi"].to_numpy(dtype=float),
+            "years": years[keep],
+            "iv": rows["iv"].to_numpy(dtype=float),
+            "forward": rows["forward"].to_numpy(dtype=float),
+            "spot": float(rows["index"].median())}
+
+
+def _gex(rows: dict, shift: float = 1.0):
+    """Le GEX de chaque option, en dollars par 1 % de mouvement, pour un
+    prix décalé de `shift` (les forwards suivent)."""
+    spot = rows["spot"] * shift
+    g = gamma(rows["forward"] * shift, rows["strike"], rows["years"], rows["iv"])
+    return rows["sign"] * g * rows["oi"] * spot * spot * 0.01
+
+
+def gamma_exposure(chain: pd.DataFrame, now: Optional[pd.Timestamp] = None,
+                   span: float = 0.25) -> Optional[dict]:
+    """L'exposition gamma des teneurs de marché, par strike.
+
+    Pour chaque option, gamma × open interest (en BTC) × prix² × 1 % : les
+    dollars de bitcoin que les teneurs achètent ou vendent pour rester
+    couverts quand le prix bouge de 1 %. Positive (convention `GEX_SIGNS`),
+    ils vendent la hausse et achètent la baisse — le marché se tasse ;
+    négative, ils suivent le mouvement — il s'étire. Toutes échéances
+    vivantes additionnées. Rend `None` sans option ; sinon `table`
+    (strike, calls, puts, net — les strikes à `span` du prix), `total` (le
+    GEX net au prix du jour) et `spot`.
+    """
+    if chain is None or chain.empty:
+        return None
+    now = pd.Timestamp.now(tz="UTC") if now is None else now
+    rows = _gex_rows(chain, now)
+    if rows is None:
+        return None
+    gex = _gex(rows)
+    frame = pd.DataFrame({"strike": rows["strike"], "gex": gex,
+                          "kind": np.where(rows["sign"] > 0, "C", "P")})
+    table = (frame.pivot_table(index="strike", columns="kind", values="gex",
+                               aggfunc="sum", fill_value=0.0)
+             .reindex(columns=["C", "P"], fill_value=0.0)
+             .rename(columns={"C": "calls", "P": "puts"}).reset_index())
+    table["net"] = table["calls"] + table["puts"]
+    spot = rows["spot"]
+    table = table[(table["strike"] >= spot * (1 - span))
+                  & (table["strike"] <= spot * (1 + span))]
+    return {"table": table.reset_index(drop=True), "total": float(gex.sum()),
+            "spot": spot}
+
+
+def gamma_profile(chain: pd.DataFrame, now: Optional[pd.Timestamp] = None,
+                  span: float = 0.2, steps: int = 81) -> Optional[pd.DataFrame]:
+    """Le GEX net total pour des prix hypothétiques autour du prix du jour :
+    `price`, `gex`. C'est lui qui dit où les teneurs passent d'un régime à
+    l'autre (`gamma_flip`)."""
+    if chain is None or chain.empty:
+        return None
+    now = pd.Timestamp.now(tz="UTC") if now is None else now
+    rows = _gex_rows(chain, now)
+    if rows is None:
+        return None
+    shifts = np.linspace(1 - span, 1 + span, steps)
+    return pd.DataFrame({"price": rows["spot"] * shifts,
+                         "gex": [float(_gex(rows, s).sum()) for s in shifts]})
+
+
+def gamma_flip(profile: Optional[pd.DataFrame],
+               spot: Optional[float] = None) -> Optional[float]:
+    """Le prix où le GEX net change de signe — le plus proche du prix du
+    jour s'il y en a plusieurs —, interpolé entre deux points du profil."""
+    if profile is None or len(profile) < 2:
+        return None
+    prices = profile["price"].to_numpy()
+    values = profile["gex"].to_numpy()
+    crossings = []
+    for i in range(len(values) - 1):
+        a, b = values[i], values[i + 1]
+        if a == 0:
+            crossings.append(float(prices[i]))
+        elif a * b < 0:
+            crossings.append(float(prices[i] + (prices[i + 1] - prices[i])
+                                   * a / (a - b)))
+    if not crossings:
+        return None
+    if spot is None:
+        spot = float(prices[len(prices) // 2])
+    return min(crossings, key=lambda price: abs(price - spot))
 
 
 def option_chain(rows: Iterable[dict]) -> pd.DataFrame:
