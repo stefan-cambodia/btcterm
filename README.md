@@ -810,7 +810,9 @@ les lignes) ou un seuil de cours en dollars (`alerte 80000`). Une commande incon
 - La bascule `$`/`€` du panneau prix vaut pour tout ce qui décrit le marché du
   moment : bandeau, carnet, arbitrage, liquidations, open interest,
   capitalisation. Les flux ETF, le journal et les seuils d'alerte restent en
-  dollars.
+  dollars. Le taux est celui du marché EUR/USDT de Binance, relu toutes les
+  cinq minutes — le cours en euros tombe ainsi sur le carnet BTC/EUR —, et
+  à défaut le taux de référence de la BCE.
 - Aucun de ces scripts n'écrit d'ordre sur un exchange ; ils sont en lecture
   seule sur des endpoints publics.
 - Le hub contourne de lui-même un résolveur DNS qui empoisonne les noms des

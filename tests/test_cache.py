@@ -282,6 +282,67 @@ def test_le_taux_en_cache_ne_touche_pas_au_reseau():
     print("  ✓ taux en cache servi sans réseau, secours signalé")
 
 
+def test_le_taux_eur_est_celui_du_marche():
+    """Le cours vient de BTC/USDT : le taux qui le change en euros est le
+    marché EUR/USDT, qui retombe sur le carnet BTC/EUR de Binance à
+    0,001 % près le 12 novembre 2026, quand les taux de référence
+    l'écartaient de 0,3 à 0,9 %. En secours, la référence de la BCE ;
+    une réponse absurde ne passe pas pour un cours."""
+
+    class Reponse:
+        def __init__(self, payload, status=200):
+            self.payload, self.status_code = payload, status
+
+        def raise_for_status(self):
+            if self.status_code >= 400:
+                raise ConnectionError(f"HTTP {self.status_code}")
+
+        def json(self):
+            return self.payload
+
+    demandes = []
+
+    def faux_get(reponses):
+        def get(url, params=None, **_):
+            demandes.append((url, params))
+            reponse = reponses[url]
+            if isinstance(reponse, Exception):
+                raise reponse
+            return reponse
+        return get
+
+    marche, bce = sources.FX_MARKET_URL, sources.FX_REFERENCE_URL
+    original = sources._http.get
+    try:
+        sources._http.get = faux_get({marche: Reponse({"symbol": "EURUSDT",
+                                                       "price": "1.10790000"}),
+                                      bce: AssertionError("pas demandée")})
+        assert abs(sources.fetch_eur_rate() - 1 / 1.1079) < 1e-12
+        assert demandes == [(marche, {"symbol": "EURUSDT"})]
+
+        for panne in (ConnectionError("Binance injoignable"),
+                      Reponse({}, status=451),
+                      Reponse({"price": "0.00000000"})):
+            demandes.clear()
+            sources._http.get = faux_get({marche: panne, bce: Reponse(
+                {"amount": 1.0, "base": "USD", "date": "2026-11-11",
+                 "rates": {"EUR": 0.89871}})})
+            assert sources.fetch_eur_rate() == 0.89871, panne
+            assert demandes[-1] == (bce, {"base": "USD", "symbols": "EUR"})
+
+        sources._http.get = faux_get({marche: ConnectionError("coupé"),
+                                      bce: Reponse({}, status=503)})
+        try:
+            sources.fetch_eur_rate()
+        except RuntimeError as erreur:
+            assert "marché EUR/USDT" in str(erreur) and "BCE" in str(erreur)
+        else:
+            raise AssertionError("deux sources en panne doivent lever")
+    finally:
+        sources._http.get = original
+    print("  ✓ taux € : le marché EUR/USDT, la BCE en secours, l'absurde écarté")
+
+
 def test_le_taux_eur_se_dit_de_secours():
     """La source de change tombe : le dernier bon taux reste servi, dit
     de secours, et la source n'est réinterrogée qu'après `EUR_RETRY`.

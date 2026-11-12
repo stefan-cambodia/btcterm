@@ -53,7 +53,8 @@ def price_title(currency: str | None, rate: float, stale: bool = False) -> str:
     title = "milieu du carnet de la plateforme la plus fraîche"
     if currency != "EUR":
         return title
-    title += f", converti à 1 $ = {rate:.4f} €"
+    title += (f", converti à 1 $ = {rate:.4f} € — le marché EUR/USDT, ou à "
+              "défaut le taux de référence de la BCE")
     if stale:
         title += " — taux de secours : source de change injoignable"
     return title

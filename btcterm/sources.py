@@ -91,7 +91,10 @@ class _ReprendRupture(requests.adapters.HTTPAdapter):
 
 _http = requests.Session()
 _http.mount("https://", _ReprendRupture(pool_connections=32, pool_maxsize=16))
-FX_URL = "https://api.exchangerate-api.com/v4/latest/USD"
+#: Le taux USD→EUR : le marché EUR/USDT de Binance, et en secours le taux
+#: de référence de la BCE (Frankfurter v1, sans clé). Voir `fetch_eur_rate`.
+FX_MARKET_URL = f"{BINANCE_REST}/ticker/price"
+FX_REFERENCE_URL = "https://api.frankfurter.dev/v1/latest"
 #: Flux des ETF spot — la page « all data » de farside.co.uk plutôt que
 #: sa page d'accueil : celle-ci ne publie plus que les trois dernières
 #: semaines, quand l'autre sert le même tableau depuis le lancement des
@@ -390,15 +393,45 @@ def generate_demo_ohlcv(
 
 
 def fetch_eur_rate() -> float:
-    """Taux USD→EUR. Lève si la source ne répond pas.
+    """Taux USD→EUR. Lève si aucune source ne répond.
 
-    Le repli appartient au hub : une valeur figée rendue d'ici se
-    faisait mettre en cache une heure comme une lecture réussie, à la
-    place du dernier bon taux, et sans une ligne de journal.
+    **Le marché, pas une référence.** Les « dollars » du terminal sont
+    des USDT — le cours vient de BTC/USDT —, et le seul taux qui les
+    change en euros sans écart est celui du marché EUR/USDT : le 12
+    novembre 2026, BTC/USDT ÷ EUR/USDT tombait à 0,001 % du carnet
+    BTC/EUR de Binance, quand les taux de référence le sous-évaluaient
+    de 0,3 à 0,9 % — 200 € sur le cours, affiché au centime. La source
+    précédente (exchangerate-api v4) rendait de plus un taux arrondi à
+    deux décimales, 0,9 pour 0,899865, et se disait périmée.
+
+    En secours, le taux de référence de la BCE (Frankfurter v1, sans
+    clé, publié chaque jour ouvré vers 16 h) : moins juste que le
+    marché, mieux qu'un taux figé. Le repli ultime appartient au hub :
+    une valeur figée rendue d'ici se faisait mettre en cache comme une
+    lecture réussie, à la place du dernier bon taux, et sans une ligne
+    de journal.
     """
-    response = _http.get(FX_URL, timeout=5)
-    response.raise_for_status()
-    return float(response.json()["rates"]["EUR"])
+    try:
+        response = _http.get(FX_MARKET_URL, params={"symbol": "EURUSDT"},
+                             timeout=5)
+        response.raise_for_status()
+        price = float(response.json()["price"])
+        # Un euro entre 0,5 et 2 dollars : une réponse hors de cette
+        # plage n'est pas un cours, c'est une panne qui a pris sa forme.
+        if not 0.5 < price < 2.0:
+            raise ValueError(f"EUR/USDT {price} hors de toute plage plausible")
+        return 1.0 / price
+    except Exception as marche:  # noqa: BLE001 — le secours est là pour ça
+        try:
+            response = _http.get(FX_REFERENCE_URL,
+                                 params={"base": "USD", "symbols": "EUR"},
+                                 timeout=5)
+            response.raise_for_status()
+            return float(response.json()["rates"]["EUR"])
+        except Exception as reference:  # noqa: BLE001
+            raise RuntimeError(f"marché EUR/USDT : {brief_error(marche)} ; "
+                               f"référence BCE : {brief_error(reference)}"
+                               ) from reference
 
 
 # ─────────────────────────────────────────────────────────────

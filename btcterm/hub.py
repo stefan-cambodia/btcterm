@@ -369,7 +369,9 @@ class MarketHub:
     #: relit, s'efface ainsi d'elle-même au lieu de rester affichée.
     FAILING_WINDOW = FAILING_WINDOW
     TTL_TICKER = 5
-    TTL_EUR = 3600
+    #: Le taux € est celui du marché EUR/USDT (§ sources.fetch_eur_rate) :
+    #: cinq minutes, l'euro y bouge d'un ou deux dix-millièmes.
+    TTL_EUR = 300
     #: Délai avant de réinterroger une source de change en panne.
     EUR_RETRY = 60
     #: Taux servi quand la source de change n'a jamais répondu —

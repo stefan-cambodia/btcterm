@@ -2434,6 +2434,21 @@ Pendant la panne, la source n'est réinterrogée qu'une fois par
 `EUR_RETRY` : le bandeau lit le taux toutes les deux secondes, et chaque
 essai peut coûter les cinq secondes du timeout.
 
+**Le taux est celui du marché.** Le cours du terminal est un cours
+BTC/USDT ; le taux qui le change en euros sans écart est le marché
+EUR/USDT. Le 12 novembre 2026, BTC/USDT ÷ EUR/USDT tombait à 0,001 % du
+carnet BTC/EUR de Binance, quand les taux de référence le sous-évaluaient :
+0,29 % pour celui d'exchangerate-api v4, la source d'alors, 0,43 % pour la
+BCE de la veille, 0,93 % pour le taux « mélangé » de Frankfurter v2 —
+le bandeau affichait 66 430 € quand le marché traitait à 66 631. La v4
+rendait de plus ses taux arrondis à deux décimales (0,9 pour 0,899865)
+et se disait périmée ; son successeur sans clé exige un lien
+d'attribution sur la page. `fetch_eur_rate` lit donc le ticker EUR/USDT
+de Binance (un cours hors de 0,5–2 $ est une panne, pas un cours), et en
+secours le taux de référence de la BCE par Frankfurter v1, sans clé ni
+attribution ; le cache passe d'une heure à cinq minutes (`TTL_EUR`).
+Vérifié à l'écran : le bandeau en euros à 0,012 % du carnet BTC/EUR.
+
 Le carnet suit la même devise, et le même ⚠ sur sa ligne de spread, mais
 ne lit pas ce taux de la même façon : le pousseur le rend quatre fois par
 seconde et dormirait le temps de l'appel. `eur_rate_cached` ne sert donc
@@ -2767,7 +2782,7 @@ regarde ; il plafonnait pour le graphique qu'on manipule.
 `btcterm/hub.py` — `MarketHub` ouvre **une** connexion par plateforme dans un
 thread démon, entretient les cinq carnets, expose le moteur d'arbitrage et met
 en cache les appels REST avec une durée de vie propre à chaque nature de donnée
-(chandeliers 5 s, taux de change 1 h, flux ETF 30 min, masse monétaire 6 h).
+(chandeliers 5 s, taux de change 5 min, flux ETF 30 min, masse monétaire 6 h).
 
 Le cache conserve la dernière valeur connue quand un rafraîchissement échoue :
 un panneau qui affiche une donnée un peu datée vaut mieux qu'un panneau vide.
@@ -3526,6 +3541,12 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Un cours en euros à 0,3 % du marché**~~ — vu le 12 novembre 2026 :
+  le taux € venait d'exchangerate-api v4, arrondi à deux décimales,
+  périmé, et — comme toute référence — à côté du marché où le bitcoin se
+  traite en euros : 66 430 € au bandeau, 66 631 au carnet BTC/EUR. Fait
+  (§4.3) : le marché EUR/USDT de Binance, la BCE en secours, cinq minutes
+  de cache ; l'écart au carnet tombe à 0,012 %.
 - ~~**Une case cochée qui dézoomait**~~ — vu le 12 novembre 2026 en
   cochant CVD, NIV et LIQ en 1h : chaque case reconstruit le graphique, qui
   recadrait sur toute la série chargée, et le plein écran de même — 350
