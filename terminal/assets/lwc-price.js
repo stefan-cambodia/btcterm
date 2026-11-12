@@ -132,6 +132,16 @@
     }
 
     // Oscillateurs bornés : l'axe reste 0-100 quel que soit le tracé.
+    // Les oscillateurs bornés (RSI, CRSI) : échelle figée sur 0-100, et
+    // une marge mesurée autour. Sans marge, « 100 » tombait sur le bord
+    // du pane et le séparateur le coupait en deux ; les marges par défaut
+    // étiraient l'axe jusqu'à des rangs négatifs. À 8 % de chaque côté,
+    // l'axe court de −9,5 à 109,5 : aucune graduation hors de 0-100, que
+    // le pas soit de 10 ou de 20. En entiers sur l'axe — la légende garde
+    // la décimale.
+    var OSCILLATOR_MARGINS = {top: 0.08, bottom: 0.08};
+    var OSCILLATOR_FORMAT = {type: "price", precision: 0, minMove: 1};
+
     function fixedScale(min, max) {
         return function () {
             return {priceRange: {minValue: min, maxValue: max}};
@@ -221,12 +231,11 @@
             series.rsi = state.chart.addSeries(LWC.LineSeries, {
                 color: theme.blue, lineWidth: 2,
                 priceLineVisible: false, lastValueVisible: false,
+                priceFormat: OSCILLATOR_FORMAT,
                 autoscaleInfoProvider: fixedScale(0, 100)
             }, pane);
-            // Sans quoi les marges par défaut étirent l'axe au-delà
-            // de 0-100 et l'échelle affiche des rangs négatifs.
             series.rsi.priceScale().applyOptions({
-                scaleMargins: {top: 0, bottom: 0}
+                scaleMargins: OSCILLATOR_MARGINS
             });
             [[30, theme.green], [50, theme.muted], [70, theme.red]]
                 .forEach(function (level) {
@@ -242,10 +251,11 @@
             series.crsi = state.chart.addSeries(LWC.LineSeries, {
                 color: theme.purple, lineWidth: 2,
                 priceLineVisible: false, lastValueVisible: false,
+                priceFormat: OSCILLATOR_FORMAT,
                 autoscaleInfoProvider: fixedScale(0, 100)
             }, pane);
             series.crsi.priceScale().applyOptions({
-                scaleMargins: {top: 0, bottom: 0}
+                scaleMargins: OSCILLATOR_MARGINS
             });
             [20, 50, 80].forEach(function (level) {
                 series.crsi.createPriceLine({

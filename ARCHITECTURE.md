@@ -3472,6 +3472,13 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   perpétuel affichent l'heure locale du navigateur, la case UTC rend
   l'UTC. Reste ouvert : sur un serveur distant, les autres panneaux
   dateront dans le fuseau du serveur, pas dans celui du navigateur.
+- ~~**« 100.00 » coupé en deux au bord du RSI**~~ — fait le 12 novembre
+  2026 (§3.2) : les panes RSI et CRSI, figés sur 0-100 sans marge pour ne
+  pas afficher de rangs négatifs, posaient la graduation 100 sur le bord
+  du pane, que le séparateur coupait, et écrivaient l'axe à deux
+  décimales. Une marge de 8 % de chaque côté borne l'axe à −9,5 / 109,5 —
+  aucune graduation hors de 0-100, au pas de 10 comme de 20 —, et l'axe
+  passe en entiers ; la légende garde la décimale.
 - ~~**Un jour d'ETF à moitié publié lu comme une séance**~~ — fait le
   12 novembre 2026 (§3.4) : « −30 M$ le 11/11 » à la synthèse et au
   panneau, quand IBIT, FBTC et HODL n'avaient pas encore publié. Le jour
