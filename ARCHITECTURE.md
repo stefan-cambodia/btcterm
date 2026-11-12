@@ -533,7 +533,17 @@ rescale_coin_margined`) : une copie du journal d'abord
 (`journal-avant-correction-AAAAMMJJ.db`), puis les seules lignes à l'ancien
 format, reconnaissables à leur quantité entière — un nombre de contrats ;
 corrigées, elles ne le sont plus, et relancer ne trouve rien. Elle ne se
-lance pas d'elle-même : elle réécrit des données du journal.
+lance pas d'elle-même : elle réécrit des données du journal. Lancée le
+13 novembre 2026 avec l'accord de l'utilisateur : 381 lignes, 5 469 M$
+ramenés à leur vraie valeur, copie `journal-avant-correction-20261113.db`,
+un second passage sans rien à corriger ; le service relancé ensuite, pour
+que le fil en mémoire (`_warm_liquidations`) relise le journal corrigé. Les
+liquidations des vingt-quatre heures passaient de 5,63 Md$ à 175 M$. Relues
+sur les données corrigées, neuf des onze rafales d'alertes sonnées depuis le
+12 novembre étaient fausses — sous le seuil de 10 M$ ; seules deux le
+dépassaient vraiment, 69 M$ à 13:11 UTC (annoncée 1,87 Md$) et 13 M$ à 14:52
+UTC (annoncée 605 M$). Le seuil, posé avant le retour du flux Binance, se
+lit désormais sur des montants justes.
 
 ### 2.6 `macrocal` — le calendrier macro tenu à la main
 
@@ -4001,8 +4011,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse hors de ses bornes.
 - ~~**Des liquidations coin-margined comptées en contrats**~~ — constaté le
   13 novembre 2026 sur la synthèse du matin (« longs 5,63 Md$ ») ; fait
-  (§2.5) : la quantité repasse en pièces à la réception ; la correction
-  des 381 lignes du journal attend l'accord de l'utilisateur.
+  (§2.5) : la quantité repasse en pièces à la réception, et les 381
+  lignes du journal sont corrigées, copie faite, avec l'accord de
+  l'utilisateur.
 - ~~**Un agenda du matin sans le PPI du soir**~~ — fait le 13 novembre 2026
   (§2.14) : l'agenda de la synthèse mêle la semaine US d'impact fort et
   les grosses échéances d'options, du cache seulement.
