@@ -95,6 +95,11 @@ _http.mount("https://", _ReprendRupture(pool_connections=32, pool_maxsize=16))
 #: de référence de la BCE (Frankfurter v1, sans clé). Voir `fetch_eur_rate`.
 FX_MARKET_URL = f"{BINANCE_REST}/ticker/price"
 FX_REFERENCE_URL = "https://api.frankfurter.dev/v1/latest"
+#: Le calendrier économique de la semaine en cours, de Forex Factory : un
+#: JSON public (dimanche à samedi, heure de New York, impact, prévision,
+#: précédent), servi derrière Cloudflare. La semaine suivante n'existe pas
+#: sous cette forme (404, vérifié le 12 novembre 2026). § fetch_week_calendar.
+WEEK_CALENDAR_URL = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
 #: Le ticker public d'Upbit, première place coréenne : le bitcoin et l'USDT
 #: en wons, sans clé (§ fetch_upbit_quotes).
 UPBIT_TICKER = "https://api.upbit.com/v1/ticker"
@@ -449,6 +454,36 @@ def fetch_eur_rate() -> float:
             raise RuntimeError(f"marché EUR/USDT : {brief_error(marche)} ; "
                                f"référence BCE : {brief_error(reference)}"
                                ) from reference
+
+
+def fetch_week_calendar() -> list[dict[str, Any]]:
+    """Les publications économiques de la semaine, toutes places.
+
+    Une ligne par publication : `title` (en anglais, tel que publié),
+    `country` (« USD », « EUR »…), `when` (date et heure avec fuseau),
+    `impact` (« High », « Medium », « Low », « Holiday »), `forecast` et
+    `previous` (texte, parfois vide). Les lignes sans date lisible sont
+    écartées ; une réponse sans aucune ligne lève — elle se ferait mettre
+    en cache comme une semaine sans rendez-vous.
+    """
+    response = _http.get(WEEK_CALENDAR_URL, headers=YAHOO_HEADERS, timeout=10)
+    response.raise_for_status()
+    rows = []
+    for item in response.json():
+        try:
+            when = datetime.fromisoformat(item["date"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if when.tzinfo is None:
+            continue
+        rows.append({"title": str(item.get("title", "")).strip(),
+                     "country": item.get("country", ""), "when": when,
+                     "impact": item.get("impact", ""),
+                     "forecast": item.get("forecast") or "",
+                     "previous": item.get("previous") or ""})
+    if not rows:
+        raise ValueError("calendrier de la semaine vide")
+    return rows
 
 
 def fetch_upbit_quotes() -> dict[str, float]:

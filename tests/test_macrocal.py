@@ -252,6 +252,123 @@ def test_le_calendrier_n_attend_pas_deribit():
         assert len(hub.option_chain_cached()) == 1
     print("  ✓ la chaîne du cache, ou rien : jamais d'attente de Deribit")
 
+def _semaine():
+    ny = dt.timezone(dt.timedelta(hours=-5))
+    def ligne(titre, jour, h, m, impact="High", pays="USD", prev="", prec=""):
+        return {"title": titre, "country": pays, "impact": impact,
+                "when": dt.datetime(2026, 11, jour, h, m, tzinfo=ny),
+                "forecast": prev, "previous": prec}
+    return [
+        ligne("CPI m/m", 10, 8, 30, prev="0.3%"),              # tenu à la main
+        ligne("Core CPI m/m", 10, 8, 30, prev="0.2%"),
+        ligne("FOMC Member Waller Speaks", 10, 4, 0, impact="Medium"),
+        ligne("Unemployment Claims", 12, 8, 30, impact="Medium",
+              prev="194K", prec="189K"),
+        ligne("PPI m/m", 13, 8, 30, prev="0.4%", prec="1.3%"),
+        ligne("Core PPI m/m", 13, 8, 30, prev="0.3%", prec="0.7%"),
+        ligne("Empire State Manufacturing Index", 13, 8, 30, impact="Low"),
+        ligne("German ZEW", 11, 5, 0, pays="EUR"),
+        ligne("Bank Holiday", 11, 0, 0, impact="Holiday"),
+    ]
+
+
+def test_la_semaine_de_forex_factory():
+    """Américaines, d'impact fort ou moyen ; un instant ne fait qu'une
+    ligne, à l'impact le plus fort ; un instant tenu à la main est
+    écarté ; la source se lit, saute ce qui ne se date pas, et lève à
+    vide ; le panneau les montre et nomme la source."""
+    from unittest import mock
+    from btcterm import sources
+    from terminal.panels import calendar as panneau
+    from terminal.theme import C
+
+    evenements = macrocal.week_events(_semaine())
+    assert [(e.label, e.impact) for e in evenements] == [
+        ("FOMC Member Waller Speaks", "Medium"),
+        ("Unemployment Claims", "Medium"),
+        ("PPI m/m · Core PPI m/m", "High")], evenements
+    ppi = evenements[-1]
+    assert ppi.kind == "US" and ppi.note == "prév. 0.4% · préc. 1.3%"
+    assert ppi.when_utc == dt.datetime(2026, 11, 13, 13, 30,
+                                       tzinfo=dt.timezone.utc)
+    assert ppi.time_ny == dt.time(8, 30)
+    assert macrocal.week_events(None) == []
+
+    class Reponse:
+        def __init__(self, payload):
+            self.payload = payload
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return self.payload
+
+    brut = [{"title": "PPI m/m", "country": "USD",
+             "date": "2026-11-13T08:30:00-05:00", "impact": "High",
+             "forecast": "0.4%", "previous": None},
+            {"title": "sans date", "country": "USD", "date": "demain"},
+            {"title": "naïve", "country": "USD", "date": "2026-11-13T08:30:00"}]
+    with mock.patch.object(sources._http, "get",
+                           lambda url, **k: Reponse(brut)):
+        lus = sources.fetch_week_calendar()
+    assert len(lus) == 1 and lus[0]["previous"] == ""
+    assert lus[0]["when"].utcoffset() == dt.timedelta(hours=-5)
+    with mock.patch.object(sources._http, "get", lambda url, **k: Reponse([])):
+        try:
+            sources.fetch_week_calendar()
+        except ValueError:
+            pass
+        else:
+            raise AssertionError("une semaine vide ne se met pas en cache")
+
+    phnom_penh = dt.datetime(2026, 11, 12, 16, tzinfo=dt.timezone(dt.timedelta(hours=7)))
+    corps, _ = panneau.render(phnom_penh, extra=tuple(evenements))
+    texte = str(corps)
+    assert "PPI m/m · Core PPI m/m" in texte and "Forex Factory" in texte
+    assert "20:30" in texte, "8 h 30 à New York, 20 h 30 à Phnom Penh"
+    lignes = [l for l in corps.children if "US" in str(l)[:2000]]
+    assert any(C["blue"] in str(l) for l in lignes)
+    assert any(C["muted"] in str(l) and "Unemployment" in str(l) for l in lignes)
+    sans, _ = panneau.render(phnom_penh)
+    assert "Forex Factory" not in str(sans)
+    print("  ✓ semaine US : fort ou moyen, regroupée, sans doublon ; source et "
+          "panneau")
+
+
+def test_le_hub_la_tient_sans_l_attendre():
+    """Le panneau et l'alerte lisent la semaine sans réseau ; le hub la
+    relit en tâche de fond, un thread à la fois, et la garde sur disque."""
+    import tempfile
+    from unittest import mock
+    from btcterm import sources
+    from btcterm.hub import MarketHub, TTLCache
+
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    with mock.patch.object(sources, "fetch_week_calendar",
+                           side_effect=AssertionError("réseau touché")):
+        assert hub.week_calendar_cached() == []
+    with mock.patch.object(sources, "fetch_week_calendar",
+                           return_value=_semaine()):
+        assert hub._spawn(hub._calendar_lock, "calendrier", hub.week_calendar)
+        for _ in range(100):
+            if hub.week_calendar_cached():
+                break
+            import time
+            time.sleep(0.02)
+    assert len(hub.week_calendar_cached()) == len(_semaine())
+    with hub._calendar_lock:
+        assert not hub._spawn(hub._calendar_lock, "calendrier", hub.week_calendar)
+    assert "week_calendar" in MarketHub.PERSISTENT
+
+    # Relancé : peek la relit du disque, sans réseau.
+    with tempfile.TemporaryDirectory() as dossier:
+        avant = TTLCache(store=dossier, persist=("week_calendar",))
+        avant.get("week_calendar", 3600, _semaine)
+        apres = TTLCache(store=dossier, persist=("week_calendar",))
+        assert len(apres.peek("week_calendar")) == len(_semaine())
+        assert apres.peek("autre") is None
+    print("  ✓ servie du cache, relue en tâche de fond, gardée sur disque")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCalendrier macro — {len(tests)} vérifications\n" + "─" * 60)

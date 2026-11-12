@@ -789,6 +789,7 @@ def test_changement_de_tendance_journaliere():
 
 def test_echeance_macro_annoncee():
     """Une sonnerie trente minutes avant, une seule, jamais après coup."""
+    import datetime as dt
     from btcterm import macrocal
     from btcterm.alerts import Alert
 
@@ -831,7 +832,29 @@ def test_echeance_macro_annoncee():
     eteint = moteur(event_soon=False)
     eteint._check_event(None, None, eteint.config, heure - 1200)
     assert not eteint.alerts
-    print("  ✓ annoncée une fois, avant, et pas rejouée au redémarrage")
+
+    #: La semaine de Forex Factory : l'impact fort sonne, le moyen non.
+    ny = dt.timezone(dt.timedelta(hours=-5))
+    ppi = dt.datetime(2031, 3, 14, 8, 30, tzinfo=ny)
+    claims = dt.datetime(2031, 3, 13, 8, 30, tzinfo=ny)
+
+    class Hub:
+        def week_calendar_cached(self):
+            return [{"title": "PPI m/m", "country": "USD", "when": ppi,
+                     "impact": "High", "forecast": "0.3%", "previous": ""},
+                    {"title": "Unemployment Claims", "country": "USD",
+                     "when": claims, "impact": "Medium", "forecast": "",
+                     "previous": ""}]
+
+    semaine = moteur()
+    semaine._check_event(Hub(), None, semaine.config, ppi.timestamp() - 1200)
+    assert [a.message for a in echeances(semaine)] == [
+        "US dans 20 min (2031-03-14 13:30 UTC) : PPI m/m"]
+    calme = moteur()
+    calme._check_event(Hub(), None, calme.config, claims.timestamp() - 1200)
+    assert not echeances(calme), "l'impact moyen ne sonne pas"
+    print("  ✓ annoncée une fois, avant, et pas rejouée au redémarrage ; "
+          "la semaine US à fort impact aussi")
 
 
 def test_carnets_creux():

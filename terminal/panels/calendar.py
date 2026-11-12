@@ -18,6 +18,13 @@ changé de date. Tout se compte désormais dans le fuseau de la machine :
 le jour écrit, le compte à rebours, et « aujourd'hui » ; une publication
 dont l'heure est passée reste listée jusqu'à minuit, mais se dit passée,
 et le titre passe à la suivante.
+
+S'y mêlent deux listes qui ne sont pas tenues à la main : les grosses
+échéances d'options Deribit (`OPT`), et les publications américaines de
+la semaine que donne Forex Factory (`US` — PPI, ventes au détail,
+inscriptions au chômage, discours de la Fed), d'impact fort en bleu,
+moyen atténué. Le hub les tient en cache ; le panneau ne les attend
+jamais.
 """
 
 from __future__ import annotations
@@ -40,6 +47,7 @@ KIND_COLOR = {
     "NFP": C["cyan"],
     "PCE": C["purple"],
     "OPT": C["green"],
+    "US": C["blue"],
 }
 
 _JOURS = ("lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim.")
@@ -124,8 +132,10 @@ def _row(event: macrocal.MacroEvent, now: dt.datetime):
         html.Span(f"{countdown:>6s}", style={"color": color, "fontWeight": "600",
                                              "marginRight": "10px",
                                              "whiteSpace": "pre"}),
-        html.Span(event.kind, style={"color": KIND_COLOR[event.kind],
-                                     "fontWeight": "600", "marginRight": "8px"}),
+        html.Span(event.kind, style={
+            "color": (C["muted"] if event.impact == "Medium"
+                      else KIND_COLOR[event.kind]),
+            "fontWeight": "600", "marginRight": "8px"}),
         html.Span(event.label),
         html.Span(f"  {event.note}" if event.note else "",
                   style={"color": C["muted"]}),
@@ -137,7 +147,10 @@ def _row(event: macrocal.MacroEvent, now: dt.datetime):
     }, title=(f"{event.date:%d/%m/%Y} à {event.time_ny:%H:%M}, heure de New "
               "York" + (" — 8 h UTC, l'expiration de Deribit ; montant, max "
                         "pain et put/call de l'échéance, lus dans la chaîne"
-                        if event.kind == "OPT" else "")))
+                        if event.kind == "OPT" else
+                        f" — calendrier de la semaine de Forex Factory, impact "
+                        f"{'fort' if event.impact == 'High' else 'moyen'}"
+                        if event.kind == "US" else "")))
 
 
 def _badges(now: dt.datetime):
@@ -197,8 +210,13 @@ def render(now: dt.datetime | None = None, extra: tuple = ()):
             style={"color": C["red"], "fontFamily": MONO,
                    "fontSize": "11px", "padding": "12px"})
     else:
+        credit = ([html.Div(
+            "publications US de la semaine : Forex Factory",
+            style={"color": C["muted"], "fontFamily": MONO,
+                   "fontSize": "10px", "padding": "0 4px 6px"})]
+            if any(e.kind == "US" for e in events) else [])
         body = html.Div([_row(e, now) for e in events]
-                        + [_footer(now.date())])
+                        + [_footer(now.date())] + credit)
     return body, _badges(now)
 
 
@@ -221,4 +239,10 @@ def register(app, hub):
                 hub.option_chain_cached())))
         except Exception:
             extra = ()
+        # La semaine de Forex Factory, du cache aussi : la boucle
+        # d'observation la relit en tâche de fond.
+        try:
+            extra += tuple(macrocal.week_events(hub.week_calendar_cached()))
+        except Exception:
+            pass
         return render(extra=extra)

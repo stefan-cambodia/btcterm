@@ -634,17 +634,26 @@ class AlertEngine:
             if not known:
                 self._fire("cycle", text, now)
 
-    def _check_event(self, _hub, _opps, config, now) -> None:
+    def _check_event(self, hub, _opps, config, now) -> None:
         """Une échéance macro approche : le temps de réduire ou de s'écarter.
 
         Un FOMC ou un CPI bougent le cours en quelques secondes : c'est avant
         qu'il faut le savoir. Une sonnerie par échéance, datée dans son
-        message, donc pas rejouée au redémarrage.
+        message, donc pas rejouée au redémarrage. Les publications
+        américaines d'impact fort de la semaine (§ macrocal.week_events —
+        PPI, ventes au détail, PIB, ISM) sonnent aussi ; les moyennes, non.
         """
         if not config["event_soon"]:
             return
         moment = dt.datetime.fromtimestamp(now, tz=dt.timezone.utc)
-        for event in macrocal.upcoming(moment.date() - dt.timedelta(days=1)):
+        reader = getattr(hub, "week_calendar_cached", None)
+        week = [event for event in macrocal.week_events(reader() if reader
+                                                        else ())
+                if event.impact == "High"]
+        events = sorted([*macrocal.upcoming(moment.date()
+                                            - dt.timedelta(days=1)), *week],
+                        key=lambda event: event.when_utc)
+        for event in events:
             left = (event.when_utc - moment).total_seconds()
             if left > EVENT_LEAD:
                 break

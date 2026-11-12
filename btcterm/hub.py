@@ -380,9 +380,14 @@ class TTLCache:
                     _span(last - since))
 
     def peek(self, key: str) -> Optional[Any]:
+        """La valeur gardée, sans jamais appeler la source — celle d'avant
+        le redémarrage comprise, pour une famille persistante."""
         with self._lock:
             entry = self._entries.get(key)
-            if entry:
+        if entry is None and self._persistent(key):
+            entry = self._load(key)
+        if entry:
+            with self._lock:
                 self._read_at[key] = time.time()
         return entry[1] if entry else None
 
@@ -443,7 +448,7 @@ class MarketHub:
     #: interest, agrégats, options — : servis vieux, ils mentiraient sur
     #: le présent ; ni les bougies, que leur base sur disque garde déjà.
     PERSISTENT = ("etf", "m2", "stables", "mvrv", "chain", "dvol", "market",
-                  "fear_greed_history")
+                  "fear_greed_history", "week_calendar")
 
     TTL_KLINES = 5
     #: Une page d'historique antérieur est close : ses bougies ne
@@ -501,6 +506,10 @@ class MarketHub:
     #: `KOREA_MAX_AGE`, un prix d'Upbit ne se compare plus au cours du
     #: moment — la prime se tait plutôt que de comparer deux instants.
     KOREA_EVERY = 60.0
+    #: Le calendrier de la semaine (§ week_calendar) : relu en tâche de fond
+    #: tous les quarts d'heure, la source une fois par heure au plus.
+    WEEK_CALENDAR_EVERY = 900.0
+    TTL_WEEK_CALENDAR = 3600
     #: La part des longs (§ long_short) : Binance la sert par pas de quatre
     #: heures, un quart d'heure de cache suffit largement.
     TTL_LONG_SHORT = 15 * 60
@@ -682,6 +691,8 @@ class MarketHub:
         #: Tenu pendant qu'un thread relit Upbit et le won : la boucle
         #: d'observation n'en lance pas un second (§ _spawn_korea).
         self._korea_lock = threading.Lock()
+        #: De même pour le calendrier de la semaine.
+        self._calendar_lock = threading.Lock()
         self._heatmap_error: Optional[str] = None
         self._observe_thread: Optional[threading.Thread] = None
         #: Levé quand le hub s'arrête — ou, en régime service, dès que
@@ -887,11 +898,16 @@ class MarketHub:
         next_depth = time.monotonic() + self.DEPTH_SAMPLE_EVERY
         next_purge = time.monotonic() + self.PURGE_EVERY
         next_korea = time.monotonic()
+        next_calendar = time.monotonic()
         while not self._observe_stop.wait(1.0):
             self._after_sleep()
             if time.monotonic() >= next_korea:
                 next_korea = time.monotonic() + self.KOREA_EVERY
                 self._spawn_korea()
+            if time.monotonic() >= next_calendar:
+                next_calendar = time.monotonic() + self.WEEK_CALENDAR_EVERY
+                self._spawn(self._calendar_lock, "calendrier",
+                            self.week_calendar)
             if time.monotonic() >= next_depth:
                 next_depth = time.monotonic() + self.DEPTH_SAMPLE_EVERY
                 self._sample_depth()
@@ -1464,22 +1480,45 @@ class MarketHub:
         except Exception:
             return opt.option_chain([])
 
-    def _spawn_korea(self) -> bool:
-        """Relit Upbit et le won dans un thread à lui : deux appels réseau,
-        jusqu'à huit secondes chacun en panne, que la boucle d'observation —
-        alertes, arbitrage, carte du carnet — n'a pas à attendre. Un seul
-        à la fois ; rend faux si le précédent tourne encore."""
-        if not self._korea_lock.acquire(blocking=False):
+    def _spawn(self, lock: threading.Lock, name: str,
+               job: Callable[[], Any]) -> bool:
+        """Lance `job` dans un thread à lui : une lecture réseau, jusqu'à son
+        délai en panne, que la boucle d'observation — alertes, arbitrage,
+        carte du carnet — n'a pas à attendre. Un seul à la fois par `lock` ;
+        rend faux si le précédent tourne encore. Une erreur du travail
+        n'arrête rien : le cache l'a dite."""
+        if not lock.acquire(blocking=False):
             return False
 
         def run():
             try:
-                self._refresh_korea()
+                job()
+            except Exception:  # noqa: BLE001 — dite par le cache
+                pass
             finally:
-                self._korea_lock.release()
+                lock.release()
 
-        threading.Thread(target=run, name="korea", daemon=True).start()
+        threading.Thread(target=run, name=name, daemon=True).start()
         return True
+
+    def _spawn_korea(self) -> bool:
+        """Relit Upbit et le won en tâche de fond (§ _spawn)."""
+        return self._spawn(self._korea_lock, "korea", self._refresh_korea)
+
+    def week_calendar(self) -> list[dict]:
+        """Les publications économiques de la semaine (§ sources.
+        fetch_week_calendar), gardées une heure et sur disque ; vide si la
+        source se tait et que rien n'est gardé."""
+        try:
+            return self._cache.get("week_calendar", self.TTL_WEEK_CALENDAR,
+                                   sources.fetch_week_calendar)
+        except Exception:
+            return []
+
+    def week_calendar_cached(self) -> list[dict]:
+        """La même, sans jamais toucher au réseau : le panneau CALENDRIER et
+        l'alerte d'échéance la lisent, la boucle d'observation la tient."""
+        return self._cache.peek("week_calendar") or []
 
     def _refresh_korea(self) -> None:
         """Upbit à chaque passage, le won quand son cache a vieilli. Une

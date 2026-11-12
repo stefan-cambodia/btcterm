@@ -51,9 +51,12 @@ TIME_FOMC = dt.time(14, 0)    # communiqué du FOMC
 class MacroEvent:
     date: dt.date       # jour de la publication
     time_ny: dt.time    # heure de New York
-    kind: str           # "FOMC" | "CPI" | "NFP" | "PCE"
+    kind: str           # "FOMC" | "CPI" | "NFP" | "PCE" | "OPT" | "US"
     label: str
     note: str = ""
+    #: L'impact annoncé par Forex Factory (« High », « Medium ») pour les
+    #: publications de la semaine (§ week_events) ; vide pour les autres.
+    impact: str = ""
 
     @property
     def when_utc(self) -> dt.datetime:
@@ -156,3 +159,47 @@ def last_date() -> dt.date:
     """Jusqu'où la liste est complète — la famille qui s'épuise la
     première. Au-delà, elle est à compléter ici."""
     return min(last_dates().values())
+
+
+#: Les publications de la semaine retenues : américaines — le dollar mène
+#: le bitcoin —, d'impact fort ou moyen. Le faible (une enquête régionale,
+#: une adjudication) noierait les dix lignes du panneau.
+WEEK_COUNTRY = "USD"
+WEEK_IMPACTS = ("High", "Medium")
+
+
+def week_events(rows, known: tuple[MacroEvent, ...] = EVENTS
+                ) -> list[MacroEvent]:
+    """Le calendrier de Forex Factory (§ sources.fetch_week_calendar), en
+    événements `US` mêlés à la liste tenue à la main.
+
+    Les publications d'un même instant ne font qu'une ligne — le PPI et le
+    PPI sous-jacent tombent ensemble —, à l'impact le plus fort, la
+    prévision et le précédent de la première d'impact fort. Un instant
+    déjà tenu à la main (CPI, NFP, PCE, FOMC) est écarté : la liste à la
+    main le dit mieux, en français et datée de la donnée.
+    """
+    taken = {event.when_utc for event in known}
+    by_time: dict[dt.datetime, list[dict]] = {}
+    for row in rows or ():
+        if (row.get("country") != WEEK_COUNTRY
+                or row.get("impact") not in WEEK_IMPACTS):
+            continue
+        when = row["when"].astimezone(dt.timezone.utc)
+        if when in taken:
+            continue
+        by_time.setdefault(when, []).append(row)
+    events = []
+    for when, group in sorted(by_time.items()):
+        group.sort(key=lambda r: WEEK_IMPACTS.index(r["impact"]))
+        lead = group[0]
+        note = " · ".join(part for part in (
+            f"prév. {lead['forecast']}" if lead["forecast"] else "",
+            f"préc. {lead['previous']}" if lead["previous"] else "") if part)
+        local = when.astimezone(NEW_YORK)
+        events.append(MacroEvent(
+            local.date(), local.time().replace(tzinfo=None), "US",
+            " · ".join(row["title"] for row in group), note=note,
+            impact=lead["impact"]))
+    return events
+

@@ -583,6 +583,29 @@ Deux pièges justifient que ce soit du code et non un simple tableau :
   la relit toutes les cinq minutes, le cache est donc chaud en marche ; au
   premier démarrage, le calendrier n'a que ses dates tenues à la main.
 
+- **La semaine de Forex Factory.** La liste tenue à la main ne connaît que
+  les quatre rendez-vous les plus lourds ; le PPI, les ventes au détail, le
+  PIB, l'ISM, les inscriptions au chômage ou les discours des membres de la
+  Fed bougent aussi le cours. Forex Factory publie la semaine en cours en
+  JSON public (`sources.fetch_week_calendar`, `nfs.faireconomy.media`,
+  derrière Cloudflare ; la semaine suivante n'existe pas sous cette forme,
+  404, vérifié le 12 novembre 2026) : titre, pays, heure avec fuseau,
+  impact, prévision et précédent. `macrocal.week_events` en garde les
+  publications américaines d'impact fort ou moyen (`WEEK_IMPACTS`), fait
+  une seule ligne des publications d'un même instant — le PPI et le PPI
+  sous-jacent —, écarte un instant déjà tenu à la main (le CPI de la
+  semaine, que la liste dit mieux, en français et daté de la donnée), et en
+  fait des `MacroEvent` du type `US`, avec leur `impact` (champ ajouté au
+  modèle, vide pour les autres). Le panneau les colore en bleu, l'impact
+  moyen atténué, et nomme la source au pied ; l'alerte d'échéance sonne
+  pour l'impact fort. Le hub relit la semaine en tâche de fond tous les
+  quarts d'heure (`_spawn`, désormais générique, que la prime coréenne
+  partage), la source une fois par heure au plus, et la garde sur disque
+  (§4.3) ; le panneau et l'alerte ne la lisent que du cache
+  (`week_calendar_cached`) — `peek` relit désormais aussi le disque, pour
+  qu'un service relancé ait sa semaine sans attendre. Les titres restent en
+  anglais, tels que publiés.
+
 ### 2.7 `journal` — la séance se relit
 
 Carnets, écarts d'arbitrage et liquidations vivaient en mémoire et
@@ -903,7 +926,9 @@ calendrier (§2.6) ont appris au terminal :
 - **échéance proche** — un FOMC, un CPI, un NFP ou un PCE du calendrier
   tombe dans moins de trente minutes (`EVENT_LEAD`) : un tel chiffre
   bouge le cours en quelques secondes, et c'est avant qu'il faut le
-  savoir.
+  savoir. Les publications américaines d'impact fort de la semaine
+  (§2.6, Forex Factory) sonnent aussi ; les moyennes — inscriptions au
+  chômage, discours — non.
 
 Toutes deux portent leur date dans leur message : relues du journal au
 redémarrage (voir plus bas), elles ne sont pas rejouées. Chacune se
@@ -3930,6 +3955,10 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
   (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
   synthèse hors de ses bornes.
+- ~~**Un calendrier aveugle hors des quatre grands rendez-vous**~~ — fait
+  le 13 novembre 2026 (§2.6) : les publications américaines de la semaine
+  selon Forex Factory, impact fort et moyen, au CALENDRIER, et l'alerte
+  d'échéance pour l'impact fort.
 - ~~**Des options sans fourchette attendue**~~ — fait le 12 novembre 2026
   (§3.16) : le mouvement à un écart-type d'ici l'échéance par défaut,
   parmi les niveaux clés, en bande dans STRIKES et à la synthèse.
