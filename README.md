@@ -87,7 +87,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
-| **Prix** | chandeliers de 1 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), gros ordres en bulles, signaux, bascule `$`/`€`, échelle log, heure locale ou UTC, sous-graphiques optionnels dont le CVD, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
+| **Prix** | chandeliers de 1 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), gros ordres en bulles, signaux, bascule `$`/`€`, échelle log, heure locale ou UTC, sous-graphiques optionnels dont le CVD et l'open interest, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
 | **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ ; dessous, le solde horaire des gros ordres et la prime Coinbase journalisés (onglet du carnet) | 2 s · 5 min |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian et cadrées sur l'étendue médiane des carnets ; dessous, l'historique journalisé de la liquidité à ±0,1 % du prix (onglet du carnet) | 250 ms · 5 min |
@@ -188,6 +188,13 @@ longs fermés de force, vert pour les shorts. La légende dit le total et les
 plateformes présentes — Binance, Bybit et OKX —, et rien pendant le sommeil de
 la machine : la carte prendra tout son sens sur un serveur allumé en
 permanence.
+
+**Open interest** — la case `OI` (commande `/oi`) ouvre sous le cours un
+volet de l'open interest du perpétuel Binance, en dollars, au pas le plus
+proche de l'intervalle (cinq minutes pour la minute, le jour pour la semaine et
+le mois), prolongé au-delà des trente jours de Binance par le journal. Ce que
+le cours seul ne dit pas : une hausse portée par des positions neuves ou par
+des shorts qui rachètent, une baisse qui purge le levier ou qui en ajoute.
 
 **Gros ordres** — la case `ORD` (touche `O`, commande `/ord`) pose sur les
 chandeliers les ordres de 100 k$ et plus que le ruban a journalisés : une

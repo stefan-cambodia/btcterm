@@ -337,6 +337,41 @@ def test_carte_des_liquidations():
     print("  ✓ carte lue au journal, plage vide et journal absent dits")
 
 
+def test_l_open_interest_au_pas_du_graphique():
+    """`/api/oi` lit Binance au pas le plus proche de l'intervalle — cinq
+    minutes pour la minute, le jour pour la semaine —, borne la série à
+    `from`, et rend un relevé manquant en `null` plutôt qu'en zéro."""
+    import pandas as pd
+
+    demandes = []
+
+    def faux_oi(symbol="BTCUSDT", period="4h", limit=180):
+        demandes.append((period, limit))
+        pas = {"5m": 300, "1h": 3600, "1d": 86_400}[period]
+        temps = [1_794_400_000 - 1_794_400_000 % pas + k * pas for k in range(4)]
+        return pd.DataFrame({"time": pd.to_datetime(temps, unit="s"),
+                             "oi": [1.0] * 4,
+                             "oi_usd": [7.0e9, float("nan"), 7.2e9, 7.3e9]})
+
+    original = sources.fetch_open_interest
+    sources.fetch_open_interest = faux_oi
+    try:
+        web = client()
+        assert web.get("/api/oi?interval=3h").status_code == 400
+        for intervalle, pas in (("1m", "5m"), ("1h", "1h"), ("1w", "1d")):
+            lu = web.get(f"/api/oi?interval={intervalle}").get_json()
+            assert lu["period"] == pas and demandes[-1] == (pas, 500), lu
+            valeurs = [p[1] for p in lu["points"]]
+            assert valeurs == [7.0e9, None, 7.2e9, 7.3e9], valeurs
+            temps = [p[0] for p in lu["points"]]
+            assert temps == sorted(temps)
+        borne = web.get("/api/oi?interval=1w&from=%d" % temps[2]).get_json()
+        assert [p[0] for p in borne["points"]] == temps[2:], "from borne la série"
+    finally:
+        sources.fetch_open_interest = original
+    print("  ✓ open interest au pas de l'intervalle, borné, trous en null")
+
+
 def test_les_gros_ordres_en_tranches():
     """`/api/trades` somme les gros ordres du journal par tranche et par
     côté — notionnel, prix moyen pondéré, nombre, plus gros —, borne la

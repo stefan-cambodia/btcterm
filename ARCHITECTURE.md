@@ -2128,6 +2128,23 @@ pendant le sommeil de la machine. Elle a été construite pour la cible d'un ser
 permanence. La case a fait déborder la barre de titre de 29 px : ses libellés
 y passent à 0,06 em d'espacement. `/liq` reste à l'onglet des liquidations.
 
+L'**open interest** (case `OI`, `/oi`) a son volet sous le cours, comme le
+CVD. `/api/oi` lit Binance au pas le plus proche de l'intervalle
+(`MarketHub.OI_PERIODS` : cinq minutes pour la minute, le jour pour la
+semaine et le mois), cinq cents points au plus, prolongé vers le passé par
+les instantanés du journal au même pas (`open_interest_extended`, que le
+perpétuel lit au pas de 4 h) ; `from` borne la série à la plage chargée —
+sans lui, la minute recevait quatre-vingts jours au pas de cinq minutes. Le
+navigateur range chaque relevé dans la bougie qui le contient
+(`barIndexAt`, le même que les tracés), le dernier l'emportant : la valeur à
+la clôture de la bougie. Un relevé manquant voyage en `null` et la courbe s'y
+rompt. La conversion en secondes passe par la nanoseconde, comme partout dans
+`lwc.py` : pandas 3 garde la résolution d'origine — millisecondes chez
+Binance —, et la division supposée en nanosecondes écrasait la série sur un
+seul point, ce que le journal masquait sur le portable et qu'un serveur neuf
+aurait montré. Le volet se relit chaque minute et quand le pan remonte avant
+le début de la dernière lecture.
+
 Les **gros ordres** (case `ORD`, touche `O`, `/ord`) sont le pendant de la
 carte du côté de ce qui s'exécute : le ruban journalise chaque ordre de
 100 k$ et plus (§2.13), et le graphique les pose en bulles sur les
@@ -3595,6 +3612,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Un cours sans les positions qui le portent**~~ — fait le 12 novembre
+  2026 (§3.13) : la case OI ouvre un volet de l'open interest au pas de
+  l'intervalle, prolongé par le journal.
 - ~~**Des gros ordres qu'on ne voyait pas où ils avaient traité**~~ — fait
   le 12 novembre 2026 (§3.13) : la case ORD les pose en bulles sur le
   graphique du prix, par bougie et par côté, au prix moyen pondéré.

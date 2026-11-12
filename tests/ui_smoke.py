@@ -312,6 +312,16 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             f"window.lwcPrice.debug().panes === {panes + 1}"
             " && window.lwcPrice.debug().cvd > 200", timeout=8),
             browser.js("return window.lwcPrice.debug().cvd;"))
+        # L'open interest a son pane aussi : au pas de l'intervalle, rangé
+        # dans les bougies — ou vide, Binance Futures injoignable.
+        browser.js("window.btcCommand('oi');")
+        check("l'OI ouvre son pane", browser.wait_for(
+            f"window.lwcPrice.debug().panes === {panes + 2}"
+            " && window.lwcPrice.debug().oi !== null", timeout=8),
+            browser.js("return window.lwcPrice.debug().oi;"))
+        browser.js("window.btcCommand('oi');")
+        browser.wait_for(f"window.lwcPrice.debug().panes === {panes + 1}",
+                         timeout=8)
         browser.js("""
             Array.from(document.querySelectorAll('#price-extras label'))
                  .find(l => l.textContent.trim() === 'CVD').click();

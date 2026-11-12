@@ -479,6 +479,41 @@ def register_api(app, hub) -> None:
             "stale": bool(daily.attrs.get("stale", False)),
         })
 
+    @app.server.get("/api/oi")
+    def _oi():
+        """L'open interest du perpétuel au pas de l'intervalle du graphique.
+
+        Binance au pas le plus proche (`MarketHub.OI_PERIODS`), cinq cents
+        points au plus, prolongé vers le passé par les instantanés du
+        journal. Des paires `[epoch, dollars]`, triées ; une tranche que le
+        journal n'a pas vue vaut `null` — la courbe s'y rompt. Le
+        navigateur range chaque point dans la bougie qui le contient.
+        `from` (epoch, facultatif) borne la série à la plage chargée : en
+        minutes, le journal en rendait quatre-vingts jours au pas de cinq
+        minutes pour un graphique d'une journée.
+        """
+        interval = request.args.get("interval", "1h")
+        start = request.args.get("from", type=int)
+        if interval not in hub.OI_PERIODS:
+            return jsonify({"error": f"intervalle inconnu : {interval}"}), 400
+        period = hub.OI_PERIODS[interval]
+        frame = hub.open_interest_extended(period, limit=500)
+        if frame.empty:
+            return jsonify({"interval": interval, "period": period,
+                            "points": [],
+                            "reason": "open interest indisponible"})
+        # Par la nanoseconde, comme `frame_to_lines` : pandas 3 garde la
+        # résolution d'origine — millisecondes chez Binance —, et la
+        # division supposée en nanosecondes écrasait tous les points sur un.
+        times = (pd.to_datetime(frame["time"]).astype("datetime64[ns]")
+                 .astype("int64") // 1_000_000_000)
+        values = pd.to_numeric(frame["oi_usd"], errors="coerce")
+        points = sorted({int(t): (None if v != v else float(v))
+                         for t, v in zip(times, values)
+                         if start is None or t >= start}.items())
+        return jsonify({"interval": interval, "period": period,
+                        "points": [list(point) for point in points]})
+
     @app.server.get("/api/trades")
     def _trades():
         """Les gros ordres de la plage visible, en tranches (`trade_buckets`).

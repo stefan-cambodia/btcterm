@@ -276,6 +276,20 @@
             }, pane);
             pane += 1;
         }
+        // L'open interest du perpétuel — la case OI : des positions qui
+        // s'ouvrent ou se ferment pendant que le cours bouge (§ Open
+        // interest, plus bas).
+        if (extras.indexOf("oi") !== -1) {
+            series.oi = state.chart.addSeries(LWC.LineSeries, {
+                color: theme.orange, lineWidth: 2,
+                priceFormat: {type: "custom", minMove: 1e6,
+                              formatter: billions},
+                priceLineVisible: false, lastValueVisible: true
+            }, pane);
+            pane += 1;
+            state.oiData = null;
+            state.oiPoll = setInterval(fetchOi, OI_EVERY);
+        }
 
         // Le cours domine : les panes d'oscillateurs se partagent le bas.
         var panes = state.chart.panes();
@@ -459,6 +473,10 @@
         if (cvd !== undefined) {
             parts.push(["CVD " + Math.round(cvd).toLocaleString("en-US"),
                         theme.cyan]);
+        }
+        var oi = valueOf(state.series.oi);
+        if (oi !== undefined) {
+            parts.push(["OI " + billions(oi) + unit, theme.orange]);
         }
         parts.forEach(function (part) {
             var item = document.createElement("span");
@@ -1466,6 +1484,11 @@
             clearInterval(state.levelsTimer);
             state.levelsTimer = null;
         }
+        if (state.oiPoll) {
+            clearInterval(state.oiPoll);
+            state.oiPoll = null;
+        }
+        state.oiData = null;
         state.levels = null;
         state.levelLines = [];
         if (state.liqPoll) {
@@ -1507,6 +1530,81 @@
         });
     }
 
+    // ── Open interest ───────────────────────────────────────
+    //
+    // Les positions ouvertes sur le perpétuel de Binance, en dollars, au
+    // pas le plus proche de l'intervalle (/api/oi : cinq minutes pour la
+    // minute, le jour pour la semaine et le mois), prolongées vers le passé
+    // par le journal. Chaque relevé se range dans la bougie qui le contient
+    // (`barIndexAt`), le dernier l'emportant : la valeur à la clôture de la
+    // bougie. Ce que le cours seul ne dit pas — une hausse portée par des
+    // positions neuves ou par des shorts qui rachètent, une baisse qui
+    // purge le levier ou qui en ajoute.
+    var OI_EVERY = 60000;
+
+    function billions(value) {
+        return (value / 1e9).toFixed(2) + " Md";
+    }
+
+    function fetchOi() {
+        if (!state.chart || !state.packet || !state.series
+                || !state.series.oi || !state.packet.bars.length) {
+            return;
+        }
+        var interval = state.cfg.interval;
+        var from = state.packet.bars[0].time;
+        var seq = state.seq;
+        fetch("/api/oi?interval=" + encodeURIComponent(interval)
+              + "&from=" + from)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (seq !== state.seq || !state.series || !state.series.oi
+                        || data.interval !== state.cfg.interval) {
+                    return;
+                }
+                data.from = from;
+                state.oiData = data;
+                fillOi();
+                // La lecture de la dernière bougie a pu partir sans lui.
+                updateReadout();
+            })
+            .catch(function () { /* le prochain tour retentera */ });
+    }
+
+    function fillOi() {
+        var series = state.series;
+        if (!series || !series.oi) { return; }
+        var data = state.oiData;
+        var bars = state.packet.bars;
+        // Une autre série, ou un passé remonté au pan que la dernière
+        // lecture ne couvrait pas : on redemande, sans attendre le tour.
+        if (!data || data.interval !== state.cfg.interval
+                || (bars.length && bars[0].time < data.from)) {
+            fetchOi();
+            if (!data || data.interval !== state.cfg.interval) {
+                series.oi.setData([]);
+                return;
+            }
+        }
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var at = clock();
+        var points = [];
+        var lastIndex = -1;
+        (data.points || []).forEach(function (p) {
+            if (p[1] === null) { return; }
+            var index = barIndexAt(p[0]);
+            if (index < 0) { return; }
+            var point = {time: at.shown(bars[index].time), value: p[1] * rate};
+            if (index === lastIndex) {
+                points[points.length - 1] = point;
+            } else {
+                points.push(point);
+                lastIndex = index;
+            }
+        });
+        series.oi.setData(points);
+    }
+
     // Le delta de chaque bougie, cumulé depuis le début de la série chargée.
     // Seule la forme se lit : le zéro bouge à chaque page d'historique, et
     // la courbe se décale d'autant sans changer de dessin.
@@ -1546,6 +1644,7 @@
             series.crsi.setData(at.points(packet.panes.crsi || []));
         }
         if (series.cvd) { series.cvd.setData(at.points(cvdPoints())); }
+        if (series.oi) { fillOi(); }
         series.markers.setMarkers(markersFrom(packet.signals || []));
         renderDrawings();
 
@@ -2074,6 +2173,8 @@
                 drawMode: state.drawMode,
                 cvd: state.series.cvd
                     ? state.series.cvd.data().length : null,
+                oi: state.series.oi
+                    ? state.series.oi.data().length : null,
                 profile: state.profileData
                     ? {poc: state.profileData.poc,
                        vaLow: state.profileData.va_low,

@@ -47,6 +47,7 @@ EXTRAS = [
     {"label": "NIV", "value": "levels"},
     {"label": "LIQ", "value": "liq"},
     {"label": "ORD", "value": "trades"},
+    {"label": "OI", "value": "oi"},
 ]
 DEFAULT_EXTRAS = ["rsi", "volume", "profile"]
 

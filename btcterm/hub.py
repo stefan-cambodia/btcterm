@@ -1666,17 +1666,31 @@ class MarketHub:
         except Exception:
             return pd.DataFrame(columns=["time", "oi", "oi_usd"])
 
-    def open_interest_extended(self) -> pd.DataFrame:
+    #: Le pas de l'historique d'open interest de Binance le plus proche de
+    #: chaque intervalle du graphique du prix : Binance en sert neuf, de
+    #: cinq minutes au jour — la minute lit les cinq minutes, la semaine et
+    #: le mois lisent le jour.
+    OI_PERIODS = {"1m": "5m", "5m": "5m", "15m": "15m", "30m": "30m",
+                  "1h": "1h", "4h": "4h", "6h": "6h", "12h": "12h",
+                  "1d": "1d", "1w": "1d", "1M": "1d"}
+    #: Le même pas, en règle de rééchantillonnage pandas.
+    _OI_RULES = {"5m": "5min", "15m": "15min", "30m": "30min", "1h": "1h",
+                 "2h": "2h", "4h": "4h", "6h": "6h", "12h": "12h", "1d": "1D"}
+
+    def open_interest_extended(self, period: str = "4h",
+                               limit: int = 180) -> pd.DataFrame:
         """Open interest prolongé vers le passé par le journal local.
 
-        Binance ne sert que trente jours ; au-delà, la série continue
-        sur les instantanés journalisés (§ record_market_snapshot),
-        rééchantillonnés au pas des données Binance (4 h) pour que la
-        couture ne se voie pas. Sans historique local, la série est
-        celle de Binance, telle quelle — le prolongement se gagne à
-        l'usage, séance après séance.
+        Binance ne sert que trente jours — et cinq cents points par
+        demande, quarante et une heures au pas de cinq minutes ; au-delà,
+        la série continue sur les instantanés journalisés
+        (§ record_market_snapshot), rééchantillonnés au pas des données
+        Binance pour que la couture ne se voie pas. Sans historique local,
+        la série est celle de Binance, telle quelle — le prolongement se
+        gagne à l'usage, séance après séance. Le perpétuel lit le pas de
+        4 h ; le graphique du prix, celui de son intervalle (`OI_PERIODS`).
         """
-        base = self.open_interest()
+        base = self.open_interest(period=period, limit=limit)
         history = self.market_snapshots()
         if history.empty:
             return base
@@ -1689,7 +1703,8 @@ class MarketHub:
         # la sérialisation en fait des points blancs, et la courbe se
         # rompt là où le journal n'a rien vu.
         resampled = (history.set_index("time")["oi_usd"]
-                     .resample("4h").last().reset_index())
+                     .resample(self._OI_RULES.get(period, "4h")).last()
+                     .reset_index())
         return pd.concat([resampled, base], ignore_index=True)
 
     def funding_history_extended(self, limit: int = 90) -> pd.DataFrame:
