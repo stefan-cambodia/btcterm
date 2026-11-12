@@ -36,7 +36,8 @@ import pandas as pd
 from . import indicators as ind
 
 __all__ = ["FEE_PCT", "GRADES", "HORIZONS", "MIN_SAMPLE", "RULES",
-           "key_levels", "monthly_returns", "position_size", "position_state",
+           "key_levels", "monthly_returns", "hourly_profile", "WEEKDAYS",
+           "position_size", "position_state",
            "price_signals", "rule_stats", "signal_stats", "timeframe_summary"]
 
 #: Les grades de `graded_signals`, du plus acheteur au plus vendeur.
@@ -256,6 +257,60 @@ def monthly_returns(df: pd.DataFrame) -> Optional[dict]:
                 "up": sum(v > 0 for v in values) / len(values) * 100,
             }
     return {"grid": grid, "years": years, "months": months}
+
+
+#: Les jours, du lundi au dimanche — l'ordre de `weekday()`.
+WEEKDAYS = ("lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim.")
+
+
+def hourly_profile(df: pd.DataFrame, zone=None) -> Optional[dict]:
+    """Quand le bitcoin bouge : l'activité par heure et par jour de semaine.
+
+    `df` : des bougies horaires (`time` en UTC naïf, `open`, `high`,
+    `low`, `close`). Chaque bougie se range à l'heure et au jour de son
+    ouverture dans `zone` (un fuseau `tzinfo`, le fuseau local par défaut :
+    celui de tout ce que le serveur date). Pour chaque case et chaque
+    marge, `range` est l'amplitude moyenne (haut − bas, en % de
+    l'ouverture) — l'activité —, `ret` le rendement moyen et `up` la part
+    de bougies haussières, en % ; `n` le nombre de bougies.
+
+    `grid[jour][heure]`, `hours[heure]`, `days[jour]`, le jour de 0 (lundi)
+    à 6. Rien sur la démonstration ni sans bougie.
+    """
+    if df is None or df.empty or df.attrs.get("demo", False):
+        return None
+    if zone is None:
+        from dateutil import tz
+        zone = tz.tzlocal()
+    stamps = (pd.to_datetime(df["time"]).dt.tz_localize("UTC")
+              .dt.tz_convert(zone))
+    work = pd.DataFrame({
+        "day": stamps.dt.weekday.to_numpy(),
+        "hour": stamps.dt.hour.to_numpy(),
+        "range": ((df["high"] - df["low"]) / df["open"] * 100).to_numpy(),
+        "ret": ((df["close"] / df["open"] - 1) * 100).to_numpy(),
+    }).dropna()
+    if work.empty:
+        return None
+    work["up"] = (work["ret"] > 0) * 100.0
+
+    def cells(groups) -> dict:
+        means = groups[["range", "ret", "up"]].mean()
+        counts = groups.size()
+        return {key: {"range": float(row["range"]), "ret": float(row["ret"]),
+                      "up": float(row["up"]), "n": int(counts[key])}
+                for key, row in means.iterrows()}
+
+    grid: dict[int, dict[int, dict]] = {}
+    for (day, hour), cell in cells(work.groupby(["day", "hour"])).items():
+        grid.setdefault(int(day), {})[int(hour)] = cell
+    offset = stamps.iloc[-1].utcoffset()
+    return {"grid": grid,
+            "hours": {int(k): v for k, v in cells(work.groupby("hour")).items()},
+            "days": {int(k): v for k, v in cells(work.groupby("day")).items()},
+            "bars": int(len(work)),
+            "first": stamps.iloc[0].date(), "last": stamps.iloc[-1].date(),
+            "offset": int(offset.total_seconds()) if offset is not None else 0}
 
 
 def timeframe_summary(df: pd.DataFrame) -> Optional[dict]:

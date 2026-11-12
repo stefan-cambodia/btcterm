@@ -1130,6 +1130,20 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         check("les mois se lisent par année", browser.wait_for(
             "(document.getElementById('analysis-stats')?.textContent || '')"
             ".includes('déc')", timeout=10))
+        browser.js("""
+            Array.from(document.querySelectorAll('#analysis-view label'))
+                 .find(l => l.textContent.trim() === 'heures').click();
+        """)
+        check("les heures se lisent par jour, et tiennent dans la cellule",
+              browser.wait_for(
+                  "(t => t.includes('dim.') && t.includes('sens')"
+                  " || t.includes('insuffisant'))"
+                  "(document.getElementById('analysis-stats')?.textContent || '')",
+                  timeout=15)
+              and browser.js("""
+                  const s = document.getElementById('analysis-stats');
+                  const t = s.querySelector('table');
+                  return !t || t.scrollWidth <= s.clientWidth + 1;"""))
         lien = browser.js(
             "return document.getElementById('analysis-export').href;")
         with urllib.request.urlopen(lien, timeout=10) as reponse:

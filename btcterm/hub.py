@@ -33,7 +33,8 @@ from . import sources
 from .indicators import volatility
 from .alerts import Alert, AlertEngine
 from .arbitrage import ArbitrageEngine
-from .analysis import monthly_returns, rule_stats, signal_stats
+from .analysis import (hourly_profile, monthly_returns, rule_stats,
+                       signal_stats)
 from .history import KlineHistory
 from .journal import SNAPSHOT_FIELDS, Journal
 from .newsdb import NewsCollector
@@ -975,6 +976,19 @@ class MarketHub:
         """Les rendements mensuels, le mois en cours compris."""
         return monthly_returns(self.klines("1M", limit=120))
 
+    #: Profondeur du profil horaire : un an de bougies horaires. Le marché
+    #: change d'heures — l'ère des ETF a déplacé l'activité vers la séance
+    #: de New York — : tout l'historique depuis 2017 mêlerait deux régimes.
+    HOURLY_PROFILE_BARS = 24 * 365
+
+    def hourly_profile(self) -> Optional[dict]:
+        """Quand le bitcoin bouge (§ analysis.hourly_profile), sur un an de
+        bougies horaires closes, lues sur le disque ; une heure de cache."""
+        return self._cache.get(
+            "hourly_profile", 3600,
+            lambda: hourly_profile(self.deep_klines(
+                "1h", self.HOURLY_PROFILE_BARS)))
+
     def _backfill_loop(self) -> None:
         """Complète l'historique vers le passé, une page à la fois.
 
@@ -1135,7 +1149,8 @@ class MarketHub:
 
     #: Ce que l'état des sources ne montre pas : des calculs tirés des
     #: sources, pas des sources.
-    STATUS_IGNORED = ("signal_stats", "rule_stats", "cycle_closes")
+    STATUS_IGNORED = ("signal_stats", "rule_stats", "cycle_closes",
+                      "hourly_profile")
     #: Un carnet connecté sans mise à jour depuis ce délai est muet : en
     #: marché ouvert, un carnet BTC bouge à la seconde.
     BOOK_SILENT = 30.0

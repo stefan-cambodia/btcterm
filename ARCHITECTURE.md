@@ -2256,7 +2256,24 @@ La **carte des rendements mensuels** (`monthly_returns`) lit les bougies
 mensuelles, mois en cours compris : une ligne par année, son total composé au
 bout, et pour chaque mois sa moyenne, la part de mois haussiers au survol. Neuf
 années font neuf points par mois — c'est une description, pas une régularité
-établie, et la réserve est écrite sous la carte comme celles du bilan. L'**ATR** à quatorze bougies, en % du cours, rejoint le
+établie, et la réserve est écrite sous la carte comme celles du bilan.
+
+La **carte des heures** (`hourly_profile`, vue « heures ») dit quand le bitcoin
+bouge : un an de bougies horaires closes, lues sur le disque, rangées à l'heure
+et au jour de leur ouverture dans le fuseau du serveur — celui de tout ce qu'il
+date (§3.2) —, et pour chaque case l'amplitude moyenne (haut − bas, en % de
+l'ouverture), le rendement moyen et la part de hausses, au survol. Un an et
+non tout l'historique : l'ère des ETF a déplacé l'activité vers la séance de
+New York, et 2017 mêlerait deux régimes. Les valeurs s'écrivent en points de
+base (71 pour 0,71 %) — vingt-quatre colonnes de « 0.71 » ne tenaient pas dans
+la grille, celles-ci y tiennent au pixel près —, avec la moyenne de chaque
+heure et de chaque jour, et une ligne « sens », le rendement moyen de chaque
+heure, vert ou rouge. Le 12 novembre 2026 : la bande de 20 h à 23 h à Phnom
+Penh — l'ouverture de New York — dépasse le point de pourcentage, le dimanche
+bouge deux fois moins que le vendredi. Le résultat se garde une heure, et
+n'est pas une source : le panneau SOURCES ne le montre pas.
+
+L'**ATR** à quatorze bougies, en % du cours, rejoint le
 résumé des intervalles : c'est lui que le panneau POSITION lit (§3.15).
 
 Le bilan lit 20 000 bougies closes au plus (23 ms) ; `prepare_price_frame` n'est
@@ -3674,6 +3691,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Des heures sans profil**~~ — fait le 12 novembre 2026 (§3.14) : la
+  vue « heures » du panneau ANALYSE, l'amplitude moyenne par jour et par
+  heure sur un an de bougies horaires.
 - ~~**Pas de prix moyen de séance**~~ — fait le 12 novembre 2026 (§3.13) :
   le VWAP ancré et ses bandes, avec les niveaux clés, ancrés au jour, à la
   semaine ou au mois selon l'intervalle.

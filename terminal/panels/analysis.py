@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dash import Input, Output, dcc, html
 
-from btcterm.analysis import MIN_SAMPLE, timeframe_summary
+from btcterm.analysis import MIN_SAMPLE, WEEKDAYS, timeframe_summary
 
 from ..theme import C, MONO, PANEL_STYLE, TABLE_STYLE, TITLE_STYLE
 from .price import INTERVALS
@@ -50,7 +50,8 @@ def layout(title=None):
                     id="analysis-view",
                     options=[{"label": "signaux", "value": "signals"},
                              {"label": "règles", "value": "rules"},
-                             {"label": "mois", "value": "months"}],
+                             {"label": "mois", "value": "months"},
+                             {"label": "heures", "value": "hours"}],
                     value="signals", inline=True, className="tf-radio",
                     persistence=True, persistence_type="local",
                     style={"display": "inline-block", "fontSize": "9px",
@@ -263,6 +264,98 @@ def render_months(stats: dict | None):
     ])
 
 
+def _activity(value: float | None, top: float, text: str,
+              title: str | None = None, bold: bool = False):
+    """Une case de la carte des heures : plus l'heure bouge, plus elle luit."""
+    style = {"textAlign": "right", "padding": "0 2px", "whiteSpace": "nowrap",
+             "lineHeight": "12px", "fontWeight": "600" if bold else "400"}
+    if value is None or not top:
+        return html.Td(text, title=title, style={**style, "color": C["muted"]})
+    alpha = 0x0c + int(min(1.0, value / top) * 0x64)
+    return html.Td(text, title=title, style={
+        **style, "color": C["text"], "background": f"{C['yellow']}{alpha:02x}"})
+
+
+def _offset_label(offset: int) -> str:
+    if not offset:
+        return "UTC"
+    hours, minutes = divmod(abs(offset) // 60, 60)
+    return (f"UTC{'+' if offset > 0 else '-'}{hours}"
+            + (f":{minutes:02d}" if minutes else ""))
+
+
+def render_hours(stats: dict | None):
+    """Quand le bitcoin bouge : l'amplitude moyenne par jour et par heure.
+
+    Les valeurs sont en points de base — 71 pour 0,71 % — : vingt-quatre
+    colonnes de « 0.71 » ne tenaient pas dans la grille. La dernière ligne
+    dit le sens : le rendement moyen de chaque heure, vert ou rouge.
+    """
+    if stats is None:
+        return html.Div("historique horaire insuffisant pour ce bilan",
+                        style={"color": C["muted"], "fontFamily": MONO,
+                               "fontSize": "11px", "padding": "12px"})
+    top = max((cell["range"] for row in stats["grid"].values()
+               for cell in row.values()), default=0.0)
+
+    def bp(value: float) -> str:
+        return f"{value * 100:.0f}"
+
+    def detail(label: str, cell: dict) -> str:
+        return (f"{label} : amplitude moyenne {cell['range']:.2f} %, "
+                f"rendement moyen {cell['ret']:+z.3f} %, {cell['up']:.0f} % de "
+                f"bougies haussières, {cell['n']} bougies")
+
+    rows = []
+    for day, name in enumerate(WEEKDAYS):
+        row = stats["grid"].get(day, {})
+        marge = stats["days"].get(day)
+        rows.append(html.Tr([
+            _activity(None, top, name),
+            *[_activity(row[hour]["range"], top, bp(row[hour]["range"]),
+                        detail(f"{name} {hour} h", row[hour]))
+              if hour in row else _activity(None, top, "")
+              for hour in range(24)],
+            _activity(marge["range"], top, bp(marge["range"]),
+                      detail(name, marge), bold=True)
+            if marge else _activity(None, top, ""),
+        ]))
+    hours = stats["hours"]
+    rows.append(html.Tr([
+        _activity(None, top, "moy."),
+        *[_activity(hours[h]["range"], top, bp(hours[h]["range"]),
+                    detail(f"{h} h", hours[h]), bold=True)
+          if h in hours else _activity(None, top, "")
+          for h in range(24)],
+        _activity(None, top, ""),
+    ]))
+    # Le sens de chaque heure : un rendement moyen, en points de base.
+    rows.append(html.Tr([
+        _activity(None, top, "sens"),
+        *[html.Td(f"{hours[h]['ret'] * 100:+z.0f}" if h in hours else "",
+                  title=(f"{h} h : {hours[h]['up']:.0f} % de bougies haussières"
+                         if h in hours else None),
+                  style={"textAlign": "right", "padding": "0 2px",
+                         "lineHeight": "12px",
+                         "color": C["green"] if h in hours
+                         and hours[h]["ret"] >= 0 else C["red"]})
+          for h in range(24)],
+        _activity(None, top, ""),
+    ]))
+    note = (f"{stats['bars']} bougies horaires, du {stats['first']:%d/%m/%y} au "
+            f"{stats['last']:%d/%m/%y} · heures locales du serveur "
+            f"({_offset_label(stats['offset'])}) · amplitude moyenne (haut − bas) "
+            "en points de base, 100 = 1 % · une description du passé, pas une "
+            "promesse")
+    return html.Div([
+        html.Table([_header("pb", *[str(h) for h in range(24)], "moy."),
+                    html.Tbody(rows)],
+                   style={**TABLE_STYLE, "fontSize": "9px"}),
+        html.Div(note, style={"color": C["muted"], "fontFamily": MONO,
+                              "fontSize": "9px", "padding": "6px"}),
+    ])
+
+
 def register(app, hub):
     @app.callback(
         Output("analysis-summary", "children"),
@@ -281,6 +374,8 @@ def register(app, hub):
     def _stats(interval, view, _tick):
         if view == "months":
             body = render_months(hub.monthly_returns())
+        elif view == "hours":
+            body = render_hours(hub.hourly_profile())
         elif view == "rules":
             body = render_rules(hub.rule_stats(interval))
         else:

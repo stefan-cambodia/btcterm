@@ -359,6 +359,48 @@ def test_les_rendements_mensuels():
     print("  ✓ mois composés en années, moyenne par mois, carte rendue")
 
 
+def test_quand_le_bitcoin_bouge():
+    """Le profil horaire range chaque bougie à l'heure et au jour de son
+    ouverture dans le fuseau donné — le jeudi 12 novembre 2026, 14 h UTC,
+    est 21 h à Phnom Penh —, et en tire amplitude, rendement et part de
+    hausses ; la carte dit tout cela en points de base, ou son absence."""
+    from datetime import timedelta, timezone
+    from terminal.panels import analysis as panneau
+
+    temps = pd.to_datetime(["2026-11-12 14:00", "2026-11-19 14:00",
+                            "2026-11-12 15:00", "2026-11-15 02:00"])
+    bougies = pd.DataFrame({
+        "time": temps,
+        "open": [100.0, 100.0, 100.0, 100.0],
+        "high": [101.0, 102.0, 100.5, 100.2],
+        "low": [99.0, 99.0, 99.5, 99.9],
+        "close": [100.5, 99.5, 100.2, 100.0],
+    })
+    phnom_penh = timezone(timedelta(hours=7))
+    profil = analysis.hourly_profile(bougies, phnom_penh)
+    jeudi_21h = profil["grid"][3][21]
+    assert jeudi_21h["n"] == 2, "deux jeudis à 21 h"
+    assert jeudi_21h["range"] == 2.5, "amplitudes de 2 % et 3 %"
+    assert abs(jeudi_21h["ret"]) < 1e-9 and jeudi_21h["up"] == 50.0
+    assert profil["grid"][3][22]["n"] == 1
+    assert abs(profil["grid"][6][9]["range"] - 0.3) < 1e-9, "dimanche, 2 h UTC = 9 h"
+    assert profil["hours"][21]["n"] == 2 and profil["days"][3]["n"] == 3
+    assert profil["bars"] == 4 and profil["offset"] == 7 * 3600
+    assert analysis.WEEKDAYS[3] == "jeu."
+
+    demo = bougies.copy()
+    demo.attrs["demo"] = True
+    assert analysis.hourly_profile(demo, phnom_penh) is None
+    assert analysis.hourly_profile(bougies.iloc[0:0], phnom_penh) is None
+
+    carte = str(panneau.render_hours(profil))
+    assert "250" in carte, "2,5 % s'écrit 250 points de base"
+    assert "UTC+7" in carte and "jeu." in carte and "sens" in carte
+    assert "insuffisant" in str(panneau.render_hours(None))
+    print("  ✓ heures et jours dans le fuseau, amplitude en points de base, "
+          "absence dite")
+
+
 def test_la_volatilite_d_un_intervalle():
     etat = analysis.timeframe_summary(marche())
     assert 0 < etat["atr_pct"] < 5
