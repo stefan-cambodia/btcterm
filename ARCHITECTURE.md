@@ -2359,7 +2359,12 @@ module `options` (§2.11) en quatre vues :
   et le flip ; le plein écran la part des calls et des puts, et dessous la
   courbe du total. Le second graphique gardait le quadrillage blanc de
   Plotly — `_options_layout` ne parait que le premier jeu d'axes —, d'où un
-  style posé sur tous les axes.
+  style posé sur tous les axes. Le flip et le max pain de l'échéance par
+  défaut sortent aussi du panneau (`options.chart_levels`) : `/api/levels`
+  les ajoute aux niveaux clés du graphique du prix, en ambre, `span`
+  « options » (le flip en grands tirets) — une chaîne illisible n'ôte rien
+  aux autres niveaux —, et la synthèse les écrit à la ligne volatilité
+  (« GEX −112 M$/1 %, flip 75,536 »).
 
 Le titre porte DVOL, le skew 25 delta à un mois et le ratio put/call ; le plein
 écran y ajoute la réalisée et la prime, la volatilité à un mois, le put/call
@@ -3713,7 +3718,8 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   (« ⚠ heure serveur UTC », entrée suivante).
 - ~~**Des options sans leur effet sur le spot**~~ — fait le 12 novembre 2026
   (§3.16) : la vue GEX, l'exposition gamma des teneurs par strike, son
-  profil selon le prix et le gamma flip, convention dite.
+  profil selon le prix et le gamma flip, convention dite ; flip et max pain
+  aussi parmi les niveaux clés du graphique, et le GEX à la synthèse.
 - ~~**Des heures sans profil**~~ — fait le 12 novembre 2026 (§3.14) : la
   vue « heures » du panneau ANALYSE, l'amplitude moyenne par jour et par
   heure sur un an de bougies horaires.

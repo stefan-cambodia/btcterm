@@ -219,7 +219,10 @@ bougies de Binance, la semaine partant du lundi. Gris de plus en plus clairs du
 jour au mois, ils ne se confondent pas avec les moyennes ; deux niveaux au même
 prix n'en font qu'un (`B S-1/M-1`). Ce sont des repères où les ordres
 s'accumulent d'ordinaire, pas des garanties de rebond ; aucun n'est tracé sur
-la série de démonstration. La même case trace le **VWAP ancré** (en rose) et ses
+la série de démonstration. S'y ajoutent, en ambre, les niveaux que posent les
+options : le **gamma flip** (`γ flip`, voir le panneau OPTIONS) et le **max
+pain** de l'échéance par défaut (`max pain 27/11`). La même case trace le
+**VWAP ancré** (en rose) et ses
 bandes à un écart-type (pointillées) : le prix moyen pondéré par le volume
 depuis le début de la journée UTC jusqu'en 1h, de la semaine en 4h à 12h, du
 mois en journalier — la légende dit l'ancrage (`VWAP J`, `S`, `M`), la lecture
@@ -459,7 +462,9 @@ tasse ; négative, ils suivent le mouvement — il s'étire. Le « gamma flip »
 prix où le total change de signe ; en plein écran, la part des calls et des
 puts, et le GEX total selon le prix. La convention de signe — teneurs acheteurs
 des calls, vendeurs des puts — est une hypothèse usuelle, écrite sur le
-graphique : la chaîne ne dit pas qui tient quoi. **HISTO** relit ce que seul le
+graphique : la chaîne ne dit pas qui tient quoi. Le flip et le GEX net figurent
+aussi à la synthèse, ligne volatilité, et le flip parmi les niveaux clés du
+graphique du prix. **HISTO** relit ce que seul le
 journal garde : Deribit ne sert gratuitement l'historique que de DVOL, et le
 terminal note toutes les cinq minutes la volatilité à un mois, le skew, le
 put/call et la base depuis le 6 novembre 2026 — la vue se remplit à l'usage. Le titre donne le skew 25 delta

@@ -36,7 +36,7 @@ import pandas as pd
 
 __all__ = [
     "MIN_DAYS", "call_delta", "gamma", "gamma_exposure", "gamma_profile",
-    "gamma_flip", "front_expiry", "futures_curve", "max_pain",
+    "gamma_flip", "chart_levels", "front_expiry", "futures_curve", "max_pain",
     "option_chain", "parse_instrument", "put_call_ratio", "strike_table",
     "summary", "term_structure",
 ]
@@ -455,3 +455,32 @@ def summary(chain: pd.DataFrame, futures: pd.DataFrame,
         out["front"] = front
         out["max_pain"] = max_pain(strike_table(chain, front))
     return out
+
+
+def chart_levels(chain: Optional[pd.DataFrame],
+                 now: Optional[pd.Timestamp] = None) -> list[dict]:
+    """Les niveaux que les options posent sur le graphique du prix, à côté
+    des niveaux clés (§ analysis.key_levels, même forme) : le gamma flip
+    (`γ flip`) et le max pain de l'échéance par défaut (`max pain 27/11`),
+    `span` « options ». Le cours qui s'en approche se voit sans changer
+    d'onglet. Rien sans chaîne, et un niveau qu'on ne sait pas calculer
+    manque plutôt que d'être faux.
+    """
+    if chain is None or chain.empty:
+        return []
+    now = pd.Timestamp.now(tz="UTC") if now is None else now
+    levels = []
+    gex = gamma_exposure(chain, now)
+    if gex is not None:
+        flip = gamma_flip(gamma_profile(chain, now), gex["spot"])
+        if flip is not None:
+            levels.append({"label": "γ flip", "price": round(float(flip), 2),
+                           "span": "options", "kind": "flip"})
+    front = front_expiry(chain, now)
+    if front is not None:
+        pain = max_pain(strike_table(chain, front))
+        if pain is not None:
+            levels.append({"label": f"max pain {front:%d/%m}",
+                           "price": float(pain), "span": "options",
+                           "kind": "pain"})
+    return levels

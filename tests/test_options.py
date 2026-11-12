@@ -306,6 +306,13 @@ def test_l_exposition_gamma_des_teneurs():
     vide = charts.build_gex_chart(None, None, None)
     assert "indisponible" in vide.layout.annotations[0].text
     assert "GEX" in charts.OPTIONS_VIEWS
+
+    # Sur le graphique du prix, parmi les niveaux clés.
+    niveaux = opt.chart_levels(melange, NOW)
+    assert [n["kind"] for n in niveaux] == ["flip", "pain"], niveaux
+    assert niveaux[0]["label"] == "γ flip" and niveaux[1]["label"] == "max pain 13/11"
+    assert all(n["span"] == "options" for n in niveaux)
+    assert opt.chart_levels(chaine(), NOW) == [] and opt.chart_levels(None) == []
     print("  ✓ gamma = dérivée du delta, calls +, puts −, flip entre les deux, "
           "convention dite")
 

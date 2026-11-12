@@ -23,6 +23,7 @@ import pandas as pd
 from flask import Response, jsonify, request
 
 from btcterm import heatmap
+from btcterm import options as opt
 from btcterm import indicators as ind
 from btcterm.analysis import key_levels
 from btcterm import sources
@@ -474,8 +475,17 @@ def register_api(app, hub) -> None:
         """
         daily = hub.klines("1d", 365)
         demo = bool(daily.attrs.get("demo", False))
+        levels = [] if demo else key_levels(daily)
+        # Les niveaux des options — gamma flip, max pain de l'échéance par
+        # défaut —, de la chaîne que le panneau OPTIONS tient en cache. Une
+        # chaîne illisible n'ôte rien aux autres niveaux.
+        if not demo:
+            try:
+                levels += opt.chart_levels(hub.option_chain())
+            except Exception:
+                pass
         return jsonify({
-            "levels": [] if demo else key_levels(daily),
+            "levels": levels,
             "demo": demo,
             "stale": bool(daily.attrs.get("stale", False)),
         })

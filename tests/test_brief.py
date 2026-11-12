@@ -136,6 +136,11 @@ def test_les_sections_lisent_leurs_donnees():
     assert ligne.text == ("+120 M$ le 06/11 · 5 séances -310 M$ "
                           "≈ -3,102 BTC, 3.4× l'émission"), ligne.text
 
+    vol = brief.volatility_item((38.8, 39.5, 86_400), (-3.5,),
+                                {"total": -112.4e6}, 75_536.0)
+    assert vol.text.endswith("· GEX -112 M$/1 %, flip 75,536"), vol.text
+    assert "GEX" not in brief.volatility_item((38.8, None, 0), None).text
+
     fg = brief.sentiment_item([{"value": 28, "label": "Fear"},
                                {"value": 25, "label": "Extreme Fear"}])
     assert fg.text == "Fear & Greed 25 (Extreme Fear), 28 la veille", fg

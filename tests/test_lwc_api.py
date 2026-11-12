@@ -215,7 +215,9 @@ def test_profil_fenetre_sur_la_plage():
 def test_niveaux_cles():
     """`/api/levels` sert les niveaux de la veille, de la semaine et du mois
     en dollars, et rien sur la démonstration — des repères tirés d'une
-    marche aléatoire seraient faux."""
+    marche aléatoire seraient faux. Deribit est coupé ici : les niveaux des
+    options manquent, les autres restent."""
+    sources.fetch_deribit_summary = panne_reseau
     web = client()
     page = web.get("/api/levels").get_json()
     assert page["demo"] is False
@@ -228,6 +230,43 @@ def test_niveaux_cles():
     demo = client(panne_reseau).get("/api/levels").get_json()
     assert demo["demo"] is True and demo["levels"] == []
     print("  ✓ niveaux clés en dollars, aucun sur la démonstration")
+
+
+def test_les_niveaux_des_options():
+    """Avec une chaîne d'options, `/api/levels` ajoute le gamma flip et le
+    max pain de l'échéance par défaut, en `span` « options »."""
+    import datetime as dt
+
+    mois = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP",
+            "OCT", "NOV", "DEC")
+    echeance = dt.date.today() + dt.timedelta(days=14)
+    nom = f"{echeance.day}{mois[echeance.month - 1]}{echeance:%y}"
+
+    def chaine(kind="option"):
+        if kind != "option":
+            return []
+        lignes = []
+        for strike, sorte, oi in ((70_000, "P", 400), (75_000, "P", 50),
+                                  (75_000, "C", 50), (80_000, "C", 400)):
+            lignes.append({"instrument_name": f"BTC-{nom}-{strike}-{sorte}",
+                           "mark_iv": 50.0, "open_interest": oi,
+                           "underlying_price": 75_000.0,
+                           "estimated_delivery_price": 74_900.0,
+                           "volume_usd": 1.0})
+        return lignes
+
+    original = sources.fetch_deribit_summary
+    sources.fetch_deribit_summary = chaine
+    try:
+        page = client().get("/api/levels").get_json()
+    finally:
+        sources.fetch_deribit_summary = original
+    options = [n for n in page["levels"] if n["span"] == "options"]
+    etiquettes = {n["label"].split(" ")[0] for n in options}
+    assert etiquettes == {"γ", "max"}, options
+    flip = next(n for n in options if n["kind"] == "flip")
+    assert 70_000 < flip["price"] < 80_000
+    print("  ✓ gamma flip et max pain parmi les niveaux, en span options")
 
 
 def test_sante_du_terminal():

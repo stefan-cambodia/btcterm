@@ -1101,7 +1101,10 @@
     // ouvertures sont pointillées. Relus toutes les cinq minutes : le jour
     // qui tourne les change. Les prix arrivent en dollars, la devise
     // affichée les convertit comme le POC.
-    var LEVEL_COLORS = {day: "#64748b", week: "#94a3b8", month: "#cbd5e1"};
+    // Les gris des niveaux clés, et l'ambre des niveaux des options
+    // (gamma flip, max pain) : ni le jaune du POC, ni les moyennes.
+    var LEVEL_COLORS = {day: "#64748b", week: "#94a3b8", month: "#cbd5e1",
+                        options: "#f59e0b"};
     var LEVELS_EVERY = 300000;
 
     function buildLevels() {
@@ -1136,7 +1139,8 @@
                 price: level.price * rate,
                 color: LEVEL_COLORS[level.span] || LEVEL_COLORS.day,
                 lineWidth: 1,
-                lineStyle: level.kind === "open" ? LS.Dotted : LS.Dashed,
+                lineStyle: level.kind === "open" ? LS.Dotted
+                    : level.kind === "flip" ? LS.LargeDashed : LS.Dashed,
                 axisLabelVisible: true,
                 title: level.label
             }));

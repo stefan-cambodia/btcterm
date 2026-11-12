@@ -44,6 +44,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from . import cycle, macrocal, newsdb
+from . import options as opt
 from .sources import etf_pending
 from .journal import liquidity_totals
 
@@ -324,8 +325,11 @@ def sentiment_item(history: list[dict]) -> Item:
     return Item("Sentiment", text, "", "alternative.me, une valeur par jour")
 
 
-def volatility_item(dvol, rr25) -> Optional[Item]:
-    """DVOL et son écart, skew des ailes 25 delta."""
+def volatility_item(dvol, rr25, gex: Optional[dict] = None,
+                    flip: Optional[float] = None) -> Optional[Item]:
+    """DVOL et son écart, skew des ailes 25 delta — et l'exposition gamma
+    des teneurs de marché avec son flip (§ options), quand la chaîne est
+    là."""
     if not dvol:
         return None
     current, reference, span = dvol
@@ -336,9 +340,16 @@ def volatility_item(dvol, rr25) -> Optional[Item]:
         tone = "warn" if current - reference >= 6 else ""
     if rr25:
         text += f" · skew 25Δ {rr25[0]:+z.1f}"
+    if gex is not None:
+        text += f" · GEX {gex['total'] / 1e6:+z,.0f} M$/1 %"
+        if flip is not None:
+            text += f", flip {flip:,.0f}"
     return Item("Volatilité", text, tone,
                 "volatilité implicite Deribit à 30 jours ; skew négatif : "
-                "les puts plus chers que les calls")
+                "les puts plus chers que les calls ; GEX : ce que les "
+                "teneurs de marché achètent ou vendent par 1 % de mouvement "
+                "— négatif, ils étirent le marché ; convention : teneurs "
+                "acheteurs des calls, vendeurs des puts")
 
 
 def premium_item(rows, now: float) -> Optional[Item]:
@@ -498,6 +509,19 @@ def _funding(hub, snapshots, now: float) -> Optional[float]:
     return noted[0] if noted else None
 
 
+def _gamma(hub) -> tuple[Optional[dict], Optional[float]]:
+    """L'exposition gamma des teneurs et son flip (§ options), de la chaîne
+    que le panneau OPTIONS tient en cache ; rien si elle manque."""
+    try:
+        chain = hub.option_chain()
+    except Exception:  # noqa: BLE001 — une ligne en moins, pas une synthèse
+        return None, None
+    gex = opt.gamma_exposure(chain)
+    if gex is None:
+        return None, None
+    return gex, opt.gamma_flip(opt.gamma_profile(chain), gex["spot"])
+
+
 def build(hub, now: Optional[float] = None,
           news: Optional[Callable[[dt.datetime, int], list]] = None) -> Brief:
     """La synthèse du moment, d'après le hub.
@@ -539,7 +563,8 @@ def build(hub, now: Optional[float] = None,
     add("ETF", lambda: etf_item(hub.etf_flows(), hub.cycle_closes()))
     add("Sentiment", lambda: sentiment_item(hub.fear_greed_history()))
     add("Volatilité", lambda: volatility_item(change(snapshots, "dvol", now),
-                                              change(snapshots, "rr25", now)))
+                                              change(snapshots, "rr25", now),
+                                              *_gamma(hub)))
     add("Prime Coinbase", lambda: premium_item(snapshots, now))
     add("Dominance", lambda: dominance_item(
         change(snapshots, "btc_dominance", now)))
