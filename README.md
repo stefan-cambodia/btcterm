@@ -242,6 +242,21 @@ mois en journalier — la légende dit l'ancrage (`VWAP J`, `S`, `M`), la lectur
 du crosshair sa valeur. Au-dessus, les acheteurs de la période sont en gain ;
 en dessous, en perte.
 
+**VWAP ancré à la main** — la touche `A` (commande `/ancre`) arme l'ancrage,
+et un clic sur une bougie y pose une ancre : de là jusqu'à la dernière bougie,
+le prix moyen pondéré par le volume de tous ceux qui ont traité depuis — depuis
+le sommet, depuis le dernier creux, depuis le jour d'une annonce. Au-dessus,
+ils sont en gain ; le cours y revient souvent chercher appui ou résistance. La
+courbe est blanche, nommée sur l'axe des prix par sa date (`AV 11/10 15:00`),
+et la lecture du crosshair donne sa valeur. Trois ancres au plus — la
+quatrième remplace la plus ancienne —, gardées dans le navigateur en heures
+absolues : elles survivent à la devise, à l'intervalle et au rechargement.
+Lue dans un intervalle plus large, une ancre part du début de la bougie qui
+la contient ; dans un plus fin, si elle précède l'historique chargé, la
+légende le dit, et remonter le graphique la fait réapparaître. `Alt` + clic
+sur la courbe la retire, `/effacer` les retire toutes avec les lignes. La
+démo statique la calcule aussi : tout se fait dans le navigateur.
+
 Le graphique conserve zoom et pan pendant que les données coulent — c'est ce qui
 permet d'analyser une zone sans être recadré à chaque tour d'horloge. Les
 réglages, eux, survivent au rechargement de la page : intervalle, devise,
@@ -868,6 +883,7 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 | `S` | afficher ou masquer les flèches du graphique |
 | `P` | enregistrer le graphique en image |
 | `T` | tracer une ligne de tendance : armer, puis glisser d'un point à l'autre |
+| `A` | ancrer un VWAP sur une bougie : armer, puis cliquer la bougie de départ (`/ancre`) |
 | `N` | niveaux clés : veille, semaine et mois passés, ouvertures en cours, et VWAP ancré |
 | `M` | carte des liquidations sur le graphique (`/carte`) |
 | `O` | gros ordres du ruban en bulles sur le graphique (`/ord`) |
@@ -877,13 +893,13 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 | `Échap` | revenir |
 | `Maj` + glisser | zoom sur une zone du graphique |
 | `Ctrl` + glisser | mesurer un mouvement : %, écart de prix, bougies, durée |
-| `Alt` + clic | poser une alerte de cours à cette hauteur, ou retirer l'alerte ou la ligne qui s'y trouve |
+| `Alt` + clic | poser une alerte de cours à cette hauteur, ou retirer l'alerte, la ligne ou le VWAP ancré qui s'y trouve |
 
 La ligne de commande prend un panneau (`etf`, `perp`, `analyse`, `alertes`…), un
 intervalle (`15m`, `4h`, `1M`), `eur`, `usd`, `log`, `signaux`, un sous-graphique
 (`cvd`, `rsi`, `crsi`, `vol`, `profil`), les niveaux clés (`niv` ou
-`niveaux`), `capture`, `ligne`, `effacer` (toutes
-les lignes) ou un seuil de cours en dollars (`alerte 80000`). Une commande inconnue reste à l'écran, en rouge.
+`niveaux`), `capture`, `ligne`, `ancre`, `effacer` (toutes
+les lignes et les ancres) ou un seuil de cours en dollars (`alerte 80000`). Une commande inconnue reste à l'écran, en rouge.
 
 ## Notes
 

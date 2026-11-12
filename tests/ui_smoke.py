@@ -395,6 +395,59 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "window.lwcPrice.debug().drawLines.length === 0", timeout=5)
             and browser.js("return window.lwcPrice.debug().alerts;") == 0)
 
+        # Le VWAP ancré à la main : A, un clic sur une bougie, la courbe
+        # jusqu'à la dernière ; elle suit la devise, et Alt + clic la retire
+        # sans poser d'alerte.
+        browser.js("window.lwcPrice.clearDrawings();")
+        browser.press("a")
+        check("A arme l'ancrage", browser.wait_for(
+            "window.lwcPrice.debug().anchorMode === true", timeout=3))
+        browser.press("\ue00c")
+        check("Échap le désarme", browser.wait_for(
+            "window.lwcPrice.debug().anchorMode === false", timeout=3))
+        browser.press("a")
+        browser.wait_for("window.lwcPrice.debug().anchorMode === true", timeout=3)
+        time.sleep(0.8)
+        browser.click(int(cadre["left"] + cadre["width"] * 0.4),
+                      int(cadre["top"] + cadre["height"] * 0.5))
+        ancre = browser.wait_for(
+            "window.lwcPrice.debug().anchorLines.length === 1"
+            " && window.lwcPrice.debug().anchorLines[0].drawn"
+            " && window.lwcPrice.debug().anchorMode === false", timeout=5)
+        etat = browser.js("""
+            const d = window.lwcPrice.debug();
+            return {lignes: d.anchorLines, lecture: d.readout,
+                    dernier: d.lastClose};
+        """)
+        ligne = (etat["lignes"] or [{}])[0]
+        check("un clic pose l'ancre, la courbe court jusqu'à la dernière bougie",
+              ancre and ligne.get("points", 0) > 2
+              and abs(ligne["last"] / etat["dernier"] - 1) < 0.5,
+              f"{ligne.get('points')} points, dernier {ligne.get('last')}")
+        check("la lecture la nomme", "AV " in (etat["lecture"] or ""),
+              (etat["lecture"] or "")[-40:])
+        usd = ligne.get("last")
+        browser.press("e")
+        browser.wait_for("window.lwcPrice.debug().currency === 'EUR'", timeout=5)
+        eur = browser.js("""
+            const d = window.lwcPrice.debug();
+            return d.anchorLines.length ? d.anchorLines[0].last / d.eur_rate : null;
+        """)
+        check("elle suit la devise",
+              usd and eur and abs(eur / usd - 1) < 1e-6, f"{usd} → {eur}")
+        browser.press("e")
+        browser.wait_for("window.lwcPrice.debug().currency === 'USD'", timeout=5)
+        time.sleep(0.8)
+        bout = browser.js("""
+            const d = window.lwcPrice.debug();
+            return window.lwcPrice.screen(d.lastShown, d.anchorLines[0].last);
+        """)
+        alertes = browser.js("return window.lwcPrice.debug().alerts;")
+        browser.alt_click(cadre["left"] + bout["x"] - 1, cadre["top"] + bout["y"])
+        check("Alt + clic retire l'ancre, sans poser d'alerte", browser.wait_for(
+            "window.lwcPrice.debug().anchors.length === 0", timeout=5)
+            and browser.js("return window.lwcPrice.debug().alerts;") == alertes)
+
         browser.press("s")
         check("S masque les flèches", browser.wait_for(
             "window.lwcPrice.debug().signalsShown === false", timeout=3))
@@ -784,9 +837,14 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         # rien.
         plage = avant["priceRange"]
         pane = cadre["height"] - 28
+        # Borné au pane : un cours qui vient de faire son plus bas (ou son
+        # plus haut) touche le bord de la plage, et le cadre sortait de la
+        # fenêtre — le geste échouait, et le passage entier avec lui.
         def y(price):
-            return int(cadre["top"] + (plage["to"] - price)
-                       / (plage["to"] - plage["from"]) * pane)
+            brut = (cadre["top"] + (plage["to"] - price)
+                    / (plage["to"] - plage["from"]) * pane)
+            return int(min(max(brut, cadre["top"] + 4),
+                           cadre["top"] + pane - 4))
         marge = 0.05 * (plage["to"] - plage["from"])
         browser.shift_drag(int(cadre["left"] + cadre["width"] * 0.55),
                            y(avant["lastClose"] + marge),

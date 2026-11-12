@@ -137,6 +137,15 @@ class Firefox:
                  {"type": "pointerUp", "button": 0},
                  {"type": "pause", "duration": 0}]})
 
+    def click(self, x, y):
+        """Un clic simple, par la vraie pile d'événements."""
+        self._actions(
+            {"type": "pointer", "id": "souris",
+             "parameters": {"pointerType": "mouse"}, "actions": [
+                 {"type": "pointerMove", "duration": 0, "x": int(x), "y": int(y)},
+                 {"type": "pointerDown", "button": 0},
+                 {"type": "pointerUp", "button": 0}]})
+
     def press(self, key):
         """Une touche, au niveau du document — pas de champ visé."""
         self._actions({"type": "key", "id": "kb", "actions": [

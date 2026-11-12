@@ -24,6 +24,12 @@
     // Les lignes de tendance, dans le navigateur elles aussi.
     var DRAWINGS_KEY = "btcterm-drawings";
 
+    // Les ancres des VWAP posés à la main, et combien on en garde : au-delà
+    // de trois courbes, le cours ne se lit plus — la quatrième remplace la
+    // plus ancienne.
+    var ANCHORS_KEY = "btcterm-anchors";
+    var ANCHOR_MAX = 3;
+
     var SVG_NS = "http://www.w3.org/2000/svg";
 
     // Marge d'un Alt + clic pour viser un seuil existant, en pixels.
@@ -50,6 +56,10 @@
         drawHint: null,
         drawLines: [],
         drawings: [],
+        anchorMode: false,  // A : le prochain clic pose une ancre
+        anchorHint: null,
+        anchorLines: [],    // {t, series, points} — series null hors historique
+        anchors: [],        // {t} : instants réels des ancres
         hover: null,   // dernier événement du crosshair sur une bougie
         clock: null,   // temps réels ↔ temps affichés (assets/lwc-clock.js)
         signalsHidden: localStorage.getItem(SIGNALS_KEY) === "off",
@@ -385,15 +395,26 @@
         });
         state.chart.subscribeClick(function (param) {
             var event = param.sourceEvent;
+            if (state.anchorMode && event && !event.altKey
+                    && param.time !== undefined && param.paneIndex === 0) {
+                addAnchor(clock().actual(param.time));
+                setAnchorMode(false);
+                return;
+            }
             if (!event || !event.altKey || !param.point
                     || param.paneIndex !== 0) {
                 return;
             }
             var drawing = drawingAt(param.point.x, param.point.y);
+            var anchor = drawing === -1 ? anchorAt(param) : -1;
             if (drawing !== -1) {
                 state.drawings.splice(drawing, 1);
                 saveDrawings();
                 renderDrawings();
+            } else if (anchor !== -1) {
+                state.anchors.splice(anchor, 1);
+                saveAnchors();
+                renderAnchors();
             } else {
                 toggleAlertAt(param.point.y);
             }
@@ -426,7 +447,8 @@
         var hint = document.createElement("span");
         hint.className = "lwc-zoom-hint";
         hint.textContent = "Maj + glisser : zoom · double-clic : vue entière"
-            + " · Ctrl + glisser : mesure · T : ligne · Alt + clic : alerte";
+            + " · Ctrl + glisser : mesure · T : ligne · A : VWAP ancré"
+            + " · Alt + clic : alerte";
         div.appendChild(hint);
         state.el.appendChild(div);
         state.legend = div;
@@ -521,6 +543,13 @@
         if (vwap !== undefined) {
             parts.push(["VWAP " + money(vwap), VWAP_COLOR]);
         }
+        (state.anchorLines || []).forEach(function (line) {
+            var value = anchorValue(line);
+            if (value !== undefined) {
+                parts.push([anchorLabel(line.t) + " " + money(value),
+                            theme.text]);
+            }
+        });
         var oi = valueOf(state.series.oi);
         if (oi !== undefined) {
             parts.push(["OI " + billions(oi) + unit, theme.orange]);
@@ -569,6 +598,13 @@
         hint.style.color = state.conf.theme.yellow;
         state.el.appendChild(hint);
         state.drawHint = hint;
+        var anchorHint = document.createElement("div");
+        anchorHint.className = "lwc-draw-hint";
+        anchorHint.textContent = "ancrage : cliquer la bougie de départ du "
+            + "VWAP · Échap pour annuler";
+        anchorHint.style.color = state.conf.theme.text;
+        state.el.appendChild(anchorHint);
+        state.anchorHint = anchorHint;
         state.el.appendChild(box);
         state.zoomBox = box;
         state.measureLabel = label;
@@ -636,6 +672,9 @@
         } else if (state.drawMode) {
             ev.stopPropagation();
             setDrawMode(false);
+        } else if (state.anchorMode) {
+            ev.stopPropagation();
+            setAnchorMode(false);
         } else if (state.measuring) {
             ev.stopPropagation();
             clearMeasure();
@@ -655,6 +694,9 @@
         document.removeEventListener("mousemove", zoomMove, true);
         document.removeEventListener("mouseup", zoomEnd, true);
         document.removeEventListener("keydown", zoomKey, true);
+        // Un zoom au cadre pendant qu'un geste reste armé : Échap doit
+        // encore pouvoir le désarmer.
+        syncArmed();
     }
 
     function drawBox() {
@@ -686,13 +728,20 @@
     // et en heures absolues, pour survivre à la devise et à l'intervalle.
     function setDrawMode(on) {
         state.drawMode = !!on && !!state.chart;
+        if (state.drawMode && state.anchorMode) { setAnchorMode(false); }
         if (!state.drawHint) { return; }
         state.drawHint.style.display = state.drawMode ? "block" : "none";
-        state.el.classList.toggle("lwc-drawing", state.drawMode);
-        // Pendant une mesure, l'écouteur reste à celle-ci.
-        if (state.drawMode) {
+        syncArmed();
+    }
+
+    // Le curseur en croix et l'écoute d'Échap, tant qu'un geste est armé —
+    // tracé ou ancrage. Pendant une mesure, l'écouteur reste à celle-ci.
+    function syncArmed() {
+        var armed = state.drawMode || state.anchorMode;
+        if (state.el) { state.el.classList.toggle("lwc-drawing", armed); }
+        if (armed) {
             document.addEventListener("keydown", zoomKey, true);
-        } else if (!state.measuring) {
+        } else if (!state.measuring && !state.drag) {
             document.removeEventListener("keydown", zoomKey, true);
         }
     }
@@ -815,6 +864,168 @@
                 <= ALERT_HIT_PX;
         });
         return hit ? hit.index : -1;
+    }
+
+    // ── VWAP ancré à la main ────────────────────────────────
+    //
+    // A arme l'ancrage, un clic pose l'ancre sur la bougie visée : de là,
+    // le prix moyen pondéré par le volume jusqu'à la dernière bougie
+    // (btcVwap.fromAnchor, testé sous Node). L'ancre se garde en temps
+    // réel, comme les lignes : elle survit à la devise, à l'intervalle et
+    // au rechargement. Alt + clic sur la courbe la retire.
+    function setAnchorMode(on) {
+        state.anchorMode = !!on && !!state.chart;
+        if (state.anchorMode && state.drawMode) { setDrawMode(false); }
+        if (!state.anchorHint) { return; }
+        state.anchorHint.style.display = state.anchorMode ? "block" : "none";
+        syncArmed();
+    }
+
+    function loadAnchors() {
+        try {
+            var saved = JSON.parse(localStorage.getItem(ANCHORS_KEY));
+            return Array.isArray(saved) ? saved.filter(function (a) {
+                return a && typeof a.t === "number";
+            }).slice(-ANCHOR_MAX) : [];
+        } catch (error) {
+            return [];
+        }
+    }
+
+    function saveAnchors() {
+        try {
+            localStorage.setItem(ANCHORS_KEY, JSON.stringify(state.anchors));
+        } catch (error) { /* navigation privée : l'ancre vit sa séance */ }
+    }
+
+    function addAnchor(time) {
+        if (typeof time !== "number") { return; }
+        state.anchors = state.anchors.filter(function (a) {
+            return a.t !== time;
+        });
+        state.anchors.push({t: time});
+        state.anchors = state.anchors.slice(-ANCHOR_MAX);
+        saveAnchors();
+        renderAnchors();
+    }
+
+    // Le nom d'une ancre, sur l'axe des prix et dans la lecture : sa date,
+    // et son heure en intraday — telles que l'axe les affiche.
+    function anchorLabel(time) {
+        var shown = new Date(clock().shown(time) * 1000).toISOString();
+        var label = "AV " + shown.slice(8, 10) + "/" + shown.slice(5, 7);
+        return INTRADAY[state.cfg.interval]
+            ? label + " " + shown.slice(11, 16) : label;
+    }
+
+    function anchorPoints(anchor, rate) {
+        var points = window.btcVwap
+            ? window.btcVwap.fromAnchor(state.packet.bars, state.packet.volume,
+                                        anchor.t)
+            : null;
+        if (!points) { return null; }
+        var at = clock();
+        return points.map(function (p) {
+            return {time: at.shown(p.time), value: p.value * rate};
+        });
+    }
+
+    function renderAnchors() {
+        if (!state.chart || !state.packet) { return; }
+        (state.anchorLines || []).forEach(function (line) {
+            if (line.series) { state.chart.removeSeries(line.series); }
+        });
+        state.anchorLines = [];
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        state.anchors.forEach(function (anchor) {
+            var points = anchorPoints(anchor, rate);
+            var line = {t: anchor.t, series: null, points: points};
+            if (points && points.length) {
+                line.series = state.chart.addSeries(
+                    LightweightCharts.LineSeries, {
+                        color: state.conf.theme.text, lineWidth: 1,
+                        title: anchorLabel(anchor.t),
+                        priceLineVisible: false, lastValueVisible: true,
+                        crosshairMarkerVisible: false,
+                        // Comme les lignes : l'axe suit le cours.
+                        autoscaleInfoProvider: function () { return null; }
+                    }, 0);
+                line.series.setData(points);
+            }
+            state.anchorLines.push(line);
+        });
+        updateAnchorLegend();
+        updateReadout();
+    }
+
+    // La bougie en cours bouge, la fin des VWAP ancrés aussi : le dernier
+    // point se repose, et une bougie qui clôture en ajoute un.
+    function updateAnchorTails() {
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        (state.anchorLines || []).forEach(function (line) {
+            if (!line.series) { return; }
+            var points = anchorPoints({t: line.t}, rate);
+            if (points && points.length) {
+                line.series.update(points[points.length - 1]);
+                line.points = points;
+            }
+        });
+    }
+
+    // La légende dit les ancres que l'historique chargé ne couvre pas :
+    // une courbe absente sans un mot passerait pour une ancre perdue.
+    function updateAnchorLegend() {
+        if (!state.legend) { return; }
+        if (!state.anchorLegend) {
+            state.anchorLegend = document.createElement("span");
+            state.anchorLegend.style.color = state.conf.theme.muted;
+            var hint = state.legend.querySelector(".lwc-zoom-hint");
+            state.legend.insertBefore(state.anchorLegend, hint);
+        }
+        var missing = state.anchorLines.filter(function (line) {
+            return !line.series;
+        }).map(function (line) { return anchorLabel(line.t); });
+        state.anchorLegend.textContent = missing.length
+            ? missing.join(", ") + " : avant l'historique chargé — remonter "
+              + "le graphique" : "";
+    }
+
+    // La valeur d'un VWAP ancré sous le crosshair. Une courbe posée après
+    // le dernier mouvement de souris n'est pas dans le survol retenu : sa
+    // valeur se cherche alors au temps survolé — la lecture la disait
+    // sinon au prochain mouvement seulement.
+    function anchorValue(line) {
+        if (!line.series) { return undefined; }
+        if (!state.hover) { return valueOf(line.series); }
+        var point = state.hover.seriesData.get(line.series);
+        if (point) { return point.value; }
+        var points = line.points || [];
+        var low = 0;
+        var high = points.length - 1;
+        while (low <= high) {
+            var middle = (low + high) >> 1;
+            if (points[middle].time === state.hover.time) {
+                return points[middle].value;
+            }
+            if (points[middle].time < state.hover.time) {
+                low = middle + 1;
+            } else {
+                high = middle - 1;
+            }
+        }
+        return undefined;
+    }
+
+    // L'ancre dont la courbe passe sous le clic, à la marge d'une alerte.
+    function anchorAt(param) {
+        var candles = state.series.candles;
+        return (state.anchorLines || []).findIndex(function (line) {
+            if (!line.series || !param.seriesData) { return false; }
+            var point = param.seriesData.get(line.series);
+            if (!point) { return false; }
+            var y = candles.priceToCoordinate(point.value);
+            return y !== null && Math.abs(y - param.point.y) <= ALERT_HIT_PX;
+        });
     }
 
     // ── Mesure ──────────────────────────────────────────────
@@ -1700,6 +1911,10 @@
         state.drawHint = null;
         state.drawLines = [];
         state.drawMode = false;
+        state.anchorHint = null;
+        state.anchorLines = [];
+        state.anchorLegend = null;
+        state.anchorMode = false;
         state.hover = null;
         state.banner = null;
         state.loading = false;
@@ -1950,6 +2165,7 @@
         if (series.vwap) { fillVwap(); }
         series.markers.setMarkers(markersFrom(packet.signals || []));
         renderDrawings();
+        renderAnchors();
 
         // Le survol retient des valeurs à l'ancien taux.
         state.hover = null;
@@ -2204,6 +2420,7 @@
     }
 
     state.drawings = loadDrawings();
+    state.anchors = loadAnchors();
 
     window.lwcPrice = {
         configure: function (cfg, conf) {
@@ -2337,6 +2554,7 @@
             function one(point) { return at.points([point])[0]; }
             series.candles.update(one(scaled([update.bar], rate)[0]));
             if (series.vwap) { updateVwapTail(); }
+            updateAnchorTails();
             for (name in update.overlays) {
                 if (series.lines[name]) {
                     series.lines[name].update(
@@ -2491,6 +2709,17 @@
                     return line.points;
                 }),
                 drawMode: state.drawMode,
+                anchorMode: state.anchorMode,
+                anchors: state.anchors,
+                anchorLines: (state.anchorLines || []).map(function (line) {
+                    return {t: line.t, drawn: !!line.series,
+                            points: line.points ? line.points.length : 0,
+                            last: line.points && line.points.length
+                                ? line.points[line.points.length - 1].value
+                                : null};
+                }),
+                anchorLegend: state.anchorLegend
+                    ? state.anchorLegend.textContent : null,
                 cvd: state.series.cvd
                     ? state.series.cvd.data().length : null,
                 oi: state.series.oi
@@ -2534,7 +2763,16 @@
             state.drawings = [];
             saveDrawings();
             renderDrawings();
+            state.anchors = [];
+            saveAnchors();
+            renderAnchors();
             return true;
+        },
+
+        // A : arme l'ancrage d'un VWAP, ou le désarme. Rend le nouvel état.
+        toggleAnchoring: function () {
+            setAnchorMode(!state.anchorMode);
+            return state.anchorMode;
         },
 
         // Le graphique en image, tel qu'il est à l'écran : c'est la seule

@@ -67,6 +67,7 @@ const KEYS_HELP = [
     "S        afficher ou masquer les flèches",
     "P        capture du graphique en image",
     "T        tracer une ligne de tendance",
+    "A        ancrer un VWAP sur une bougie (cliquer la bougie)",
     "N        niveaux clés : veille, semaine, mois",
     "M        carte des liquidations",
     "O        gros ordres sur le graphique",
@@ -79,13 +80,14 @@ const KEYS_HELP = [
     "Maj + glisser    zoom sur une zone",
     "Ctrl + glisser   mesurer un mouvement",
     "Double-clic      vue entière",
-    "Alt + clic       poser ou retirer une alerte, retirer une ligne",
+    "Alt + clic       poser ou retirer une alerte, retirer une ligne ou une ancre",
     "",
     "Ligne de commande",
     "un panneau       etf, perp, analyse, alertes…",
     "un intervalle    1m, 5m, 4h, 1d, 1M…",
     "eur, usd, log, cvd, oi, rsi, crsi, vol, profil, niv, carte, ord, murs, signaux, capture",
-    "ligne, effacer   tracer une ligne, retirer toutes les lignes",
+    "ligne, ancre     tracer une ligne, ancrer un VWAP",
+    "effacer          retirer toutes les lignes et les ancres",
     "alerte 80000     seuil de cours, en dollars",
 ].join("\n");
 
@@ -161,6 +163,11 @@ function shortcut(key) {
     case "t":
         if (window.lwcPrice) {
             window.lwcPrice.toggleDrawing();
+        }
+        return null;
+    case "a":
+        if (window.lwcPrice) {
+            window.lwcPrice.toggleAnchoring();
         }
         return null;
     case "f":
@@ -283,6 +290,9 @@ function runCommand(text) {
     }
     if (word === "ligne") {
         return !!window.lwcPrice && (window.lwcPrice.toggleDrawing(), true);
+    }
+    if (word === "ancre" || word === "avwap") {
+        return !!window.lwcPrice && (window.lwcPrice.toggleAnchoring(), true);
     }
     if (word === "effacer") {
         return !!window.lwcPrice && window.lwcPrice.clearDrawings();

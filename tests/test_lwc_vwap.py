@@ -10,7 +10,9 @@ Ce qui se vérifie mal à l'écran se vérifie ici, sous Node :
 - le VWAP est la moyenne du prix typique pondérée par le volume, ses
   bandes l'écart-type pondéré pareil, et tout repart à zéro au début
   d'une période, marqué pour que la courbe s'y rompe ;
-- une bougie sans volume ne pèse rien.
+- une bougie sans volume ne pèse rien ;
+- le VWAP ancré à la main part de la bougie qui contient l'ancre, et se
+  tait quand l'ancre précède l'historique chargé.
 
 Ignoré si Node est absent.
 
@@ -54,6 +56,11 @@ const volumes = [{time: j1, value: 1}, {time: j1 + 3600, value: 3},
 out.calc = V.compute(bars, volumes, "day");
 out.sans = V.compute(bars, volumes, null);
 out.labels = ["day", "week", "month", null].map(V.label);
+out.ancre = V.fromAnchor(bars, volumes, j1 + 3600 + 1800);   // dans la 2e
+out.ancreDebut = V.fromAnchor(bars, volumes, j1);
+out.ancreAvant = V.fromAnchor(bars, volumes, j1 - 1);
+out.ancreApres = V.fromAnchor(bars, volumes, j2 + 86400);
+out.ancreVide = V.fromAnchor([], volumes, j1);
 console.log(JSON.stringify(out));
 """
 
@@ -100,6 +107,25 @@ def test_le_vwap_et_ses_bandes():
     assert r["calc"]["upper"][2]["value"] == 200
     assert r["sans"] == {"vwap": [], "upper": [], "lower": []}
     print("  ✓ moyenne pondérée, écart-type pondéré, remise à zéro marquée")
+
+
+def test_le_vwap_ancre_a_la_main():
+    r = lancer()
+    j1 = 1_794_355_200                   # 11 novembre 2026, 0 h UTC
+    ancre = r["ancre"]
+    assert [p["time"] for p in ancre] == [j1 + 3600, j1 + 86_400], \
+        "de la bougie qui contient l'ancre, sans la bougie muette"
+    assert ancre[0]["value"] == 110
+    assert ancre[1]["value"] == (110 * 3 + 200 * 2) / 5, \
+        "aucune remise à zéro au changement de jour"
+    debut = r["ancreDebut"]
+    assert debut[0]["value"] == 100 and debut[1]["value"] == 107.5
+    assert r["ancreAvant"] is None, "avant l'historique : rien de faux"
+    assert r["ancreApres"] == [{"time": j1 + 86_400, "value": 200}], \
+        "au-delà de la dernière bougie : elle seule"
+    assert r["ancreVide"] is None
+    print("  ✓ ancré à la main : de la bougie de l'ancre, cumulé sans "
+          "remise à zéro, muet avant l'historique")
 
 
 if __name__ == "__main__":

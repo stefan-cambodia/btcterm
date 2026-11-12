@@ -52,6 +52,9 @@ ASSETS = {
     "vendor/lightweight-charts.standalone.production.js":
         "vendor/lightweight-charts.standalone.production.js",
     "lwc-clock.js": "lwc-clock.js",
+    # Les deux VWAP — par période, et ancré à la main (touche A) : un
+    # calcul côté navigateur, qui marche donc aussi sans serveur.
+    "lwc-vwap.js": "lwc-vwap.js",
     "lwc-price.js": "lwc-price.js",
     "terminal.css": "terminal.css",
 }
@@ -127,6 +130,7 @@ PAGE = """<!DOCTYPE html>
 <script>window.DEMO_CONF = __CONF__;</script>
 <script src="demo/shim.js"></script>
 <script src="demo/lwc-clock.js"></script>
+<script src="demo/lwc-vwap.js"></script>
 <script src="demo/lwc-price.js"></script>
 <script src="demo/page.js"></script>
 </body>

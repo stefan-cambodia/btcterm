@@ -2244,6 +2244,25 @@ leurs bouts retombent sur les bougies de l'intervalle courant. Chacune se
 prolonge jusqu'à la dernière bougie, en géométrique si l'échelle est
 logarithmique, puisque c'est là qu'elle est droite.
 
+Le **VWAP ancré à la main** (`A`, puis un clic) suit le même principe : une
+série, pas un dessin, hors de l'échelle des prix, dont l'ancre se garde en
+temps réel (`btcterm-anchors`, trois au plus). Le calcul est celui du VWAP par
+période, sans remise à zéro : `btcVwap.fromAnchor`, testé sous Node
+(`tests/test_lwc_vwap.py`), part de la bougie qui contient l'ancre — la
+dernière ouverte au plus tard à cet instant — et rend `null` quand l'ancre
+précède la première bougie chargée : le volume d'avant manque, et un VWAP qui
+l'ignorerait serait faux. La légende le dit alors plutôt que de laisser la
+courbe disparaître sans un mot. Le canal push repose le dernier point à chaque
+trame (`updateAnchorTails`), et la lecture du crosshair cherche la valeur au
+temps survolé quand la courbe est plus jeune que le dernier mouvement de
+souris — elle ne s'affichait sinon qu'au mouvement suivant, ce que `ui_smoke`
+a relevé. Alt + clic à moins de six pixels de la courbe la retire, avant de
+poser une alerte. Le tracé et l'ancrage s'excluent ; `syncArmed` tient le
+curseur en croix et l'écoute d'Échap tant que l'un des deux est armé — un
+zoom au cadre la retirait jusque-là, et Échap ne désarmait plus le tracé.
+`lwc-vwap.js` part désormais aussi dans la démo statique, qui gagne les deux
+VWAP.
+
 La **mesure** (Ctrl + glisser) dit le mouvement entre deux points : pourcentage,
 écart de prix, bougies, durée. Le cadre reste à l'écran, une mesure se lisant
 après le geste ; son Échap est capté avant celui du plein écran, comme celui du
@@ -3861,6 +3880,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
   (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
   synthèse hors de ses bornes.
+- ~~**Pas de VWAP depuis un point choisi**~~ — fait le 12 novembre 2026
+  (§3.13) : la touche A ancre un VWAP sur la bougie cliquée, trois ancres
+  au plus, gardées à travers devise, intervalle et rechargement.
 - ~~**La demande asiatique invisible**~~ — fait le 12 novembre 2026
   (§2.13) : la prime coréenne, décomposée en won et bitcoin, sous le titre
   de l'ARBITRAGE à côté de la prime Coinbase, journalisée et à la synthèse.

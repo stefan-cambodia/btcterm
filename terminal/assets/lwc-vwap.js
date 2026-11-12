@@ -17,6 +17,12 @@
 // Les temps sont des temps réels (UTC) ; le graphique les décale à
 // l'affichage. Chaque début de période est marqué (`start`) : le tracé
 // y rompt la courbe au lieu de relier deux périodes.
+//
+// `fromAnchor` est l'autre VWAP, celui qu'on ancre soi-même (touche A) :
+// depuis une bougie choisie — le sommet, le dernier creux, le jour d'une
+// annonce —, le prix moyen payé par tous ceux qui ont traité depuis.
+// Au-dessus, ils sont en gain ; le cours y revient souvent chercher appui
+// ou résistance.
 (function () {
     "use strict";
 
@@ -81,8 +87,48 @@
         return out;
     }
 
+    // Le VWAP ancré sur l'instant `start` (secondes UTC) : depuis la bougie
+    // qui le contient — la dernière ouverte au plus tard à cet instant —
+    // jusqu'à la dernière. Une ancre posée en 1h et lue en 1d part ainsi
+    // du début de sa journée : la bougie entière compte. Rend `null` quand
+    // l'ancre précède la première bougie chargée : le volume d'avant
+    // manque, et un VWAP qui l'ignorerait serait faux — remonter le
+    // graphique charge l'historique qui le rend juste.
+    function fromAnchor(bars, volumes, start) {
+        if (!bars || !bars.length || !(start >= bars[0].time)) {
+            return null;
+        }
+        var volume = {};
+        (volumes || []).forEach(function (v) { volume[v.time] = v.value; });
+        var low = 0;
+        var high = bars.length - 1;
+        var first = 0;
+        while (low <= high) {
+            var middle = (low + high) >> 1;
+            if (bars[middle].time <= start) {
+                first = middle;
+                low = middle + 1;
+            } else {
+                high = middle - 1;
+            }
+        }
+        var out = [];
+        var sumV = 0;
+        var sumPV = 0;
+        for (var i = first; i < bars.length; i++) {
+            var bar = bars[i];
+            var v = volume[bar.time];
+            if (!(v > 0)) { continue; }
+            sumV += v;
+            sumPV += (bar.high + bar.low + bar.close) / 3 * v;
+            out.push({time: bar.time, value: sumPV / sumV});
+        }
+        return out;
+    }
+
     window.btcVwap = {anchorOf: anchorOf, periodStart: periodStart,
-                      compute: compute, label: function (anchor) {
+                      compute: compute, fromAnchor: fromAnchor,
+                      label: function (anchor) {
                           return LABELS[anchor] || "";
                       }};
 }());
