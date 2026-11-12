@@ -458,9 +458,11 @@ def news_items(rows) -> list[Item]:
 # ── Assemblage ───────────────────────────────────────────────
 
 
-def cycle_item(state: Optional[dict]) -> Optional[Item]:
+def cycle_item(state: Optional[dict],
+               mvrv: Optional[dict] = None) -> Optional[Item]:
     """Où en est le cours dans son cycle (§ cycle) : jour depuis le
-    halving, distance au sommet, multiple de Mayer, halving à venir."""
+    halving, distance au sommet, multiple de Mayer, MVRV (Coin Metrics),
+    halving à venir."""
     if not state:
         return None
     parts = []
@@ -479,13 +481,29 @@ def cycle_item(state: Optional[dict]) -> Optional[Item]:
         # situe, il n'avertit pas.
         if not cycle.MAYER_LOW < state["mayer"] < cycle.MAYER_HIGH:
             tone = "warn"
+    if mvrv is not None:
+        parts.append(f"MVRV {mvrv['mvrv']:.2f}")
+        if not cycle.MVRV_LOW <= mvrv["mvrv"] < cycle.MVRV_HIGH:
+            tone = "warn"
     halving = state["halving"]
     parts.append(f"halving dans {'~' if halving['estimated'] else ''}"
                  f"{halving['days_left']:.0f} j")
     return Item("Cycle", " · ".join(parts), tone,
                 "multiple du cours du jour du halving ; sommet en clôture "
-                "journalière ; Mayer : cours / moyenne de 200 jours ; "
-                "halving compté à dix minutes le bloc")
+                "journalière ; Mayer : cours / moyenne de 200 jours ; MVRV : "
+                "capitalisation / capitalisation réalisée, données Coin "
+                "Metrics ; halving compté à dix minutes le bloc")
+
+
+def _mvrv_state(hub) -> Optional[dict]:
+    """Le MVRV du jour (§ cycle.mvrv_state), ou rien si la source manque."""
+    reader = getattr(hub, "mvrv", None)
+    if reader is None:
+        return None
+    try:
+        return cycle.mvrv_state(reader())
+    except Exception:  # noqa: BLE001 — une mention en moins, pas une ligne
+        return None
 
 
 def _cycle_state(hub, now: float) -> Optional[dict]:
@@ -568,7 +586,8 @@ def build(hub, now: Optional[float] = None,
     add("Prime Coinbase", lambda: premium_item(snapshots, now))
     add("Dominance", lambda: dominance_item(
         change(snapshots, "btc_dominance", now)))
-    add("Cycle", lambda: cycle_item(_cycle_state(hub, now)))
+    add("Cycle", lambda: cycle_item(_cycle_state(hub, now),
+                                    _mvrv_state(hub)))
     add("Agenda", lambda: agenda_item(now, macrocal.upcoming(
         dt.datetime.fromtimestamp(now, macrocal.NEW_YORK).date())))
     if journal is not None:

@@ -141,6 +141,14 @@ def test_les_sections_lisent_leurs_donnees():
     assert vol.text.endswith("· GEX -112 M$/1 %, flip 75,536"), vol.text
     assert "GEX" not in brief.volatility_item((38.8, None, 0), None).text
 
+    cycle_etat = {"cycle_day": 936, "cycle_multiple": 1.13, "drawdown": -41.0,
+                  "days_since_ath": 402, "mayer": 1.0,
+                  "halving": {"days_left": 517.0, "estimated": False}}
+    ligne_cycle = brief.cycle_item(cycle_etat, {"mvrv": 1.37})
+    assert "MVRV 1.37" in ligne_cycle.text and ligne_cycle.tone == ""
+    assert brief.cycle_item(cycle_etat, {"mvrv": 0.9}).tone == "warn"
+    assert "MVRV" not in brief.cycle_item(cycle_etat).text
+
     fg = brief.sentiment_item([{"value": 28, "label": "Fear"},
                                {"value": 25, "label": "Extreme Fear"}])
     assert fg.text == "Fear & Greed 25 (Extreme Fear), 28 la veille", fg

@@ -485,6 +485,50 @@ def test_le_cours_franchit_le_gamma_flip():
           "règle débrayable")
 
 
+def test_les_bascules_du_cycle():
+    """Le MVRV qui entre dans une zone extrême ou en sort, les rubans qui
+    entrent en capitulation ou en sortent : une sonnerie par bascule, la
+    première lecture muette, et la règle débrayable."""
+    hub = FakeHub()
+    jours = pd.date_range("2026-01-01", periods=3, freq="D")
+    hub.mvrv = lambda: pd.DataFrame({"time": jours, "mvrv": [1.3, 1.25, valeur[0]],
+                                     "price": [70_000.0] * 3})
+    valeur = [1.2]
+    e = engine()
+
+    def tour(mvrv, decalage):
+        valeur[0] = mvrv
+        e.evaluate(hub, now=T0 + decalage)
+        return [a for a in e.alerts if a.kind == "cycle"]
+
+    assert tour(1.2, 0) == [], "la première lecture ne sonne pas"
+    assert tour(1.1, SLOW_EVERY + 1) == []
+    sonneries = tour(0.95, 2 * (SLOW_EVERY + 1))
+    assert len(sonneries) == 1 and sonneries[0].message.startswith("MVRV 0.95 sous 1")
+    assert "2026-01-03" in sonneries[0].message
+    assert len(tour(0.9, 3 * (SLOW_EVERY + 1))) == 1, "toujours sous 1 : rien"
+    sonneries = tour(1.05, 4 * (SLOW_EVERY + 1))
+    assert len(sonneries) == 2 and "revenu entre 1 et 3.5" in sonneries[1].message
+
+    # Les rubans : cent jours de croissance, puis une chute — capitulation.
+    serie = pd.DataFrame({"time": pd.date_range("2026-01-01", periods=150),
+                          "value": [800.0 + i for i in range(100)]
+                          + [900.0 - 4 * i for i in range(50)]})
+    hub.mempool = serie.iloc[:100]
+    tour(1.05, 5 * (SLOW_EVERY + 1))
+    hub.mempool = serie
+    sonneries = tour(1.05, 6 * (SLOW_EVERY + 1))
+    assert sonneries[-1].message.startswith("capitulation des mineurs"), sonneries
+
+    muet = engine(cycle_shift=False)
+    valeur[0] = 1.2
+    muet.evaluate(hub, now=T0)
+    valeur[0] = 0.9
+    muet.evaluate(hub, now=T0 + SLOW_EVERY + 1)
+    assert not [a for a in muet.alerts if a.kind == "cycle"]
+    print("  ✓ MVRV en zone et hors zone, capitulation des mineurs, une fois chacun")
+
+
 def test_reseau_charge():
     """Mempool gonflé et blocs lents : un front chacun, sous délai de garde."""
     hub = FakeHub()

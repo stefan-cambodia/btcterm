@@ -883,6 +883,15 @@ calendrier (§2.6) ont appris au terminal :
   supposer (« cours au-dessus du gamma flip (75,536 $, cours 76,010 $) : les
   teneurs tassent désormais les mouvements (GEX +38 M$/1 %) ») ; case
   « flip γ » du panneau, cochée par défaut ;
+- **bascules du cycle** — le MVRV (§2.15) qui passe sous 1 ou au-dessus de
+  3,5, ou qui en ressort, et les hash ribbons qui entrent en capitulation ou
+  en sortent ; « reprise » vieillissant en « sain » sans rien changer, seules
+  l'entrée et la sortie de capitulation comptent. Des bascules rares et
+  lourdes, datées du point qui les donne : la première lecture fixe l'état
+  sans sonner, et le message entier, date comprise, n'est pas rejoué au
+  redémarrage — une première version reconnaissait « une alerte MVRV à cette
+  date » et aurait tu une sortie de zone le jour même d'une entrée. Case
+  « cycle », cochée par défaut ;
 - **échéance proche** — un FOMC, un CPI, un NFP ou un PCE du calendrier
   tombe dans moins de trente minutes (`EVENT_LEAD`) : un tel chiffre
   bouge le cours en quelques secondes, et c'est avant qu'il faut le
@@ -3773,6 +3782,10 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Des bascules de cycle qu'on apprenait trop tard**~~ — fait le
+  12 novembre 2026 (§2.8) : une alerte quand le MVRV entre dans une zone
+  extrême ou en sort, ou que les mineurs capitulent ; le MVRV à la ligne
+  CYCLE de la synthèse.
 - ~~**Un cycle sans prix de revient du marché**~~ — fait le 12 novembre 2026
   (§2.15) : le MVRV de Coin Metrics et le prix réalisé au panneau CYCLE.
 - ~~**Des mineurs qu'on ne voyait pas capituler**~~ — fait le 12 novembre

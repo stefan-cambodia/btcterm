@@ -41,7 +41,7 @@ ROWS = 30
 KIND_COLORS = {"price": C["yellow"], "liq": C["red"],
                "funding": C["orange"], "news": C["blue"], "arb": C["green"],
                "trend": C["purple"], "flip": C["purple"], "event": C["orange"],
-               "gamma": C["yellow"],
+               "gamma": C["yellow"], "cycle": C["purple"],
                "rsi": C["cyan"], "signal": C["green"],
                "dominance": C["yellow"], "etf": C["green"],
                "chain": C["purple"], "vol": C["yellow"],
@@ -174,6 +174,12 @@ def layout(title=None):
                     inline=True, className="tf-check",
                     style={"fontSize": "9px", "display": "inline-block"}),
                 dcc.Checklist(
+                    id="alert-cycle",
+                    options=[{"label": "cycle", "value": "on"}],
+                    value=["on"] if config["cycle_shift"] else [],
+                    inline=True, className="tf-check",
+                    style={"fontSize": "9px", "display": "inline-block"}),
+                dcc.Checklist(
                     id="alert-event",
                     options=[{"label": "échéances", "value": "on"}],
                     value=["on"] if config["event_soon"] else [],
@@ -299,6 +305,7 @@ def register(app, hub):
         Input("alert-signal", "value"),
         Input("alert-trend", "value"),
         Input("alert-gamma", "value"),
+        Input("alert-cycle", "value"),
         Input("alert-event", "value"),
         Input("alert-sources", "value"),
         Input("alert-sound", "value"),
@@ -308,8 +315,8 @@ def register(app, hub):
     )
     def _edit(_add, _dels, liq, funding, news_score, arb,
               ma200, rsi_hi, rsi_lo, dominance, etf, mempool, block,
-              dvol, skew, depth, signal, trend, gamma, event, sources_down,
-              sound,
+              dvol, skew, depth, signal, trend, gamma, cycle_shift, event,
+              sources_down, sound,
               level, stored):
         trigger = dash.ctx.triggered_id
         # Un composant qui vient d'être monté déclenche aussi ce
@@ -356,6 +363,7 @@ def register(app, hub):
                       "signal_strong": bool(signal),
                       "trend_flip": bool(trend),
                       "gamma_flip": bool(gamma),
+                      "cycle_shift": bool(cycle_shift),
                       "event_soon": bool(event),
                       "sources_down": bool(sources_down),
                       "sound": bool(sound)}

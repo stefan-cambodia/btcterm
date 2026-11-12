@@ -1159,12 +1159,18 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             Array.from(document.querySelectorAll('#cell-arb .cell-tab'))
                  .find(t => t.textContent === 'LIQUIDATIONS').click();
         """)
-        browser.wait_for("!!document.getElementById('liq-table')"
-                         " && !!document.getElementById('liq-badges')", timeout=10)
+        # Vingt secondes : sous charge — une source qui fait attendre ses
+        # délais —, le rendu de l'onglet a dépassé dix secondes une fois,
+        # et le passage entier s'arrêtait sur un élément absent.
+        ouvert = browser.wait_for("!!document.getElementById('liq-table')"
+                                  " && !!document.getElementById('liq-badges')",
+                                  timeout=20)
+        check("l'onglet s'ouvre", ouvert)
         time.sleep(1)
         liq = browser.js("""
-            return {badges: document.getElementById('liq-badges').textContent,
-                    table: document.getElementById('liq-table').textContent};
+            const b = document.getElementById('liq-badges');
+            const t = document.getElementById('liq-table');
+            return {badges: b ? b.textContent : '', table: t ? t.textContent : ''};
         """)
         # Le flux est épisodique : le panneau peut légitimement être vide,
         # mais il doit alors le dire — et jamais rester muet.

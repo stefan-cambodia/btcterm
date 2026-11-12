@@ -106,6 +106,7 @@ import pandas as pd
 
 from . import indicators as ind
 from . import macrocal, newsdb, sources
+from . import cycle
 from . import options as opt
 from .journal import liquidity_totals
 
@@ -139,6 +140,9 @@ DEFAULT_CONFIG: dict = {
     "event_soon": True,
     #: sonner quand le cours franchit le gamma flip des options (§ options).
     "gamma_flip": True,
+    #: sonner aux bascules du cycle : le MVRV qui entre dans une zone
+    #: extrême ou en sort, les hash ribbons qui changent d'état (§ cycle).
+    "cycle_shift": True,
     #: glissement de la dominance BTC sur 24 h, en points de part.
     "dominance_shift_pts": 1.5,
     #: flux ETF : |flux net du dernier jour publié| en M$.
@@ -249,7 +253,7 @@ def normalize_config(data) -> dict:
         config["rsi_overbought"] = DEFAULT_CONFIG["rsi_overbought"]
         config["rsi_oversold"] = DEFAULT_CONFIG["rsi_oversold"]
     for key in ("sound", "signal_strong", "trend_flip", "event_soon",
-                "gamma_flip", "sources_down"):
+                "gamma_flip", "cycle_shift", "sources_down"):
         if isinstance(data.get(key), bool):
             config[key] = data[key]
     levels = []
@@ -293,6 +297,9 @@ class AlertEngine:
         #: instant de la dernière sonnerie de cette règle.
         self._gamma_side: Optional[str] = None
         self._gamma_last = float("-inf")
+        #: Dernier état vu du cycle : zone du MVRV et état des rubans, avec
+        #: la date du point qui les a donnés.
+        self._cycle_seen: dict[str, tuple] = {}
         self._next_slow = 0.0
         #: Où envoyer chaque sonnerie hors du navigateur (§ notify) ;
         #: `None` tant qu'aucun sujet ntfy n'est configuré.
@@ -359,7 +366,7 @@ class AlertEngine:
             self._next_slow = now + SLOW_EVERY
             for rule in (self._check_funding, self._check_news,
                          self._check_technical, self._check_trend,
-                         self._check_gamma,
+                         self._check_gamma, self._check_cycle,
                          self._check_event, self._check_dominance,
                          self._check_etf, self._check_chain,
                          self._check_volatility, self._check_skew,
@@ -571,6 +578,61 @@ class AlertEngine:
                    f"cours {sens} gamma flip ({flip:,.0f} $, cours "
                    f"{price:,.0f} $) : les teneurs {regime} désormais les "
                    f"mouvements (GEX {gex['total'] / 1e6:+z,.0f} M$/1 %)", now)
+
+    def _check_cycle(self, hub, _opps, config, now) -> None:
+        """Les bascules du cycle, rares et lourdes : le MVRV qui passe sous
+        1 ou au-dessus de 3,5 — les creux et les sommets passés —, ou qui en
+        ressort ; les hash ribbons qui entrent en capitulation, ou en
+        sortent (la reprise). Des événements datés, d'un jour : la première
+        lecture fixe l'état sans sonner, et une bascule ne sonne qu'une fois
+        par date — sa date est dans le message, relu au redémarrage.
+        """
+        if not config["cycle_shift"]:
+            return
+        events = []
+        reader = getattr(hub, "mvrv", None)
+        state = cycle.mvrv_state(reader()) if reader else None
+        if state is not None:
+            value = state["mvrv"]
+            zone = ("bas" if value < cycle.MVRV_LOW
+                    else "haut" if value >= cycle.MVRV_HIGH else "milieu")
+            words = {"bas": f"sous {cycle.MVRV_LOW:g} — le marché vaut moins "
+                            "que son prix de revient, la zone des creux",
+                     "haut": f"au-dessus de {cycle.MVRV_HIGH:g} — la zone des "
+                             "sommets passés",
+                     "milieu": f"revenu entre {cycle.MVRV_LOW:g} et "
+                               f"{cycle.MVRV_HIGH:g}"}
+            events.append(("mvrv", zone, state["date"],
+                           f"MVRV {value:.2f} {words[zone]}"))
+        chain = getattr(hub, "chain_chart", None)
+        ribbons = (cycle.hash_ribbons(chain("hash-rate", "2years"))
+                   if chain else None)
+        if ribbons is not None:
+            label = {"capitulation": "capitulation des mineurs : la moyenne "
+                                     "de 30 jours du hashrate passe sous "
+                                     "celle de 60",
+                     "reprise": "reprise des mineurs : la moyenne de 30 "
+                                "jours du hashrate repasse au-dessus de "
+                                "celle de 60",
+                     "sain": None}[ribbons["state"]]
+            # « reprise » vieillit en « sain » sans rien changer : seuls
+            # l'entrée en capitulation et la sortie comptent.
+            phase = "capitulation" if ribbons["state"] == "capitulation" else "hors"
+            events.append(("ribbons", phase, ribbons["since"], label))
+        for key, value, date, message in events:
+            previous = self._cycle_seen.get(key)
+            self._cycle_seen[key] = (value, date)
+            if previous is None or previous[0] == value or not message:
+                continue
+            text = f"{message} ({pd.Timestamp(date):%Y-%m-%d})"
+            # Le message entier, date comprise : relu du journal, il ne se
+            # rejoue pas au redémarrage ; une sortie de zone le jour même
+            # d'une entrée, elle, n'est pas un doublon.
+            with self._lock:
+                known = any(a.kind == "cycle" and a.message == text
+                            for a in self.alerts)
+            if not known:
+                self._fire("cycle", text, now)
 
     def _check_event(self, _hub, _opps, config, now) -> None:
         """Une échéance macro approche : le temps de réduire ou de s'écarter.
