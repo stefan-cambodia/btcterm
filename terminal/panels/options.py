@@ -47,7 +47,14 @@ EXPIRY_CHOICES = 6
 #: Profondeur de la vue HISTO : un mois de points à cinq minutes.
 HISTORY_DAYS = 30
 
-_PICKER_SHOWN = {"display": "inline-block", "marginLeft": "8px"}
+#: Le sélecteur d'échéances a sa ligne, sous la barre de titre : il y
+#: prenait place à côté des badges et des vues, et dans la vue STRIKES la
+#: barre débordait de 141 px dans la grille, 132 en plein écran — STRIKES
+#: et HISTO passaient sous le bouton ⛶, l'onglet CYCLE touchait les
+#: badges. Une ligne de plus sur le graphique des strikes, et une barre de
+#: titre identique d'une vue à l'autre.
+_PICKER_SHOWN = {"display": "block", "fontFamily": MONO, "fontSize": "9px",
+                 "letterSpacing": "0.06em", "margin": "2px 0 2px 2px"}
 _PICKER_HIDDEN = {"display": "none"}
 
 
@@ -58,11 +65,6 @@ def layout(title=None):
             html.Div([
                 html.Span(id="options-badges", style={"fontSize": "9px"}),
                 dcc.RadioItems(
-                    id="options-expiry", options=[], value=None, inline=True,
-                    className="tf-radio", style=_PICKER_HIDDEN,
-                    persistence=True, persistence_type="local",
-                ),
-                dcc.RadioItems(
                     id="options-view",
                     options=[{"label": k, "value": k} for k in OPTIONS_VIEWS],
                     value=OPTIONS_DEFAULT_VIEW, inline=True,
@@ -72,6 +74,11 @@ def layout(title=None):
             ], style={"display": "flex", "alignItems": "center",
                       "whiteSpace": "nowrap", "overflow": "hidden"}),
         ], style=TITLE_STYLE),
+        dcc.RadioItems(
+            id="options-expiry", options=[], value=None, inline=True,
+            className="tf-radio", style=_PICKER_HIDDEN,
+            persistence=True, persistence_type="local",
+        ),
         dcc.Graph(id="options-chart", style={"flex": "1", "minHeight": "0"},
                   config={"displaylogo": False, "scrollZoom": True,
                           "modeBarButtonsToRemove": ["select2d", "lasso2d"]}),

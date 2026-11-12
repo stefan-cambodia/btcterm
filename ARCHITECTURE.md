@@ -2172,7 +2172,13 @@ module `options` (§2.11) en quatre vues :
   le forward. Le choix de l'échéance n'apparaît que dans cette vue, limité
   aux six qui pèsent au moins 2 % de l'open interest ; mémorisé, il cède à
   l'échéance par défaut quand la sienne est passée, et cette dernière est
-  cochée pour que le sélecteur dise ce que montre le graphique.
+  cochée pour que le sélecteur dise ce que montre le graphique. Le sélecteur
+  a sa ligne, sous la barre de titre : il y prenait place à côté des badges
+  et des vues, et la barre débordait de 141 px dans la grille — STRIKES et
+  HISTO passaient sous le bouton ⛶, CYCLE touchait les badges. Les
+  étiquettes du forward et du max pain s'écartent l'une de l'autre, la plus
+  basse à gauche de sa ligne : centrées, elles se chevauchaient dès que les
+  deux niveaux étaient proches.
 
 Le titre porte DVOL, le skew 25 delta à un mois et le ratio put/call ; le plein
 écran y ajoute la réalisée et la prime, la volatilité à un mois, le put/call
@@ -3509,6 +3515,15 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Une barre de titre qui ne débordait que dans une vue**~~ — vu le
+  12 novembre 2026 en relisant chaque vue des options en plein écran : dans
+  STRIKES, le sélecteur d'échéances faisait déborder la barre de 141 px dans
+  la grille, 132 en plein écran ; STRIKES et HISTO devenaient inatteignables.
+  Le contrôle d'interface ne mesurait que la vue par défaut, et la ligne des
+  sélecteurs masquait ce qui dépassait (`overflow: hidden`), si bien que la
+  barre mesurée ne débordait jamais. Fait (§3.16) : le sélecteur passe sous
+  la barre, les étiquettes forward et max pain s'écartent, et
+  `ui_smoke.py` mesure la ligne elle-même dans chaque vue.
 - ~~**Un serveur en UTC qui ne le dirait pas**~~ — fait le 12 novembre
   2026 (§3.2) : le navigateur donne son fuseau, le bandeau le compare à
   celui du serveur et signale l'écart, l'infobulle donnant la ligne

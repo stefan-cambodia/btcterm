@@ -1227,13 +1227,21 @@ def build_strikes_chart(table: pd.DataFrame, forward: float | None,
     fig.update_layout(barmode="group", bargap=0.25, hovermode="closest",
                       yaxis_title_text=("open interest (BTC)" if maximized
                                         else None))
+    # Centrées sur leurs lignes, les deux étiquettes se chevauchaient dès
+    # que forward et max pain étaient proches — « forward 73,789max pain
+    # 76,000 » dans la grille : chacune s'écarte donc du côté opposé à
+    # l'autre, la plus basse à gauche de sa ligne, la plus haute à droite.
+    lower = (None if not (forward and pain) else
+             "forward" if forward <= pain else "max pain")
     for value, label, color, dash in ((forward, "forward", C["text"], "dash"),
                                       (pain, "max pain", C["yellow"], "dot")):
         if value and not view.empty:
+            side = ("top" if lower is None else
+                    "top left" if label == lower else "top right")
             fig.add_vline(x=value, line=dict(color=color, width=1, dash=dash),
                           annotation_text=f"{label} {value:,.0f}",
                           annotation_font=dict(size=9, color=color),
-                          annotation_position="top")
+                          annotation_position=side)
     if view.empty:
         _options_empty(fig, "open interest indisponible")
     return fig

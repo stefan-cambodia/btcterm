@@ -1226,7 +1226,13 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                         cochee: !!document.querySelector(
                             '#options-expiry input:checked'),
                         selecteur: getComputedStyle(document.getElementById(
-                            'options-expiry')).display};
+                            'options-expiry')).display,
+                        // La ligne des badges et des vues masque ce qui
+                        // dépasse : son débordement ne remonte pas à la
+                        // barre que le contrôle général mesure.
+                        deborde: (l => l.scrollWidth - l.clientWidth)(
+                            document.getElementById('options-view')
+                                .parentElement)};
             """)
 
         terme = options_view("TERME")
@@ -1244,6 +1250,9 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
               strikes["vide"] or (strikes["echeances"] >= 1
                                   and strikes["cochee"]),
               f"{strikes['echeances']} échéances")
+        check("STRIKES : la barre de titre tient, échéances comprises",
+              strikes["deborde"] <= 1 and terme["deborde"] <= 1,
+              f"{strikes['deborde']} px de trop")
         histo = options_view("HISTO")
         annotation = browser.js("""
             const gd = document.querySelector('#options-chart .js-plotly-plot');

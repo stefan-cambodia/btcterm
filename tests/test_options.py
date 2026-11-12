@@ -221,6 +221,37 @@ def test_le_panneau_tient_sans_deribit():
     print("  ✓ panneau : absence dite, figures vides annotées, échéances au choix")
 
 
+def test_forward_et_max_pain_ne_se_chevauchent_pas():
+    """Deux verticales proches : centrées, leurs étiquettes se lisaient
+    « forward 73,789max pain 76,000 » dans la grille. Chacune s'écarte du
+    côté opposé à l'autre ; seule, elle reste centrée."""
+    from terminal import charts
+    from terminal.panels import options as panneau
+
+    table = pd.DataFrame({"strike": [70_000.0, 74_000.0, 76_000.0, 80_000.0],
+                          "call_oi": [1.0, 2.0, 3.0, 4.0],
+                          "put_oi": [4.0, 3.0, 2.0, 1.0]})
+
+    def cotes(forward, pain):
+        figure = charts.build_strikes_chart(table, forward, pain)
+        return {a.text.rsplit(" ", 1)[0]: a.xanchor
+                for a in figure.layout.annotations}
+
+    assert cotes(73_789, 76_000) == {"forward": "right", "max pain": "left"}
+    assert cotes(76_000, 73_789) == {"forward": "left", "max pain": "right"}
+    assert cotes(75_000, 75_000) == {"forward": "right", "max pain": "left"}
+    assert cotes(75_000, None) == {"forward": "center"}
+
+    # Le sélecteur d'échéances a quitté la barre de titre, qu'il faisait
+    # déborder de 141 px dans la vue STRIKES : il est sous elle, dans le
+    # corps du panneau.
+    corps = panneau.layout().children
+    assert [getattr(e, "id", None) for e in corps][1:3] == \
+        ["options-expiry", "options-chart"]
+    assert "options-expiry" not in str(corps[0])
+    print("  ✓ étiquettes écartées l'une de l'autre ; échéances sous la barre")
+
+
 def test_le_vide_vaut_panne():
     class Reponse:
         def __init__(self, payload):
