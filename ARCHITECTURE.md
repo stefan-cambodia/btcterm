@@ -2825,11 +2825,11 @@ entrée par entrée.
 Ce qui reste à revoir tient à des seuils posés sans recul : celui des carnets
 creux (quarante pour cent sous la moyenne) le jour même où l'historique
 commence, celui du skew (deux points en 24 h) — quelques semaines de journal
-les étalonneront. Et à ce qui n'a pas pu se vérifier d'ici : le fil des
-filtre des contrats hors cryptomonnaies de Binance n'a été éprouvé que par
-son test et par la lecture du catalogue, tant que le fil de Binance restait
-muet (§2.5) — il voit des messages réels depuis le 12 novembre 2026 ; l'alerte sur une source en défaut et celle des carnets creux
-n'ont sonné que dans leurs tests.
+les étalonneront. Et à ce qui n'a pas pu se vérifier d'ici : l'alerte sur une
+source en défaut et celle des carnets creux n'ont sonné que dans leurs tests.
+Le filtre des contrats hors cryptomonnaies de Binance était du nombre, le fil
+de Binance restant muet ; il a été vu agir le 12 novembre 2026, une fois
+l'adresse du fil corrigée (§2.5).
 L'actif intermittent de la capitalisation est écarté par son nom
 (`sources.INTERMITTENT`) : un autre qui se mettrait à clignoter ne le serait
 qu'à la lecture des anciennes lignes, pas à la collecte.
@@ -3521,8 +3521,12 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   contrats. Fait : le fil lit ce catalogue à la connexion, puis toutes les
   six heures, en tâche de fond, et écarte ces symboles
   (`fetch_binance_tradfi_symbols`) ; un catalogue illisible laisse la
-  liste d'avant et se redemande dix minutes plus tard. À voir agir depuis
-  un réseau où le flux futures livre.
+  liste d'avant et se redemande dix minutes plus tard. Vu agir le
+  12 novembre 2026, une fois le fil de Binance rendu à sa route (§2.5) :
+  sur quatre minutes de flux brut, 18 messages sur 107 portaient sur des
+  actions, l'or ou le pétrole (SOXL, NVDA, XAU, CL…), et aucun n'a
+  atteint le journal, qui comptait alors 88 liquidations Binance sur
+  22 cryptomonnaies. Le catalogue en compte désormais 237.
 
 **À trancher :**
 
