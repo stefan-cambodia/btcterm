@@ -1426,11 +1426,19 @@ les daterait de la veille. `tests/test_lwc_clock.py` exécute l'horloge
 sous Node à Phnom Penh, à Paris le 25 octobre 2026 et à Calcutta.
 
 L'heure locale du graphique est celle du **navigateur** ; celle des autres
-panneaux, celle de la **machine** qui sert le terminal. Les deux se
-confondent tant que le terminal tourne sur le portable. Sur un serveur
-distant, souvent réglé en UTC, il faudra donner à l'unité systemd le
-fuseau de l'utilisateur (`Environment=TZ=Asia/Phnom_Penh`), ou faire dater
-ces panneaux par le navigateur.
+panneaux, celle de la **machine** qui sert le terminal — et c'est elle aussi
+qui fixe l'heure d'envoi de la synthèse du matin (`BTCTERM_BRIEF`). Les deux
+se confondent tant que le terminal tourne sur le portable. Sur un serveur
+distant, souvent réglé en UTC, la synthèse de 7 h partirait à 14 h à Phnom
+Penh et chaque panneau daterait sept heures avant le graphique. Faire dater
+tous les panneaux par le navigateur ne réglerait pas l'envoi au téléphone,
+qui part sans navigateur : le remède est le fuseau du serveur lui-même,
+`Environment=TZ=Asia/Phnom_Penh` dans l'unité systemd (le gabarit le
+propose). Pour que l'écart ne passe pas inaperçu, le navigateur donne son
+fuseau — décalage et nom IANA — au Store `browser-zone`, relu à chaque tour
+lent, et le bandeau le compare à celui du serveur (`header.zone_text`) :
+quand ils diffèrent, « ⚠ heure serveur UTC » en jaune, et l'infobulle donne
+la ligne exacte à poser. Sur le portable, le champ reste vide.
 Lightweight Charts ne zoome qu'à la molette ; Maj + glisser trace un cadre
 sur le pane du cours, et le relâcher y ajuste la fenêtre — le temps par
 l'échelle logique, le prix par l'échelle de droite, qui quitte alors
@@ -3497,8 +3505,16 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un graphique en UTC dans un terminal à l'heure locale**~~ — fait le
   12 novembre 2026, à la demande de l'utilisateur (§3.2) : le prix et le
   perpétuel affichent l'heure locale du navigateur, la case UTC rend
-  l'UTC. Reste ouvert : sur un serveur distant, les autres panneaux
-  dateront dans le fuseau du serveur, pas dans celui du navigateur.
+  l'UTC. Pour un serveur distant, les autres panneaux et l'heure de la
+  synthèse du matin suivent le fuseau du serveur : l'unité systemd le
+  règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
+  (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Un serveur en UTC qui ne le dirait pas**~~ — fait le 12 novembre
+  2026 (§3.2) : le navigateur donne son fuseau, le bandeau le compare à
+  celui du serveur et signale l'écart, l'infobulle donnant la ligne
+  `Environment=TZ=…` à poser ; le gabarit de l'unité la propose. Vérifié
+  sur une seconde instance lancée en UTC : « ⚠ heure serveur UTC », et
+  rien sur le service du portable.
 - ~~**Un journal de liquidations trop gros pour être relu ligne à ligne**~~ —
   constaté le 12 novembre 2026, sitôt Binance rendu à son fil (§2.5) : le
   débit du journal passait de 1 200 à 2 300 liquidations par heure, toutes

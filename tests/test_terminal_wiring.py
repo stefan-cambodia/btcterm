@@ -26,7 +26,8 @@ from btcterm.hub import MarketHub  # noqa: E402
 from terminal.app import create_app  # noqa: E402
 from terminal.grid import CELLS, DEFAULT_PLACEMENT, body  # noqa: E402
 from terminal.header import (change_text, position_text,  # noqa: E402
-                             price_text, price_title, sources_text)
+                             price_text, price_title, sources_text,
+                             utc_label, zone_text)
 from terminal.panels import PANELS  # noqa: E402
 
 
@@ -486,6 +487,35 @@ def test_l_offre_de_stablecoins_face_au_cours():
     assert "(stables) sur un an" in badge and "r niv." in badge
     print("  ✓ stablecoins : série quotidienne ramenée au mois, à la place de M2")
 
+
+
+def test_l_heure_du_serveur_se_dit_quand_elle_differe():
+    """Le graphique date à l'heure du navigateur, le reste à celle du
+    serveur : sur un serveur en UTC, sept heures d'écart à Phnom Penh et
+    la synthèse de 7 h partant à 14 h, sans que rien ne le dise."""
+    assert [utc_label(o) for o in (0, 7 * 3600, 19_800, -3 * 3600, -12_600)] \
+        == ["UTC", "UTC+7", "UTC+5:30", "UTC-3", "UTC-3:30"]
+
+    assert zone_text(7 * 3600, None) == ("", ""), "navigateur pas encore lu"
+    assert zone_text(7 * 3600, {"offset": None}) == ("", "")
+    assert zone_text(7 * 3600, {"offset": 25200, "name": "Asia/Phnom_Penh"}) \
+        == ("", ""), "le portable : rien à dire"
+
+    texte, titre = zone_text(0, {"offset": 25200, "name": "Asia/Phnom_Penh"})
+    assert texte == "⚠ heure serveur UTC", texte
+    assert "ce navigateur à UTC+7" in titre
+    assert "Environment=TZ=Asia/Phnom_Penh" in titre
+    assert "synthèse du matin" in titre
+
+    _, titre = zone_text(3600, {"offset": 25200})
+    assert "Environment=TZ=Continent/Ville" in titre, "sans nom IANA"
+
+    # Le champ est posé dans le bandeau, et le fuseau du navigateur relayé.
+    app = create_app(MarketHub(collect_news=False, keep_journal=False))
+    assert "hdr-zone" in str(app.layout) and "browser-zone" in str(app.layout)
+    sorties = " ".join(app.callback_map)
+    assert "hdr-zone.children" in sorties and "browser-zone.data" in sorties
+    print("  ✓ heure du serveur : muette d'accord, dite et réglable sinon")
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

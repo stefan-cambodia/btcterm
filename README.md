@@ -76,7 +76,12 @@ ssh -L 8050:localhost:8050 <machine>
 En continu — un service utilisateur systemd qui sert le terminal par
 gunicorn, journal et alertes couvrant alors la séance entière sans
 navigateur ouvert : gabarit dans `terminal/systemd_service.conf`, fabrique
-dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
+dans `terminal/wsgi.py` (`pip install -e '.[serve]'`). Sur un serveur qui
+n'est pas à votre heure — souvent réglé en UTC —, donnez-lui la vôtre dans
+l'unité (`Environment=TZ=Asia/Phnom_Penh`) : le graphique date à l'heure du
+navigateur, mais le ruban, le journal, les alertes, le calendrier et l'heure
+de la synthèse du matin suivent celle du serveur. Le bandeau affiche
+« ⚠ heure serveur UTC » tant qu'elles diffèrent.
 
 ## Les panneaux
 
@@ -337,7 +342,8 @@ imprévisible. Un serveur ntfy auto-hébergé convient aussi
 téléphone est servi.
 
 **La synthèse du matin** — le panneau SYNTHÈSE part aussi vers le même
-sujet, une fois par jour, à l'heure locale posée ; une machine qui dormait à
+sujet, une fois par jour, à l'heure locale posée — celle du serveur, voir
+plus haut pour un serveur distant ; une machine qui dormait à
 l'heure dite l'envoie au réveil, et un service relancé ne la renvoie pas :
 
 ```bash

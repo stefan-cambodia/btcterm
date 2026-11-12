@@ -147,6 +147,49 @@ def dvol_text(dvol) -> tuple[str, str]:
                   "options")
 
 
+def utc_label(offset: int) -> str:
+    """« UTC+7 », « UTC+5:30 », « UTC-3 », « UTC » — comme le graphique
+    (assets/lwc-clock.js), pour qu'un même fuseau se lise pareil partout."""
+    if not offset:
+        return "UTC"
+    sign = "+" if offset > 0 else "-"
+    hours, minutes = divmod(abs(int(offset)) // 60, 60)
+    return f"UTC{sign}{hours}" + (f":{minutes:02d}" if minutes else "")
+
+
+def zone_text(server_offset: int, browser: dict | None) -> tuple[str, str]:
+    """L'écart d'heure entre le serveur et ce navigateur, s'il y en a un.
+
+    Le graphique du prix et celui du perpétuel datent à l'heure du
+    navigateur ; le ruban, le journal, les alertes, le calendrier et
+    l'envoi de la synthèse du matin (`BTCTERM_BRIEF`), à celle du
+    serveur. Sur le portable, c'est la même ; sur un serveur réglé en
+    UTC — le cas courant —, la synthèse de 7 h partirait à 14 h à Phnom
+    Penh, et chaque panneau daterait sept heures plus tôt que le
+    graphique, sans que rien ne le dise. Le bandeau le dit donc, et
+    l'infobulle donne la ligne à poser dans l'unité systemd.
+
+    `server_offset` et `browser["offset"]` sont des décalages à l'est de
+    l'UTC, en secondes, pris au même instant ; `browser["name"]` est le
+    fuseau IANA du navigateur, quand il le donne. Rien à dire tant que le
+    navigateur n'a pas répondu, ni quand les deux s'accordent.
+    """
+    if not browser or browser.get("offset") is None:
+        return "", ""
+    navigateur = int(browser["offset"])
+    if navigateur == int(server_offset):
+        return "", ""
+    serveur = utc_label(server_offset)
+    nom = browser.get("name") or "Continent/Ville"
+    return (f"⚠ heure serveur {serveur}",
+            f"Le serveur date à {serveur}, ce navigateur à "
+            f"{utc_label(navigateur)} : le graphique suit le navigateur, "
+            "le ruban, le journal, les alertes, le calendrier et l'envoi "
+            "de la synthèse du matin suivent le serveur. Pour les "
+            f"accorder : Environment=TZ={nom} dans l'unité systemd "
+            "(terminal/systemd_service.conf), puis redémarrer le service.")
+
+
 def change_text(ticker: dict) -> tuple[str, dict]:
     """La variation sur 24 h et son style.
 
@@ -205,6 +248,10 @@ def layout():
         # un callback — c'est un état du navigateur, pas du serveur.
         html.Span(id="hdr-push", title="canal des panneaux rapides",
                   style={**STAT, "color": C["muted"], "fontSize": "10px"}),
+        # L'heure du serveur, quand elle n'est pas celle du navigateur
+        # (§ `zone_text`) : muet sur le portable.
+        html.Span(id="hdr-zone", style={**STAT, "color": C["yellow"],
+                                        "fontSize": "10px"}),
         # Les liens temps réel qui tiennent ; le clic ouvre SOURCES.
         html.Span(id="hdr-status", className="hdr-bell", n_clicks=0,
                   style={**STAT, "color": C["muted"]}),
@@ -217,6 +264,29 @@ def layout():
 
 def register(app: dash.Dash, hub: MarketHub) -> None:
     _register_reveal(app)
+
+    # Le fuseau du navigateur, pour `zone_text` : relu à chaque tour lent,
+    # réécrit seulement s'il a changé — une heure d'été qui bascule.
+    app.clientside_callback(
+        """
+        function (_tick, known) {
+            var zone = {offset: -new Date().getTimezoneOffset() * 60,
+                        name: null};
+            try {
+                zone.name = Intl.DateTimeFormat().resolvedOptions().timeZone
+                    || null;
+            } catch (e) { /* un navigateur sans Intl : le décalage suffit */ }
+            if (known && known.offset === zone.offset
+                    && known.name === zone.name) {
+                return window.dash_clientside.no_update;
+            }
+            return zone;
+        }
+        """,
+        Output("browser-zone", "data"),
+        Input("tick-slow", "n_intervals"),
+        State("browser-zone", "data"),
+    )
 
     @app.callback(
         Output("hdr-price", "children"),
@@ -233,13 +303,16 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         Output("hdr-sources", "title"),
         Output("hdr-position", "children"),
         Output("hdr-position", "style"),
+        Output("hdr-zone", "children"),
+        Output("hdr-zone", "title"),
         Input("tick-slow", "n_intervals"),
         # En Input et non en State : basculer $/€ se voit tout de suite,
         # sans attendre le tour d'horloge suivant.
         Input("currency", "data"),
         State("position", "data"),
+        State("browser-zone", "data"),
     )
-    def _refresh(_tick, currency, position):
+    def _refresh(_tick, currency, position, browser):
         live = hub.reference_price()
         # Le taux n'est demandé qu'en euros : il vient d'un appel réseau,
         # mis en cache une heure par le hub.
@@ -264,7 +337,8 @@ def register(app: dash.Dash, hub: MarketHub) -> None:
         return (price_txt, price_tip, change_txt, change_style, range_txt,
                 spread_txt, *dvol_text(hub.dvol_cached()), status, flux_tip,
                 *sources_text(hub.failing_sources(), time.time()),
-                *position_text(position, live, display(hub, currency)))
+                *position_text(position, live, display(hub, currency)),
+                *zone_text(time.localtime().tm_gmtoff, browser))
 
 
 #: Ce que le bandeau sait ouvrir : élément cliquable → panneau.

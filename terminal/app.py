@@ -84,6 +84,11 @@ def _shared_stores() -> list:
         dcc.Store(id="clock", storage_type="local"),
         # La position suivie : même raison, le bandeau la lit panneau replié.
         dcc.Store(id="position", storage_type="local"),
+        # Le fuseau du navigateur — décalage à l'est de l'UTC, en secondes,
+        # et nom IANA —, que le bandeau compare à celui du serveur
+        # (§ header.zone_text). Rempli par le navigateur à chaque tour
+        # lent : un changement d'heure d'été s'y lit au tour suivant.
+        dcc.Store(id="browser-zone"),
     ]
 
 
