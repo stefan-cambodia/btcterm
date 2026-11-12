@@ -1,5 +1,5 @@
 """
-Fil des liquidations forcées — Binance Futures, et Bybit.
+Fil des liquidations forcées — Binance Futures, Bybit et OKX.
 
 Quand une position à effet de levier ne couvre plus sa marge, la
 plateforme la ferme au marché : c'est une liquidation. Elles arrivent par
@@ -15,15 +15,16 @@ forcée liquide un long, un achat forcé liquide un short.
 Le flux est épisodique par nature : il peut rester silencieux plusieurs
 minutes sans que rien n'aille mal.
 
-Depuis certains pays, Binance ouvre ses flux WebSocket futures mais n'y
-livre rien (voir btcterm/resolver.py) : le fil reste alors muet sans
-qu'aucune erreur ne le dise. Une seconde source, Bybit, alimente donc le
-**même** magasin d'événements par un connecteur à part
-(`BybitLiquidationConnector`) : son canal `allLiquidation` est par paire,
-sans joker, d'où une liste de paires plutôt que « toutes ». Chaque
-événement dit d'où il vient (`exchange`), et le fil publie l'état de
-chacun de ses liens — le panneau sait dire lequel manque, et lequel
-tient sans rien livrer (`silent`) : un lien ouvert et muet ne se
+Un lien peut s'ouvrir, s'abonner et ne rien recevoir sans qu'aucune
+erreur ne le dise : c'est arrivé à Binance pendant des mois, le fil
+écoutant une adresse que la scission de ses flux futures avait vidée
+(voir `BINANCE_FUTURES_WS`). D'autres sources alimentent donc le
+**même** magasin d'événements par des connecteurs à part : Bybit
+(`BybitLiquidationConnector`), dont le canal `allLiquidation` est par
+paire, sans joker — d'où une liste de paires plutôt que « toutes » —, et
+OKX. Chaque événement dit d'où il vient (`exchange`), et le fil publie
+l'état de chacun de ses liens — le panneau sait dire lequel manque, et
+lequel tient sans rien livrer (`silent`) : un lien ouvert et muet ne se
 distingue d'un marché calme que par la durée du silence.
 """
 
@@ -42,7 +43,13 @@ __all__ = ["Liquidation", "LiquidationFeed", "BybitLiquidationConnector",
            "OKXLiquidationConnector", "BYBIT_SYMBOLS", "MAP_BINS", "price_map",
            "is_bitcoin"]
 
-BINANCE_FUTURES_WS = "wss://fstream.binance.com/ws/!forceOrder@arr"
+#: La route `/market` est obligatoire : depuis la scission des flux futures
+#: de Binance (annoncée le 6 mars 2026, ancienne adresse retirée le
+#: 23 avril), une connexion sans route — `/ws/` tout court — ne reçoit plus
+#: que les flux « public » (carnets, meilleurs prix). Les liquidations sont
+#: rangées sous `/market` : à l'ancienne adresse, le lien s'ouvrait,
+#: s'abonnait et ne recevait plus rien.
+BINANCE_FUTURES_WS = "wss://fstream.binance.com/market/ws/!forceOrder@arr"
 BYBIT_LINEAR_WS = "wss://stream.bybit.com/v5/public/linear"
 OKX_PUBLIC_WS = "wss://ws.okx.com/ws/v5/public"
 
@@ -100,8 +107,8 @@ class LiquidationFeed(ExchangeConnector):
     tiennent à jour par `mark`. `connected` vaut dès qu'un lien tient,
     `error` rapporte le premier lien tombé.
 
-    Un lien peut tenir sans rien livrer — c'est le cas de Binance depuis
-    certains pays —, et rien dans l'état de connexion ne le dit. Le fil
+    Un lien peut tenir sans rien livrer — Binance l'a fait des mois, à
+    une adresse sans route —, et rien dans l'état de connexion ne le dit. Le fil
     retient donc, par lien, l'heure du dernier événement reçu et celle
     de l'ouverture du lien : `silent` nomme ceux qui tiennent sans avoir
     rien livré depuis plus longtemps qu'un seuil.
@@ -445,10 +452,10 @@ class OKXLiquidationConnector(ExchangeConnector):
     Tous les contrats perpétuels sur cryptomonnaies d'un seul abonnement,
     sans liste de paires — ceux sur actions et matières premières, près de
     la moitié du catalogue, sont écartés (§ sources.
-    fetch_okx_swap_contracts). Depuis le Cambodge, Binance tait son flux futures et Bybit,
-    sur dix paires, peut se taire une heure : le 7 novembre 2026 au matin,
-    OKX a livré dix liquidations en trois minutes pendant que Bybit n'en
-    livrait aucune.
+    fetch_okx_swap_contracts). Bybit, sur dix paires, peut se taire une
+    heure : le 7 novembre 2026 au matin, OKX a livré dix liquidations en
+    trois minutes pendant que Bybit n'en livrait aucune — et que Binance,
+    écouté à une adresse sans route, ne livrait plus rien depuis des mois.
 
     OKX compte en contrats : un contrat linéaire vaut `ctVal` unités du
     sous-jacent (0,01 BTC pour BTC-USDT), un inverse `ctVal` dollars (100

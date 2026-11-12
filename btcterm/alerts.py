@@ -727,8 +727,8 @@ class AlertEngine:
         ou « en panne » (une source REST, une tâche de fond) depuis plus
         de `SOURCE_DOWN_AFTER` — une fois par épisode, et une seconde fois
         au rétablissement de ce qui avait sonné. Un lien « muet » ne sonne
-        pas : c'est l'état ordinaire d'un fil de liquidations calme, et
-        permanent pour Binance depuis certains pays. Après un réveil de
+        pas : c'est l'état ordinaire d'un fil de liquidations calme — le
+        panneau SOURCES le montre, l'âge du silence laisse juger. Après un réveil de
         la machine, les compteurs repartent de zéro : tout est coupé à
         cet instant, et rien de cela n'est une panne.
         """

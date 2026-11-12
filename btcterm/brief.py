@@ -472,8 +472,8 @@ def _cycle_state(hub, now: float) -> Optional[dict]:
 
 
 def _funding(hub, snapshots, now: float) -> Optional[float]:
-    """Le financement en cours ; à défaut — Binance Futures se tait depuis
-    certains pays —, le dernier que le journal a noté."""
+    """Le financement en cours ; à défaut — Binance Futures muet après un
+    réveil —, le dernier que le journal a noté."""
     rate = hub.perp_snapshot().get("funding_rate")
     if rate is not None:
         return rate

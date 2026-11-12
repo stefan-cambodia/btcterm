@@ -15,9 +15,11 @@ passe.
 La seconde source, Bybit, est vérifiée de la même façon : son champ
 `S` est le côté de la **position** — `Buy` pour un long liquidé —, à
 l'inverse de Binance ; ses événements vont au même magasin, marqués de
-leur plateforme ; et l'état du fil se compose de ses deux liens. Un lien
-qui tient sans rien livrer — Binance depuis certains pays — doit se
-lire dans le badge, sans qu'un lien fraîchement rouvert passe pour muet.
+leur plateforme ; et l'état du fil se compose de ses liens. Un lien qui
+tient sans rien livrer — Binance l'a fait des mois, à une adresse sans
+route — doit se lire dans le badge, sans qu'un lien fraîchement rouvert
+passe pour muet. Et chaque adresse des flux futures de Binance doit porter
+sa route : une adresse sans route s'ouvre, s'abonne et ne reçoit rien.
 
 La relecture du journal au démarrage (`restore`, `_warm_liquidations`)
 est vérifiée sur une base temporaire : elle doit rendre la fenêtre sans
@@ -609,6 +611,43 @@ def test_le_bitcoin_se_reconnait_exactement():
                         "notional": 5_000, "exchange": "Binance", "ts": 1}])
     assert carte is None, "l'indice de dominance n'a rien à faire sur l'axe du bitcoin"
     print("  ✓ BTC en dollars et ses échéances ; l'indice de dominance écarté")
+
+
+def test_les_flux_futures_de_binance_ont_leur_route():
+    """Depuis la scission des flux futures de Binance (mars 2026), une
+    connexion sans route ne reçoit que la route `/public` : l'ancienne
+    adresse du fil, `fstream.binance.com/ws/!forceOrder@arr`, s'ouvrait,
+    s'abonnait et ne recevait plus rien — des mois de silence mis sur le
+    compte du pays. Toute adresse de ces flux, dans le code, porte donc sa
+    route ; celle des liquidations est `/market`."""
+    import re
+    from btcterm.liquidations import BINANCE_FUTURES_WS
+
+    racine = Path(__file__).resolve().parent.parent
+    sans_route = []
+    for fichier in [*racine.glob("btcterm/*.py"), *racine.glob("terminal/**/*.py")]:
+        for adresse in re.findall(r"wss://fstream\.binance\.com[^\s\"']*",
+                                  fichier.read_text()):
+            if not re.match(r"wss://fstream\.binance\.com/(public|market|private)/",
+                            adresse):
+                sans_route.append(f"{fichier.name} : {adresse}")
+    assert not sans_route, f"adresses sans route : {sans_route}"
+    assert BINANCE_FUTURES_WS.startswith("wss://fstream.binance.com/market/")
+
+    # Le premier message reçu à la nouvelle adresse, le 12 novembre 2026 :
+    # deux champs de plus que le format documenté (`ps`, `st`), sans effet.
+    recu = {"e": "forceOrder", "E": 1794443645096,
+            "o": {"s": "GRAMUSDT", "S": "SELL", "o": "LIMIT", "f": "IOC",
+                  "q": "4.9", "p": "1.153000", "ap": "1.168000",
+                  "X": "FILLED", "l": "4.9", "z": "4.9",
+                  "T": 1794443644093, "ps": "GRAMUSDT", "st": 1}}
+    feed = LiquidationFeed()
+    feed._handle(recu)
+    (event,) = feed.events
+    assert (event.symbol, event.side, event.exchange) == ("GRAMUSDT", "long", "Binance")
+    assert abs(event.notional - 4.9 * 1.168) < 1e-9, "au prix moyen exécuté"
+    print("  ✓ /market pour les liquidations, aucune adresse sans route ;"
+          " le message réel se lit")
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

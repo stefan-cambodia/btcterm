@@ -404,9 +404,24 @@ une position *courte*. L'inverser donnerait un panneau qui raconte le
 contraire de ce qui se passe ; `tests/test_liquidations.py` le vérifie,
 faute de pouvoir compter sur l'arrivée d'un événement au bon moment.
 
-**Deux sources, un magasin.** Binance tait ses flux WebSocket futures
-depuis certains pays (§2.9) : le fil se connecte, s'abonne, et n'entend
-rien. `BybitLiquidationConnector` écoute donc aussi le canal
+**L'adresse porte sa route.** Binance a scindé ses flux futures en trois
+routes — `/public` pour les carnets et meilleurs prix, `/market` pour le
+reste des données de marché, `/private` pour les comptes — annoncées le
+6 mars 2026, l'ancienne adresse retirée le 23 avril. Une connexion sans
+route ne reçoit que `/public`. Le fil écoutait
+`wss://fstream.binance.com/ws/!forceOrder@arr` : il se connectait,
+s'abonnait, et n'entendait plus rien. Le journal n'a pas une liquidation
+Binance du 13 octobre au 12 novembre 2026, et ce silence a été mis sur le
+compte du pays — à tort : le 12 novembre, depuis le même réseau,
+l'ancienne adresse n'a rien livré en une minute quand `/market/ws/` en
+livrait huit, et le fil a retenu dix-huit liquidations en deux minutes une
+fois corrigé. `BINANCE_FUTURES_WS` porte désormais la route `/market`, que
+la documentation de Binance donne au flux, et
+`test_les_flux_futures_de_binance_ont_leur_route` refuse toute adresse de
+ces flux, dans le code, qui n'en porterait pas.
+
+**Plusieurs sources, un magasin.** Un lien muet ne se voyait pas, et une
+seule plateforme pouvait porter le panneau. `BybitLiquidationConnector` écoute donc aussi le canal
 `allLiquidation` de Bybit — par paire, sans joker, d'où la liste
 `BYBIT_SYMBOLS` des dix plus grosses capitalisations — et verse ses
 événements dans le **même** magasin par `record`, l'entrée commune.
@@ -418,8 +433,8 @@ plateformes. Le fil publie son état **par lien** (`links`, `missing`) :
 `connected` vaut dès qu'un lien tient, et le badge du panneau nomme
 celui qui manque plutôt que d'annoncer un flux coupé.
 
-**Un lien peut tenir sans rien livrer.** C'est précisément le cas de
-Binance depuis certains pays : le lien s'ouvre, s'abonne, et l'état de
+**Un lien peut tenir sans rien livrer.** C'est précisément ce qu'a fait
+Binance, des mois durant, à son adresse sans route : le lien s'ouvre, s'abonne, et l'état de
 connexion n'a rien à redire — le badge disait « sans Bybit » quand Bybit
 tombait, et rien du tout quand Binance se taisait, Bybit portant le
 panneau seul. Le fil retient donc, par lien, l'heure du **dernier
@@ -433,8 +448,10 @@ les liens ouverts dont le silence dépasse le seuil. Le panneau le fixe
 à un quart d'heure (`SILENCE`) : Binance diffuse toutes ses paires, et
 quinze minutes sans une seule liquidation ne s'y voient pas en marché
 ouvert. Le badge écrit alors « Binance muet depuis 22 min » en jaune,
-pas en rouge — le fil vit encore par l'autre plateforme, et l'âge
-affiché laisse juger si c'est le pays ou le marché qui se tait.
+pas en rouge — le fil vit encore par les autres plateformes, et l'âge
+affiché laisse juger si c'est le flux ou le marché qui se tait. Un
+silence de plusieurs jours n'est pas un marché calme : c'est une adresse
+à revérifier auprès de la plateforme avant d'en accuser le réseau.
 
 **Le redémarrage ne vide plus le panneau.** La fenêtre ne vivait qu'en
 mémoire : relancer le service la perdait, et l'on retrouvait un panneau
@@ -458,7 +475,7 @@ backoff exponentiel plafonné, remise à zéro après une connexion qui tient.
 
 **Une troisième source, OKX** (`OKXLiquidationConnector`). Le 7 novembre 2026
 au matin, le panneau SOURCES a montré les deux liens « muets » depuis une heure :
-Binance, qui tait son flux futures depuis le Cambodge, et Bybit, qui ne suit que
+Binance, alors écouté à son adresse sans route, et Bybit, qui ne suit que
 dix paires. Rejoués à part pendant trois minutes, Bybit n'a rien livré et OKX
 dix liquidations — le terminal ne reposait plus que sur un fil qui pouvait se
 taire. Le canal `liquidation-orders` d'OKX couvre tous ses perpétuels d'un
@@ -905,12 +922,13 @@ des connexions, vaut pour les collecteurs REST et les connecteurs
 WebSocket sans qu'ils en sachent rien. Chaque nom sauvé est signalé une
 fois, en avertissement.
 
-Ce que ce module ne peut pas : Binance ne livre aucune donnée sur ses flux
-WebSocket **futures** (`fstream.binance.com`) depuis certains pays — le
-handshake passe, l'abonnement est acquitté, le ping répond, et rien
-n'arrive. Le fil des liquidations (§2.5) n'entend donc pas Binance depuis
-le Cambodge — c'est Bybit qui le nourrit là-bas —, alors que le REST
-futures (`fapi`) répond normalement. Le remède de fond — un résolveur DNS sur TLS configuré dans systemd-resolved,
+Ce silence a longtemps été rangé ici, parmi ce que ce module ne peut pas :
+le flux WebSocket **futures** de Binance (`fstream.binance.com`) ouvrait sa
+connexion, acquittait l'abonnement, répondait au ping, et ne livrait rien
+— un blocage du pays, croyait-on. C'était l'adresse : sans la route
+`/market` qu'exige Binance depuis mars 2026, une connexion ne reçoit que les
+flux « public » (§2.5). Le résolveur n'y était pour rien, et le DNS du
+Cambodge non plus. Le remède de fond — un résolveur DNS sur TLS configuré dans systemd-resolved,
 donné dans le README — couvre aussi le navigateur et les satellites.
 
 ### 2.10 `history` — une bougie close ne se redemande pas
@@ -2002,9 +2020,9 @@ canvas à gauche du pane du cours, le profil de volume tenant la droite :
 soixante tranches de prix, longs et shorts à part, et `/api/liqmap` le lit
 dans le journal, qui garde trente jours. Redemandée quand la plage bouge et
 chaque minute. Sa légende, posée sous celle des moyennes — en bas du pane, le
-volume la recouvrait —, dit le total et les plateformes présentes : depuis le
-Cambodge, Bybit seul, Binance taisant son flux, et rien pendant le sommeil de
-la machine. Elle a été construite pour la cible d'un serveur allumé en
+volume la recouvrait —, dit le total et les plateformes présentes — Bybit et
+OKX seuls tant que l'adresse de Binance manquait de sa route (§2.5) —, et rien
+pendant le sommeil de la machine. Elle a été construite pour la cible d'un serveur allumé en
 permanence. La case a fait déborder la barre de titre de 29 px : ses libellés
 y passent à 0,06 em d'espacement. `/liq` reste à l'onglet des liquidations.
 
@@ -2808,9 +2826,9 @@ Ce qui reste à revoir tient à des seuils posés sans recul : celui des carnets
 creux (quarante pour cent sous la moyenne) le jour même où l'historique
 commence, celui du skew (deux points en 24 h) — quelques semaines de journal
 les étalonneront. Et à ce qui n'a pas pu se vérifier d'ici : le fil des
-filtre des contrats hors cryptomonnaies de Binance, dont le fil est muet
-depuis le Cambodge, n'est éprouvé que par son test et par la lecture du
-catalogue ; l'alerte sur une source en défaut et celle des carnets creux
+filtre des contrats hors cryptomonnaies de Binance n'a été éprouvé que par
+son test et par la lecture du catalogue, tant que le fil de Binance restait
+muet (§2.5) — il voit des messages réels depuis le 12 novembre 2026 ; l'alerte sur une source en défaut et celle des carnets creux
 n'ont sonné que dans leurs tests.
 L'actif intermittent de la capitalisation est écarté par son nom
 (`sources.INTERMITTENT`) : un autre qui se mettrait à clignoter ne le serait
@@ -2880,7 +2898,7 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**La demande américaine**~~ — fait : la prime Coinbase au titre du RUBAN,
   notée toutes les cinq minutes dans les instantanés (§2.13).
 - ~~**Un seul fil de liquidations qui livre**~~ — constaté au panneau SOURCES
-  le 7 novembre au matin : Binance muet depuis le Cambodge, Bybit sur dix
+  le 7 novembre au matin : Binance muet (son adresse, on l'a su plus tard), Bybit sur dix
   paires sans rien depuis une heure. Fait : OKX en troisième source, tous ses
   perpétuels (§2.5), et la part du bitcoin reconnue exactement.
 - ~~**Le fil de news en retard au réveil**~~ — constaté au matin du
@@ -3018,9 +3036,10 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   dernier événement reçu et l'ouverture du lien, et `silent` nomme ceux
   qui tiennent sans rien livrer depuis plus d'un quart d'heure (§2.5).
   Le badge du panneau l'écrit en jaune — « Binance muet depuis 22 min » —
-  à côté du lien qui manque, s'il y en a un. C'était le cas de Binance
-  depuis le Cambodge : le flux futures s'ouvre, s'abonne et se tait
-  (§2.9), Bybit porte le panneau seul, et l'écran le dit désormais.
+  à côté du lien qui manque, s'il y en a un. C'était le cas de Binance :
+  le flux futures s'ouvrait, s'abonnait et se taisait, Bybit portait le
+  panneau seul, et l'écran le disait — la cause, une route manquante dans
+  l'adresse, n'a été trouvée que le 12 novembre 2026 (§2.5).
 - ~~**La bascule € s'arrêtait au graphique**~~ — constaté à l'usage : en
   euros, le carnet restait en dollars. Fait : la règle est posée pour tous
   dans `terminal/fx.py` (§4.3) — ce qui décrit le marché du moment se
@@ -3359,8 +3378,7 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   le téléphone — quand un lien temps réel reste coupé ou une source REST
   en panne plus d'un quart d'heure, une fois par épisode, puis au
   rétablissement de ce qui avait sonné (`_check_sources`). Un lien muet
-  ne sonne pas : c'est l'ordinaire d'un fil de liquidations calme, et
-  l'état permanent de Binance depuis certains pays. Après un réveil de
+  ne sonne pas : c'est l'ordinaire d'un fil de liquidations calme. Après un réveil de
   la machine, les compteurs repartent de zéro. La règle est débrayée par
   défaut — sur un portable, un réseau qui filtre une plateforme sonnerait
   pour rien — et se coche au panneau ALERTES (case « sources ») une fois
@@ -3435,6 +3453,19 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   perpétuel affichent l'heure locale du navigateur, la case UTC rend
   l'UTC. Reste ouvert : sur un serveur distant, les autres panneaux
   dateront dans le fuseau du serveur, pas dans celui du navigateur.
+- ~~**Binance muet, mis sur le compte du pays**~~ — fait le 12 novembre
+  2026 (§2.5, §2.9) : le panneau SOURCES marquait « Liquidations Binance ·
+  muet 3 h », le journal n'avait pas une liquidation Binance depuis un mois,
+  et la documentation l'expliquait par un blocage depuis le Cambodge. Le
+  carnet et le ruban de Binance, eux, livraient. Vérifié à la source :
+  Binance a scindé ses flux futures en routes `/public`, `/market` et
+  `/private` en mars 2026, et une adresse sans route ne reçoit plus que
+  `/public` ; le flux des liquidations est rangé sous `/market`. Une ligne
+  change dans le code, un test refuse les adresses sans route, et les sept
+  commentaires qui accusaient le pays sont corrigés. Le fil a désormais
+  trois plateformes réelles : les totaux, l'alerte de rafale (10 M$ en
+  5 min) et la carte des liquidations comptent Binance, le premier marché
+  à terme — le seuil de l'alerte, posé sans lui, est à revoir à l'usage.
 - ~~**Un panneau POSITION qui répondait « saisir un capital » à tout**~~ —
   vérifié à la demande de l'utilisateur, au clavier dans Firefox : les
   calculs sont justes (valeur, résultat, distance au stop, multiple de

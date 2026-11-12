@@ -180,9 +180,9 @@ profil de volume ; le CRSI est disponible mais masqué.
 `/liq` ouvre toujours l'onglet) pose à gauche du graphique le notionnel liquidé
 par tranche de prix sur la plage visible, lu dans le journal : rouge pour les
 longs fermés de force, vert pour les shorts. La légende dit le total et les
-plateformes présentes — depuis le Cambodge, Bybit seul, et rien pendant le
-sommeil de la machine : la carte prendra tout son sens sur un serveur allumé
-en permanence.
+plateformes présentes — Binance, Bybit et OKX —, et rien pendant le sommeil de
+la machine : la carte prendra tout son sens sur un serveur allumé en
+permanence.
 
 **Niveaux clés** — la case `NIV` (touche `N`) trace les repères que les traders
 regardent : plus haut et plus bas de la veille (`H J-1`, `B J-1`), de la semaine
@@ -248,15 +248,18 @@ puis `sudo systemctl restart systemd-resolved` ; `resolvectl query
 api.binance.com` doit alors rendre une adresse publique. Le DNS sur TLS
 empêche le fournisseur d'intercepter les requêtes vers ces résolveurs.
 
-Une restriction ne se contourne pas ainsi : Binance ne livre **aucune donnée
-sur ses flux WebSocket futures** (`fstream.binance.com`) depuis certains
-pays — la connexion s'ouvre, l'abonnement est acquitté, rien n'arrive. C'est
-pourquoi le fil des liquidations écoute aussi **Bybit** (canal
-`allLiquidation`, dix grandes paires) : les deux plateformes nourrissent le
-même panneau, chaque ligne dit la sienne (`BIN`/`BYB`), et le badge nomme le
-lien qui manque — comme celui qui tient sans rien livrer depuis plus d'un
-quart d'heure (« Binance muet depuis 22 min »). Le panneau perpétuel (REST
-`fapi`) n'est pas concerné.
+Le fil des liquidations écoute **trois plateformes** — Binance
+(`!forceOrder@arr`, toutes ses paires), Bybit (canal `allLiquidation`, dix
+grandes paires) et OKX (tous ses perpétuels) — qui nourrissent le même
+panneau ; chaque ligne dit la sienne (`BIN`/`BYB`/`OKX`), et le badge nomme le
+lien qui manque, comme celui qui tient sans rien livrer depuis plus d'un quart
+d'heure (« Binance muet depuis 22 min »). Ce silence-là a longtemps été mis
+sur le compte du pays : c'était l'adresse. Depuis la scission de ses flux
+futures (annoncée en mars 2026), Binance ne livre les liquidations qu'à la
+route `/market` (`wss://fstream.binance.com/market/ws/…`) ; à l'ancienne
+adresse sans route, la connexion s'ouvre, l'abonnement est acquitté, et rien
+n'arrive. Corrigé le 12 novembre 2026 ; un test refuse désormais toute adresse
+de ces flux sans sa route.
 
 **News** — le terminal **remplit** lui-même `~/.btc_news/news.db`, toutes les
 quinze minutes, avec les règles de scoring du tracker : plus besoin du timer

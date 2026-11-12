@@ -600,8 +600,8 @@ class MarketHub:
             OKXConnector(self.books["OKX"], inst_id="BTC-USDT"),
             CoinbaseAdvancedConnector(self.books["Coinbase"], product="BTC-USDT"),
             self.liquidations,
-            # Seconde source du même fil : Binance tait ses flux futures
-            # depuis certains pays, Bybit non.
+            # Seconde source du même fil : un lien peut tenir sans rien
+            # livrer — Binance l'a fait des mois —, deux autres le disent.
             BybitLiquidationConnector(self.liquidations),
             # Troisième : OKX, tous les perpétuels d'un abonnement.
             OKXLiquidationConnector(self.liquidations),

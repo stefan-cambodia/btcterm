@@ -13,10 +13,10 @@ glissante que le fil du hub entretient en mémoire.
 plusieurs minutes sans une seule liquidation ne signalent aucune panne,
 et le panneau distingue les deux — un flux coupé le dit, un flux calme
 aussi. Mais un lien qui tient sans rien livrer depuis un quart d'heure
-(`SILENCE`) n'est plus un marché calme : c'est Binance qui ouvre ses
-flux futures sans y verser quoi que ce soit depuis certains pays, et le
-badge le nomme — en jaune, pas en rouge, le fil vivant encore par
-l'autre plateforme.
+(`SILENCE`) n'est plus un marché calme : c'est un flux qui ne livre plus
+— Binance l'a fait des mois, écouté à une adresse que la scission de ses
+flux futures avait vidée —, et le badge le nomme, en jaune, pas en
+rouge, le fil vivant encore par les autres plateformes.
 """
 
 from __future__ import annotations
@@ -93,13 +93,14 @@ def _badges(feed, fx=DOLLARS, verbose: bool = True):
                        title=feed.error or "lien non établi")]
             if manque else [])
 
-    # Un lien qui tient sans rien livrer se dit aussi : c'est le cas de
-    # Binance depuis certains pays, et rien d'autre ne le signalerait.
+    # Un lien qui tient sans rien livrer se dit aussi : rien d'autre ne
+    # le signalerait — Binance l'a fait des mois sans une erreur.
     muets = [html.Span(f" · {name} muet depuis {int(age // 60)} min",
                        style={"color": C["yellow"]},
                        title="lien ouvert, mais aucune liquidation reçue — "
-                             "depuis certains pays, Binance ouvre ses flux "
-                             "futures sans rien y livrer")
+                             "marché calme, ou flux qui ne livre plus "
+                             "(adresse changée par la plateforme, "
+                             "réseau qui filtre)")
              for name, age in feed.silent(SILENCE)]
 
     totals = feed.totals(WINDOW)
