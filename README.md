@@ -89,7 +89,7 @@ dans `terminal/wsgi.py` (`pip install -e '.[serve]'`).
 | **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
 | **Liquidations** | positions fermées de force — Binance, toutes paires, OKX, tous ses perpétuels sur cryptomonnaies, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
-| **Flux ETF** | entrées/sorties nettes des ETF spot ; en plein écran, cumul depuis le lancement, classement des émetteurs et fenêtre réglable (30 j / 90 j / 1 an / tout) | 5 min |
+| **Flux ETF** | entrées/sorties nettes des ETF spot ; en plein écran, cumul depuis le lancement, classement des émetteurs et fenêtre réglable (30 j / 90 j / 1 an / tout). Un jour encore en cours de publication est dit « partiel », sa barre pâlie, les fonds attendus nommés au survol | 5 min |
 | **Position** | la position tenue, saisie à la main : résultat, distance au stop, multiple du risque ; taille qu'autorise un risque choisi, stop à quelques ATR ; résultat au bandeau. Rien ne quitte le navigateur (onglet des flux ETF) | 2 s |
 | **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; financement, prime et open interest comparés sur Binance, Bybit et OKX , et le portage annualisé — financement de chaque plateforme et base du future Deribit à trois mois, dans la même unité (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
@@ -716,6 +716,10 @@ Récupère le tableau public de `farside.co.uk/bitcoin-etf-flow-all-data/`
 (flux quotidiens IBIT,
 FBTC, GBTC, ARKB, BITB, HODL…) et affiche les N derniers jours en millions
 de dollars, plus le flux net cumulé et le décompte des jours entrants/sortants.
+Le dernier jour se publie fonds par fonds, IBIT parmi les derniers : tant
+qu'il en manque, leurs cases gardent le tiret de la source et une ligne le
+dit (« Ligne du 2026-11-11 partielle : IBIT, FBTC, HODL pas encore
+publiés »).
 
 ```bash
 python etf_bitcoin_flows.py                 # 90 derniers jours

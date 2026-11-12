@@ -177,6 +177,75 @@ def test_une_ligne_sans_chiffres_n_est_pas_une_seance():
     print("  ✓ ni la ligne du jour vide ni le jour férié ne comptent pour une séance")
 
 
+
+def brut_du_12_novembre() -> pd.DataFrame:
+    """La fin du tableau lue le 12 novembre 2026 au matin, telle quelle :
+    le 11 encore en cours de publication — IBIT, FBTC et HODL en tirets,
+    les petits fonds déjà à 0.0 —, et une colonne lancée récemment (MSBT)
+    en tirets sur les jours d'avant son lancement."""
+    return pd.DataFrame(
+        [["Fee", "0.25%", "0.25%", "0.20%", "0.21%", "0.25%", "0.25%",
+          "0.15%", "1.50%", ""],
+         ["05 Jan 2026", "12.0", "3.0", "0.0", "0.0", "0.0", "0.0", "-",
+          "0.0", "15.0"],
+         ["09 Nov 2026", "(213.2)", "0.0", "0.0", "(9.9)", "0.0", "0.0",
+          "22.1", "0.0", "(201.0)"],
+         ["10 Nov 2026", "(78.2)", "(36.8)", "0.0", "0.0", "0.0", "0.0",
+          "20.0", "0.0", "(95.0)"],
+         ["11 Nov 2026", "-", "-", "0.0", "0.0", "0.0", "-", "9.0",
+          "(39.1)", "(30.1)"],
+         ["Total", "64810", "10238", "2027", "941", "140", "985", "865",
+          "(28,149)", "55440"]],
+        columns=["Unnamed: 0", "IBIT", "FBTC", "BITB", "ARKB", "BTCO",
+                 "HODL", "MSBT", "GBTC", "Total"])
+
+
+def test_une_journee_partielle_le_dit():
+    """La ligne du jour se remplit émetteur après émetteur, IBIT parmi les
+    derniers : gardée, elle est dite partielle partout où elle s'affiche.
+
+    Constaté le 12 novembre 2026 : « −30 M$ le 11/11 », IBIT absent.
+    """
+    from btcterm import brief
+    from btcterm.sources import clean_etf_table, etf_pending
+
+    propre = clean_etf_table(brut_du_12_novembre())
+    assert propre["Total"].iloc[-1] == -30.1, "la ligne partielle reste"
+    assert etf_pending(propre) == ["IBIT", "FBTC", "HODL"], etf_pending(propre)
+    assert propre["MSBT"].iloc[0] == 0.0, "un fonds pas encore lancé reste un zéro"
+    assert etf_pending(propre.tail(30)) == ["IBIT", "FBTC", "HODL"], \
+        "la liste suit le tableau découpé"
+
+    # La journée complétée : plus rien en attente.
+    complet = brut_du_12_novembre()
+    complet.iloc[4] = ["11 Nov 2026", "(150.0)", "12.0", "0.0", "0.0",
+                       "0.0", "0.0", "9.0", "(39.1)", "(168.1)"]
+    assert etf_pending(clean_etf_table(complet)) == []
+    assert etf_pending(flux()) == [], "un tableau fabriqué n'attend rien"
+    assert etf_pending(None) == []
+
+    stats = etf_stats(propre, 30)
+    assert stats["pending"] == ["IBIT", "FBTC", "HODL"]
+    for verbose in (False, True):
+        barre = str(panneau._badges(stats, "30 J", verbose=verbose))
+        assert "partiel" in barre and "IBIT, FBTC, HODL pas encore publiés" in barre, \
+            f"la barre de titre doit le dire (verbose={verbose}) : {barre}"
+    assert "partiel" not in str(panneau._badges(
+        etf_stats(clean_etf_table(complet), 30), "30 J", verbose=True))
+
+    barres = build_etf_chart(propre, 30).data[0]
+    assert list(barres.marker.opacity)[-1] < 1 == list(barres.marker.opacity)[-2], \
+        "la barre du jour partiel est pâlie, les autres non"
+    assert "IBIT, FBTC, HODL à venir" in barres.customdata[-1]
+    assert barres.customdata[-2] == ""
+
+    ligne = brief.etf_item(propre)
+    assert ligne.text == ("-30 M$ le 11/11, partiel (IBIT, FBTC, HODL à venir)"
+                          " · 5 séances -311 M$"), ligne.text
+    assert ligne.tone == "warn"
+    print("  ✓ IBIT, FBTC et HODL en attente : barre de titre, barre pâlie,"
+          " synthèse")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nFlux ETF — {len(tests)} vérifications\n" + "─" * 60)

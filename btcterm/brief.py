@@ -44,6 +44,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from . import cycle, macrocal, newsdb
+from .sources import etf_pending
 from .journal import liquidity_totals
 
 log = logging.getLogger("btcterm.brief")
@@ -291,8 +292,12 @@ def etf_item(frame: Optional[pd.DataFrame]) -> Item:
     flows = pd.to_numeric(known[column])
     day = pd.Timestamp(known["Date"].iloc[-1]).date()
     last, week = float(flows.iloc[-1]), float(flows.tail(5).sum())
-    return Item("ETF", f"{last:+z,.0f} M$ le {day:%d/%m} · 5 séances "
-                       f"{week:+z,.0f} M$", _tone(last),
+    # Une journée encore partielle le dit dans le texte même : la synthèse
+    # part aussi vers le téléphone, où il n'y a pas de survol.
+    pending = etf_pending(frame)
+    partiel = (f", partiel ({', '.join(pending)} à venir)" if pending else "")
+    return Item("ETF", f"{last:+z,.0f} M$ le {day:%d/%m}{partiel} · 5 séances "
+                       f"{week:+z,.0f} M$", "warn" if pending else _tone(last),
                 "flux nets des ETF spot américains, farside.co.uk")
 
 

@@ -24,6 +24,7 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from btcterm import indicators as ind
+from btcterm.sources import etf_pending
 from btcterm.journal import liquidity_totals
 from btcterm.sources import STABLES
 
@@ -896,9 +897,11 @@ def etf_stats(frame: pd.DataFrame, days: int | None = None) -> dict:
     """
     stats = {"last": None, "last_date": None, "five": None, "window": None,
              "days": 0, "cumul": None, "best": None, "worst": None,
-             "full": False}
+             "full": False, "pending": []}
     if frame.empty:
         return stats
+    # Les fonds que la ligne du jour attend encore (§ sources.clean_etf_table).
+    stats["pending"] = etf_pending(frame)
 
     total = etf_total_column(frame)
     view = frame if days is None else frame.tail(days)
@@ -962,10 +965,19 @@ def build_etf_chart(
         fig = go.Figure()
         cible = {}
 
+    # La barre d'un jour encore partiel est pâlie, et son survol nomme
+    # les fonds qui manquent : elle dit déjà quelque chose, pas tout.
+    pending = etf_pending(frame)
+    partiel = [""] * len(view)
+    opacite = [1.0] * len(view)
+    if pending and len(view):
+        partiel[-1] = "<br>partiel : " + ", ".join(pending) + " à venir"
+        opacite[-1] = 0.4
     fig.add_trace(go.Bar(
         x=view["Date"], y=view[total], name="flux net",
         marker_color=[C["green"] if v >= 0 else C["red"] for v in view[total]],
-        hovertemplate="%{x|%d %b %Y}<br>%{y:+,.1f} M$<extra></extra>",
+        marker_opacity=opacite, customdata=partiel,
+        hovertemplate="%{x|%d %b %Y}<br>%{y:+,.1f} M$%{customdata}<extra></extra>",
         showlegend=False,
     ), **({**cible, "secondary_y": False} if maximized else {}))
 

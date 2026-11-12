@@ -74,12 +74,24 @@ def _badges(stats: dict, window: str, verbose: bool):
     def muet(texte: str):
         return html.Span(texte, style={"color": C["muted"]})
 
+    # Le dernier jour encore partiel se dit, dans la grille comme en plein
+    # écran : sans lui, « −30 M$ » passait pour la séance entière quand
+    # IBIT n'avait pas publié.
+    partiel = []
+    if stats.get("pending") and stats["last_date"] is not None:
+        partiel = [html.Span(
+            " partiel", style={"color": C["yellow"]},
+            title=f"{stats['last_date']:%d/%m} : "
+                  f"{', '.join(stats['pending'])} pas encore publiés — "
+                  "le flux du jour se complète dans la soirée")]
+
     if not verbose:
         # Dans la grille, le total de la fenêtre et rien d'autre : la
         # barre de titre y partage déjà la place avec les onglets.
         return html.Span([
             muet(f"{window} : "),
             montant(stats["window"], f"flux net cumulé sur {window}"),
+            *partiel,
         ], style={"fontFamily": MONO})
 
     children = []
@@ -87,6 +99,7 @@ def _badges(stats: dict, window: str, verbose: bool):
         children += [
             muet(f"{stats['last_date']:%d %b} "),
             montant(stats["last"], "flux net du dernier jour publié"),
+            *partiel,
             muet(" · 5 j "),
             montant(stats["five"], "flux net des cinq derniers jours ouvrés"),
             muet(" · "),

@@ -105,7 +105,7 @@ from typing import Callable, Optional
 import pandas as pd
 
 from . import indicators as ind
-from . import macrocal, newsdb
+from . import macrocal, newsdb, sources
 from .journal import liquidity_totals
 
 __all__ = ["Alert", "AlertEngine", "DEFAULT_CONFIG",
@@ -598,9 +598,14 @@ class AlertEngine:
             return
         self._etf_last_date = date
         sens = "entrée" if flow >= 0 else "sortie"
+        # Le seuil peut être franchi avant qu'IBIT ait publié : la
+        # sonnerie le dit, le total final pouvant encore changer de sens.
+        pending = sources.etf_pending(df)
+        partiel = (f" — partiel, {', '.join(pending)} à venir"
+                   if pending else "")
         self._fire("etf",
-                   f"flux ETF du {date:%d/%m} : {sens} nette {flow:+z,.0f} M$",
-                   now)
+                   f"flux ETF du {date:%d/%m} : {sens} nette {flow:+z,.0f} M$"
+                   f"{partiel}", now)
 
     def _check_chain(self, hub, _opps, config, now) -> None:
         """Réseau chargé : mempool gonflé ou blocs lents, chacun son front.

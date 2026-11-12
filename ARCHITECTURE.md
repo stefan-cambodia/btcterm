@@ -775,9 +775,11 @@ on-chain tirent déjà — mêmes caches, aucune requête de plus :
   une sonnerie par date au plus, la date n'étant retenue qu'au moment
   où elle sonne — farside remplit son jour au fil de la soirée,
   émetteur après émetteur, et le total peut franchir le seuil bien
-  après l'apparition de la ligne. Le jour présent à la première lecture
-  est tenu pour vu, comme les gros titres de la première lecture des
-  news ;
+  après l'apparition de la ligne. Le seuil pouvant être franchi avant
+  qu'IBIT ait publié, la sonnerie d'un jour encore partiel le dit
+  (« — partiel, IBIT, FBTC à venir ») : le total final peut changer de
+  sens. Le jour présent à la première lecture est tenu pour vu, comme
+  les gros titres de la première lecture des news ;
 - **réseau chargé** — le mempool dépasse le seuil (Mo), ou le rythme
   moyen des blocs s'étire au-delà du seuil (minutes) ; chaque grandeur
   a son front. Un rythme qui s'étire dit que le réseau a perdu des
@@ -1581,6 +1583,23 @@ n'avait pas —, quand `farside.co.uk/bitcoin-etf-flow-all-data/` sert le même
 tableau depuis le lancement des ETF en janvier 2024, soit six cent soixante-dix
 jours ouvrés. Le collecteur n'a pas bougé d'une ligne : c'est la même table, au
 même format.
+
+**Le jour en cours se dit partiel.** Farside publie la ligne du jour fonds par
+fonds : les petits tôt, souvent d'un 0,0, IBIT — d'ordinaire l'essentiel du
+flux — parmi les derniers. Le 12 novembre 2026 au matin, la ligne du 11
+portait neuf chiffres sur douze, IBIT, FBTC et HODL encore en tirets, et le
+terminal annonçait « −30 M$ le 11/11 » comme le flux de la séance. La règle
+qui écarte les lignes à moitié vides (§7) la gardait, à raison : elle dit déjà
+quelque chose. `clean_etf_table` nomme donc dans `attrs["pending"]` les fonds
+de la **dernière** ligne restés en tiret alors qu'ils avaient publié la veille
+— un fonds pas encore lancé, en tiret les jours d'avant, n'y entre pas — et
+`sources.etf_pending` les rend à qui les demande. La barre de titre ajoute
+« partiel » en jaune, dans la grille comme en plein écran, les fonds attendus
+au survol ; la barre du jour est pâlie et son survol les nomme ; la synthèse
+l'écrit dans son texte, puisqu'elle part aussi vers le téléphone ; l'alerte de
+flux le précise ; et l'export `etf_bitcoin_flows.py` garde leurs tirets. Les
+`attrs` de pandas suivent le tableau au travers du cache et des découpages
+(`tail`, sélection de colonnes).
 
 La bascule s'ouvre par le bouton ⛶ — **toujours visible**, une première version
 qui ne l'affichait qu'au survol s'étant révélée introuvable — ou par un
@@ -3453,6 +3472,11 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   perpétuel affichent l'heure locale du navigateur, la case UTC rend
   l'UTC. Reste ouvert : sur un serveur distant, les autres panneaux
   dateront dans le fuseau du serveur, pas dans celui du navigateur.
+- ~~**Un jour d'ETF à moitié publié lu comme une séance**~~ — fait le
+  12 novembre 2026 (§3.4) : « −30 M$ le 11/11 » à la synthèse et au
+  panneau, quand IBIT, FBTC et HODL n'avaient pas encore publié. Le jour
+  reste affiché, dit « partiel », les fonds attendus nommés partout où il
+  se lit — barre de titre, barre du graphique, synthèse, alerte, export.
 - ~~**Binance muet, mis sur le compte du pays**~~ — fait le 12 novembre
   2026 (§2.5, §2.9) : le panneau SOURCES marquait « Liquidations Binance ·
   muet 3 h », le journal n'avait pas une liquidation Binance depuis un mois,

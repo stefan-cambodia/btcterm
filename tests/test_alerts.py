@@ -422,7 +422,19 @@ def test_flux_etf_une_fois_par_jour():
     e.evaluate(hub, now=T0 + 4 * (SLOW_EVERY + 1))
     sonneries = [a for a in e.alerts if a.kind == "etf"]
     assert len(sonneries) == 2 and "sortie nette -730 M$" in sonneries[1].message
-    print("  ✓ flux ETF : démarrage muet, une sonnerie par jour, sens dit")
+    assert "partiel" not in sonneries[1].message
+
+    # Un jour qui franchit le seuil avant qu'IBIT ait publié : la sonnerie
+    # le dit, le total final pouvant encore changer de sens.
+    hub.etf = etf_frame(("2026-08-22", -730), ("2026-08-23", -640))
+    hub.etf.attrs["pending"] = ["IBIT", "FBTC"]
+    e.evaluate(hub, now=T0 + 5 * (SLOW_EVERY + 1))
+    sonneries = [a for a in e.alerts if a.kind == "etf"]
+    assert len(sonneries) == 3, sonneries
+    assert sonneries[2].message.endswith("— partiel, IBIT, FBTC à venir"), \
+        sonneries[2].message
+    print("  ✓ flux ETF : démarrage muet, une sonnerie par jour, sens dit,"
+          " jour partiel nommé")
 
 
 def test_reseau_charge():

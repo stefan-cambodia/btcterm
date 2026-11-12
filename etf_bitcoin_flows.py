@@ -22,7 +22,7 @@ import sys
 import pandas as pd
 from tabulate import tabulate
 
-from btcterm.sources import fetch_etf_flows
+from btcterm.sources import etf_pending, fetch_etf_flows
 
 
 def summarize(df: pd.DataFrame, days: int | None) -> pd.DataFrame:
@@ -62,22 +62,35 @@ def main():
     table["Date"] = table["Date"].dt.strftime("%Y-%m-%d")
     for col in active_cols + [total_col]:
         table[col] = table[col].round(1)
+    # Un fonds que la ligne du jour attend encore n'est pas à zéro : il
+    # garde le tiret de la source.
+    pending = etf_pending(df)
+    if pending and len(table) and view["Date"].iloc[-1] == df["Date"].iloc[-1]:
+        for col in pending:
+            if col in table.columns:
+                table.iloc[-1, table.columns.get_loc(col)] = None
 
     print(f"\n=== Flux ETF Bitcoin spot - {len(view)} derniers jours (en millions $) ===\n")
     print(
         tabulate(
-            table,
+            # NaN → None : tabulate n'écrit `missingval` que pour None.
+            table.astype(object).where(table.notna(), None),
             headers="keys",
             tablefmt="simple",
             showindex=False,
             numalign="right",
             floatfmt=".1f",
+            missingval="-",
         )
     )
 
     net_total = view[total_col].sum()
     inflow_days = (view[total_col] > 0).sum()
     outflow_days = (view[total_col] < 0).sum()
+
+    if pending:
+        print(f"\nLigne du {df['Date'].iloc[-1]:%Y-%m-%d} partielle : "
+              f"{', '.join(pending)} pas encore publiés.")
 
     print(f"\nFlux net cumulé sur la période : {net_total:,.1f} M$")
     print(f"Jours avec flux entrant net : {inflow_days}")

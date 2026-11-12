@@ -36,7 +36,7 @@ __all__ = [
     "clean_etf_table", "fetch_market_global", "market_global", "INTERMITTENT",
     "fetch_fee_estimates", "fee_estimates",
     "fetch_stablecoin_supply", "stablecoin_supply", "fetch_chain_chart", "fetch_chain_stats",
-    "fetch_etf_flows",
+    "fetch_etf_flows", "etf_pending",
     "fetch_rss_entries", "fetch_cryptopanic_posts", "fetch_fear_greed",
     "fetch_fear_greed_now",
     "fetch_fear_greed_history", "FEAR_GREED_DAYS",
@@ -875,6 +875,16 @@ def clean_etf_table(table: pd.DataFrame) -> pd.DataFrame:
     ligne dont plus de la moitié des fonds n'ont rien publié est écartée ;
     les tirets isolés (un fonds pas encore lancé, un émetteur en retard
     d'un soir) restent des zéros, et la ligne se complète d'elle-même.
+
+    **Une ligne gardée n'est pas forcément complète.** Les petits fonds
+    publient tôt, souvent un 0,0 ; IBIT, qui fait d'ordinaire l'essentiel
+    du flux, publie parmi les derniers. Constaté le 12 novembre 2026 au
+    matin : la ligne du 11 portait neuf chiffres sur douze, IBIT, FBTC et
+    HODL encore en tirets, et le terminal annonçait « −30 M$ le 11/11 »
+    comme le flux de la séance. Les fonds de la **dernière** ligne restés
+    en tiret alors qu'ils avaient publié la veille sont donc nommés dans
+    `attrs["pending"]` (voir `etf_pending`) : la ligne reste, puisqu'elle
+    dit déjà quelque chose, mais chaque affichage la dit partielle.
     """
     df = table.copy()
 
@@ -911,7 +921,22 @@ def clean_etf_table(table: pd.DataFrame) -> pd.DataFrame:
     if funds:
         published = df[funds].notna().sum(axis=1) * 2 >= len(funds)
         df = df[published].reset_index(drop=True)
-    return df.fillna(0.0)
+    pending: list[str] = []
+    if funds and len(df) >= 2:
+        last, previous = df[funds].iloc[-1], df[funds].iloc[-2]
+        pending = [f for f in funds
+                   if pd.isna(last[f]) and pd.notna(previous[f])]
+    df = df.fillna(0.0)
+    df.attrs["pending"] = pending
+    return df
+
+
+def etf_pending(frame: Optional[pd.DataFrame]) -> list[str]:
+    """Les fonds que la dernière ligne attend encore — vide si elle est
+    complète, ou si le tableau ne vient pas de `clean_etf_table`."""
+    if frame is None:
+        return []
+    return list(frame.attrs.get("pending", ()))
 
 
 # ─────────────────────────────────────────────────────────────
