@@ -2145,6 +2145,23 @@ fait déborder de 36 px la barre de titre du prix, que `ui_smoke.py` surveille :
 le titre y est passé de « BTC/USDT » à « BTC », la paire étant au bandeau, et
 l'écart entre libellés de 4 à 3 px.
 
+Le **VWAP ancré** vient avec les niveaux — la barre de titre ne gardait plus
+que 20 px, pas la place d'une case. Le prix moyen pondéré par le volume depuis
+le début de la période, et ses bandes à un écart-type, pondéré pareil ;
+l'ancrage suit l'intervalle (le jour UTC jusqu'en 1h, la semaine — lundi 0 h
+UTC — de 2 h à 12 h, le mois en journalier, aucun au-delà, où une période
+tiendrait en une ou deux bougies). Le calcul vit dans `assets/lwc-vwap.js`,
+testé sous Node (`tests/test_lwc_vwap.py`), et tourne dans le navigateur sur les
+bougies chargées : le canal push ne recalcule côté serveur que les 250
+dernières bougies, moins qu'une journée de minutes, et un VWAP du jour y
+serait faux. La bougie en cours le met à jour à chaque poussée. La courbe se
+rompt d'une période à l'autre : la bibliothèque colore un segment d'après le
+point où il *commence*, et c'est donc le dernier point de chaque période qui
+est transparent — rendre transparent le premier de la suivante, essayé
+d'abord, laissait le saut vertical et cachait le premier segment utile. La
+légende dit l'ancrage (« VWAP J », « S », « M ») et se met à jour au changement
+d'intervalle.
+
 La **carte des liquidations** (case `LIQ`, touche `M`, `/carte`) est un
 canvas à gauche du pane du cours, le profil de volume tenant la droite :
 le notionnel liquidé de la plage visible se répartit en soixante tranches de
@@ -3657,6 +3674,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Pas de prix moyen de séance**~~ — fait le 12 novembre 2026 (§3.13) :
+  le VWAP ancré et ses bandes, avec les niveaux clés, ancrés au jour, à la
+  semaine ou au mois selon l'intervalle.
 - ~~**Des murs qu'on ne voyait pas tenir ou disparaître**~~ — fait le
   12 novembre 2026 (§2.16, §3.13) : la case MURS peint sous les chandeliers
   la carte de chaleur des cinq carnets, une colonne toutes les dix secondes,

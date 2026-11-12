@@ -215,6 +215,28 @@
             }, 0);
         }
 
+        // Le VWAP ancré et ses bandes, avec les niveaux clés (case NIV) :
+        // un niveau de référence de plus, et la barre de titre n'avait plus
+        // la place d'une case (§ VWAP ancré, plus bas).
+        if (extras.indexOf("levels") !== -1 && window.btcVwap) {
+            series.vwap = state.chart.addSeries(LWC.LineSeries, {
+                color: VWAP_COLOR, lineWidth: 2,
+                priceLineVisible: false, lastValueVisible: false,
+                crosshairMarkerVisible: false
+            }, 0);
+            ["vwapUpper", "vwapLower"].forEach(function (name) {
+                series[name] = state.chart.addSeries(LWC.LineSeries, {
+                    color: VWAP_COLOR, lineWidth: 1,
+                    lineStyle: LWC.LineStyle.Dotted,
+                    priceLineVisible: false, lastValueVisible: false,
+                    crosshairMarkerVisible: false,
+                    // Les bandes suivent le cours, elles ne le cadrent pas :
+                    // larges en début de période, elles étireraient l'axe.
+                    autoscaleInfoProvider: function () { return null; }
+                }, 0);
+            });
+        }
+
         var hasVolume = extras.indexOf("volume") !== -1;
         if (hasVolume) {
             series.volume = state.chart.addSeries(LWC.HistogramSeries, {
@@ -392,6 +414,13 @@
             item.style.color = styles[name].color;
             div.appendChild(item);
         }
+        // Le VWAP dit son ancrage, qui suit l'intervalle (§ fillVwap).
+        if (state.series && state.series.vwap) {
+            var vwapItem = document.createElement("span");
+            vwapItem.style.color = VWAP_COLOR;
+            div.appendChild(vwapItem);
+            state.vwapLegend = vwapItem;
+        }
         // Le geste ne se devine pas : le rappeler là où il y a la
         // place, en plein écran (terminal.css ne l'affiche que là).
         var hint = document.createElement("span");
@@ -487,6 +516,10 @@
         if (cvd !== undefined) {
             parts.push(["CVD " + Math.round(cvd).toLocaleString("en-US"),
                         theme.cyan]);
+        }
+        var vwap = valueOf(state.series.vwap);
+        if (vwap !== undefined) {
+            parts.push(["VWAP " + money(vwap), VWAP_COLOR]);
         }
         var oi = valueOf(state.series.oi);
         if (oi !== undefined) {
@@ -1733,6 +1766,68 @@
         });
     }
 
+    // ── VWAP ancré ──────────────────────────────────────────
+    //
+    // Le calcul vit dans lwc-vwap.js, testé sous Node : ici, la mise en
+    // séries. Le dernier point de chaque période est transparent : la
+    // bibliothèque colore un segment d'après le point où il commence, et
+    // celui qui part de là relierait la fin de la période au début de la
+    // suivante — un trait vertical que rien ne justifie. Rendre transparent
+    // le premier point de la période, essayé d'abord, cachait le premier
+    // segment utile et laissait le saut.
+    var VWAP_COLOR = "#ec4899";
+
+    function vwapSeries(rate) {
+        var vwap = window.btcVwap;
+        var anchor = vwap ? vwap.anchorOf(state.cfg.interval) : null;
+        var at = clock();
+        var lines = vwap ? vwap.compute(state.packet.bars, state.packet.volume,
+                                        anchor)
+                         : {vwap: [], upper: [], lower: []};
+        function shown(points) {
+            return points.map(function (p, i) {
+                var point = {time: at.shown(p.time), value: p.value * rate};
+                var next = points[i + 1];
+                if (next && next.start) { point.color = "rgba(0,0,0,0)"; }
+                return point;
+            });
+        }
+        return {anchor: anchor, vwap: shown(lines.vwap),
+                upper: shown(lines.upper), lower: shown(lines.lower)};
+    }
+
+    function fillVwap() {
+        var series = state.series;
+        if (!series || !series.vwap) { return; }
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var lines = vwapSeries(rate);
+        series.vwap.setData(lines.vwap);
+        series.vwapUpper.setData(lines.upper);
+        series.vwapLower.setData(lines.lower);
+        state.vwapAnchor = lines.anchor;
+        if (state.vwapLegend) {
+            state.vwapLegend.textContent = lines.anchor
+                ? "— VWAP " + window.btcVwap.label(lines.anchor) : "";
+        }
+    }
+
+    // La bougie en cours bouge : le VWAP de sa période aussi. Le calcul
+    // repart du début des bougies chargées — quelques milliers d'additions,
+    // rien à côté d'un rendu — et seuls les derniers points sont posés.
+    function updateVwapTail() {
+        var series = state.series;
+        if (!series || !series.vwap) { return; }
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        var lines = vwapSeries(rate);
+        [["vwap", lines.vwap], ["vwapUpper", lines.upper],
+         ["vwapLower", lines.lower]].forEach(function (pair) {
+            var points = pair[1];
+            if (points.length) {
+                series[pair[0]].update(points[points.length - 1]);
+            }
+        });
+    }
+
     // ── Open interest ───────────────────────────────────────
     //
     // Les positions ouvertes sur le perpétuel de Binance, en dollars, au
@@ -1848,6 +1943,7 @@
         }
         if (series.cvd) { series.cvd.setData(at.points(cvdPoints())); }
         if (series.oi) { fillOi(); }
+        if (series.vwap) { fillVwap(); }
         series.markers.setMarkers(markersFrom(packet.signals || []));
         renderDrawings();
 
@@ -2236,6 +2332,7 @@
             at.add(update.bar.time);
             function one(point) { return at.points([point])[0]; }
             series.candles.update(one(scaled([update.bar], rate)[0]));
+            if (series.vwap) { updateVwapTail(); }
             for (name in update.overlays) {
                 if (series.lines[name]) {
                     series.lines[name].update(
@@ -2394,6 +2491,12 @@
                     ? state.series.cvd.data().length : null,
                 oi: state.series.oi
                     ? state.series.oi.data().length : null,
+                vwap: state.series.vwap
+                    ? {anchor: state.vwapAnchor || null,
+                       points: state.series.vwap.data().length,
+                       legend: state.vwapLegend
+                           ? state.vwapLegend.textContent : null}
+                    : null,
                 profile: state.profileData
                     ? {poc: state.profileData.poc,
                        vaLow: state.profileData.va_low,

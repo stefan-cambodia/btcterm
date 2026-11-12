@@ -414,9 +414,21 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
               (not niveaux and demo) or {"H J-1", "B J-1"} <= {
                   t.split("/")[0] for t in trouves},
               ", ".join(trouves))
+        # Le VWAP ancré vient avec les niveaux : ancré selon l'intervalle,
+        # nommé dans la légende, absent au-delà du journalier.
+        vwap = browser.js("return window.lwcPrice.debug().vwap;")
+        intervalle_n = browser.js("return window.lwcPrice.debug().interval;")
+        attendu = {"1d": "M"}.get(intervalle_n, "J" if intervalle_n in (
+            "1m", "5m", "15m", "30m", "1h") else "S" if intervalle_n in (
+            "4h", "6h", "12h") else "")
+        check("N pose aussi le VWAP ancré, dit dans la légende",
+              vwap is not None and (vwap["legend"] or "").endswith(attendu)
+              and (vwap["points"] > 0) == bool(attendu),
+              f"{intervalle_n} : {vwap}")
         browser.press("n")
         check("N les retire", browser.wait_for(
-            "window.lwcPrice.debug() && window.lwcPrice.debug().levels.length === 0",
+            "window.lwcPrice.debug() && window.lwcPrice.debug().levels.length === 0"
+            " && window.lwcPrice.debug().vwap === null",
             timeout=15))
 
         # M : la carte des liquidations, lue au journal — un terminal lancé

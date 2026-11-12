@@ -219,7 +219,12 @@ bougies de Binance, la semaine partant du lundi. Gris de plus en plus clairs du
 jour au mois, ils ne se confondent pas avec les moyennes ; deux niveaux au même
 prix n'en font qu'un (`B S-1/M-1`). Ce sont des repères où les ordres
 s'accumulent d'ordinaire, pas des garanties de rebond ; aucun n'est tracé sur
-la série de démonstration.
+la série de démonstration. La même case trace le **VWAP ancré** (en rose) et ses
+bandes à un écart-type (pointillées) : le prix moyen pondéré par le volume
+depuis le début de la journée UTC jusqu'en 1h, de la semaine en 4h à 12h, du
+mois en journalier — la légende dit l'ancrage (`VWAP J`, `S`, `M`), la lecture
+du crosshair sa valeur. Au-dessus, les acheteurs de la période sont en gain ;
+en dessous, en perte.
 
 Le graphique conserve zoom et pan pendant que les données coulent — c'est ce qui
 permet d'analyser une zone sans être recadré à chaque tour d'horloge. Les
@@ -652,6 +657,8 @@ python tests/test_news_scoring.py        # scoring et collecte des news, sources
 python tests/test_liquidations.py        # flux de liquidations, badge de grille compté
 python tests/test_orderbook.py           # carnets : niveaux fantômes, synchronisation Binance et OKX, profondeur, liquidité journalisée
 python tests/test_arbitrage.py           # arbitrage : net des deux frais taker, frais vérifiés à la source
+python tests/test_lwc_vwap.py            # VWAP ancré : ancrage, périodes UTC, moyenne et bandes pondérées
+python tests/test_heatmap.py             # carte du carnet : colonnes, journal, matrice, purge, endpoint
 python tests/test_cache.py               # cache du hub : secours, fraîcheur, pannes dites
 python tests/test_macrocal.py            # calendrier macro tenu à la main, lu dans le fuseau de la machine
 python tests/test_terminal_wiring.py     # panneaux posés et branchés, badges lents, frais on-chain
@@ -804,7 +811,7 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 | `S` | afficher ou masquer les flèches du graphique |
 | `P` | enregistrer le graphique en image |
 | `T` | tracer une ligne de tendance : armer, puis glisser d'un point à l'autre |
-| `N` | niveaux clés : veille, semaine et mois passés, ouvertures en cours |
+| `N` | niveaux clés : veille, semaine et mois passés, ouvertures en cours, et VWAP ancré |
 | `M` | carte des liquidations sur le graphique (`/carte`) |
 | `O` | gros ordres du ruban en bulles sur le graphique (`/ord`) |
 | `F` | plein écran du panneau sous la souris |
