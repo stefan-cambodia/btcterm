@@ -736,6 +736,76 @@ def test_le_journal_calcule_la_carte_et_le_bilan_lui_meme():
     print("  ✓ règle SQL = is_bitcoin, carte du journal = price_map,"
           " index partiel couvrant emprunté et reposé, bilan juste")
 
+def test_les_contrats_coin_margined_se_comptent_en_dollars():
+    """Binance diffuse aussi les liquidations de ses contrats coin-margined,
+    en contrats de 100 $ (bitcoin) ou 10 $ (le reste) : 9 837 contrats
+    BTCUSD_PERP valent 983 700 $, pas 703,6 M$. Le catalogue COIN-M fait
+    foi, la règle de repli sinon ; le journal corrige une fois ses lignes
+    d'avant, copie faite d'abord."""
+    import sqlite3
+    import tempfile
+    from unittest import mock
+    from btcterm import sources
+    from btcterm.liquidations import coin_contract_size
+
+    assert coin_contract_size("BTCUSD_PERP") == 100
+    assert coin_contract_size("BTCUSD_270326") == 100
+    assert coin_contract_size("ETHUSD_PERP") == 10
+    assert coin_contract_size("1000SHIBUSD_PERP") == 10
+    for lineaire in ("BTCUSDT", "BTCUSDC", "BTCUSDT_261225", "ETHUSDT", "", None):
+        assert coin_contract_size(lineaire) is None, lineaire
+    assert coin_contract_size("ETHUSD_PERP", {"ETHUSD_PERP": 25.0}) == 25
+
+    feed = LiquidationFeed()
+    feed._handle(message(symbol="BTCUSD_PERP", price="71525.5", qty="9837"))
+    feed._handle(message(symbol="BTCUSDT", price="71525.5", qty="0.5"))
+    feed.coin_sizes = {"ETHUSD_PERP": 10.0}
+    feed._handle(message(symbol="ETHUSD_PERP", price="2500", qty="300"))
+    eth, btc_lineaire, btc_coin = feed.latest(3)
+    assert abs(btc_coin.notional - 983_700) < 1e-6, btc_coin.notional
+    assert abs(btc_coin.quantity - 983_700 / 71525.5) < 1e-9
+    assert abs(btc_lineaire.notional - 35_762.75) < 1e-6, "le linéaire ne bouge pas"
+    assert abs(eth.notional - 3_000) < 1e-9
+
+    class Reponse:
+        def raise_for_status(self):
+            pass
+        def json(self):
+            return {"symbols": [{"symbol": "BTCUSD_PERP", "contractSize": 100},
+                                {"symbol": "ETHUSD_PERP", "contractSize": 10},
+                                {"symbol": "SANS"}]}
+    with mock.patch.object(sources._http, "get", lambda url, **k: Reponse()):
+        assert sources.fetch_binance_coin_contracts() == {
+            "BTCUSD_PERP": 100.0, "ETHUSD_PERP": 10.0}
+
+    with tempfile.TemporaryDirectory() as dossier:
+        journal = Journal(Path(dossier) / "journal.db")
+        maintenant = time.time()
+        for symbole, prix, quantite in (("BTCUSD_PERP", 71525.5, 9837.0),
+                                        ("ETHUSD_261225", 2500.0, 300.0),
+                                        ("BTCUSDT", 71525.5, 2.0),
+                                        ("BTCUSD_PERP", 71525.5, 13.75)):
+            journal.record_liquidation(Liquidation(
+                maintenant, symbole, "long", prix, quantite))
+        corrigees, copie = journal.rescale_coin_margined()
+        assert corrigees == 2 and copie.exists()
+        with sqlite3.connect(copie) as avant:
+            assert avant.execute("SELECT max(notional) FROM liquidations"
+                                 ).fetchone()[0] > 7e8, "la copie garde l'avant"
+        lignes = {(r["symbol"], round(r["notional"], 2)) for r in
+                  journal._connection().execute(
+                      "SELECT symbol, notional FROM liquidations")}
+        assert lignes == {("BTCUSD_PERP", 983_700.0), ("ETHUSD_261225", 3_000.0),
+                          ("BTCUSDT", 143_051.0),
+                          ("BTCUSD_PERP", round(71525.5 * 13.75, 2))}, lignes
+        copie.unlink()
+        assert journal.rescale_coin_margined() == (0, None), "une fois seulement"
+        assert not copie.exists(), "rien à corriger : pas de copie"
+        journal.close()
+    print("  ✓ coin-margined en dollars : flux, catalogue, correction unique "
+          "du journal après copie")
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nFil des liquidations — {len(tests)} vérifications\n" + "─" * 60)

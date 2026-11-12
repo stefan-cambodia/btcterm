@@ -511,6 +511,30 @@ Binance sur l'indice de dominance, qui cote quelques milliers de points : il
 gonflait le « dont BTC » du panneau et aurait étiré l'axe de la carte des
 liquidations. Le fil et la carte partagent désormais la même règle.
 
+**Les contrats coin-margined de Binance** (`coin_contract_size`). Depuis que le
+fil écoute la route `/market`, Binance y diffuse aussi les liquidations de ses
+contrats COIN-M — `BTCUSD_PERP`, `ETHUSD_PERP`, `BTCUSD_270326` —, dont la
+quantité se compte en **contrats** d'une valeur fixe en dollars : 100 $ pour
+le bitcoin, 10 $ pour les autres (`contractSize` du catalogue COIN-M,
+`sources.fetch_binance_coin_contracts`, vérifié le 13 novembre 2026 : trois
+contrats à 100 $, tous sur le bitcoin, vingt-sept à 10 $). Le fil la prenait
+pour des pièces : 9 837 contrats BTCUSD_PERP, 983 700 $, devenaient 703,6 M$,
+et la synthèse du 13 novembre au matin annonçait 5,63 Md$ de longs liquidés en
+vingt-quatre heures pour une baisse de 3,5 %. L'erreur jouait dans les deux
+sens : 906 contrats XRPUSD_PERP, 9 060 $, s'écrivaient 919 $. Ce sont la
+synthèse, lue avec un œil de trader, et le journal interrogé ensuite qui l'ont
+montré — aucun test ne portait sur un symbole coin-margined. La quantité
+repasse désormais en pièces à la réception (contrats × valeur ÷ prix), si
+bien que prix × quantité dit le montant partout où il est relu ; le catalogue
+se relit avec celui des contrats hors cryptomonnaies, la règle 100/10 sert de
+repli. Les 381 lignes écrites du 12 novembre 2026, 01:16 UTC, au correctif se
+corrigent par `python -m btcterm.journal --corriger-coin-m` (`Journal.
+rescale_coin_margined`) : une copie du journal d'abord
+(`journal-avant-correction-AAAAMMJJ.db`), puis les seules lignes à l'ancien
+format, reconnaissables à leur quantité entière — un nombre de contrats ;
+corrigées, elles ne le sont plus, et relancer ne trouve rien. Elle ne se
+lance pas d'elle-même : elle réécrit des données du journal.
+
 ### 2.6 `macrocal` — le calendrier macro tenu à la main
 
 Aucune source publique satisfaisante n'existe pour un calendrier
@@ -1279,6 +1303,18 @@ pas. Une machine qui dormait à l'heure dite l'envoie au réveil. Elle part en
 priorité 2, sous les sonneries : c'est un résumé, pas une alerte, et elle ne
 passe pas par le moteur d'alertes — elle ne sonnerait pas à la cloche du
 bandeau ni ne se relirait parmi les alertes.
+
+Son **agenda** (`_agenda`) ne lisait que la liste tenue à la main : la
+synthèse du 13 novembre 2026 annonçait le PCE du 25, pas le PPI du soir même.
+Il y mêle désormais les publications américaines d'impact fort de la semaine
+(§2.6, Forex Factory) et les grosses échéances d'options, toutes deux du
+cache seulement — la synthèse n'attend pas leurs sources —, rangées dans le
+temps, quatre au plus (`AGENDA_ROWS`) ; une publication de la semaine se
+nomme par son titre (« Core PPI m/m »), « US » seul ne disant rien. Les
+échéances se trient à l'instant de la synthèse, plus à l'heure réelle : le
+test l'a relevé. La conversion des échéances en événements
+(`macrocal.option_events`) a quitté le panneau CALENDRIER pour le socle, que
+les deux partagent.
 
 ### 2.15 `cycle` — où en est-on depuis le halving
 
@@ -3963,6 +3999,13 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
   (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
   synthèse hors de ses bornes.
+- ~~**Des liquidations coin-margined comptées en contrats**~~ — constaté le
+  13 novembre 2026 sur la synthèse du matin (« longs 5,63 Md$ ») ; fait
+  (§2.5) : la quantité repasse en pièces à la réception ; la correction
+  des 381 lignes du journal attend l'accord de l'utilisateur.
+- ~~**Un agenda du matin sans le PPI du soir**~~ — fait le 13 novembre 2026
+  (§2.14) : l'agenda de la synthèse mêle la semaine US d'impact fort et
+  les grosses échéances d'options, du cache seulement.
 - ~~**Une volatilité sans repère**~~ — fait le 13 novembre 2026 (§3.16) :
   le rang du DVOL sur un an au titre d'OPTIONS, le centile en plein écran
   et à la synthèse.

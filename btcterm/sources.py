@@ -930,6 +930,26 @@ def fetch_binance_tradfi_symbols() -> frozenset[str]:
     return binance_tradfi_symbols(response.json().get("symbols") or [])
 
 
+#: L'API des contrats coin-margined de Binance (COIN-M).
+BINANCE_COIN_FUTURES = "https://dapi.binance.com/dapi/v1"
+
+
+def fetch_binance_coin_contracts() -> dict[str, float]:
+    """La valeur en dollars d'un contrat coin-margined de Binance, par
+    symbole (`contractSize` du catalogue COIN-M) : 100 $ pour le bitcoin,
+    10 $ pour les autres le 13 novembre 2026. Leur flux de liquidations
+    compte en contrats, pas en pièces (§ liquidations.coin_contract_size).
+    Un catalogue vide lève."""
+    response = _http.get(f"{BINANCE_COIN_FUTURES}/exchangeInfo", timeout=20)
+    response.raise_for_status()
+    sizes = {item["symbol"]: float(item["contractSize"])
+             for item in response.json().get("symbols") or []
+             if item.get("contractSize")}
+    if not sizes:
+        raise RuntimeError("Binance COIN-M : catalogue de contrats vide")
+    return sizes
+
+
 def binance_tradfi_symbols(symbols: list) -> frozenset[str]:
     if not symbols:
         raise RuntimeError("Binance Futures : catalogue de contrats vide")

@@ -203,3 +203,22 @@ def week_events(rows, known: tuple[MacroEvent, ...] = EVENTS
             impact=lead["impact"]))
     return events
 
+
+def option_events(summaries: list[dict]) -> list[MacroEvent]:
+    """Les échéances d'options qui pèsent (§ options.expiry_summary), en
+    événements du calendrier : Deribit expire à 8 h UTC, l'heure de New
+    York s'en déduit comme pour le reste. Ce ne sont pas des dates tenues à
+    la main : elles viennent de la chaîne, et le pied du panneau ne les
+    compte pas dans son horizon."""
+    events = []
+    for item in summaries:
+        when = item["expiry"].to_pydatetime().astimezone(NEW_YORK)
+        note = f"{item['notional'] / 1e9:.1f} Md$"
+        if item.get("pain"):
+            note += f" · max pain {item['pain']:,.0f}"
+        if item.get("pc") is not None:
+            note += f" · P/C {item['pc']:.2f}"
+        events.append(MacroEvent(
+            when.date(), when.time().replace(tzinfo=None), "OPT",
+            "Échéance Deribit", note=note))
+    return events

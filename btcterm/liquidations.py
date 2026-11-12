@@ -31,6 +31,7 @@ distingue d'un marché calme que par la durée du silence.
 from __future__ import annotations
 
 import json
+import re
 import threading
 import time
 from collections import deque
@@ -41,7 +42,8 @@ from .exchanges import ExchangeConnector
 
 __all__ = ["Liquidation", "LiquidationFeed", "BybitLiquidationConnector",
            "OKXLiquidationConnector", "BYBIT_SYMBOLS", "MAP_BINS", "price_map",
-           "is_bitcoin", "BITCOIN_SQL"]
+           "is_bitcoin", "BITCOIN_SQL",
+           "coin_contract_size"]
 
 #: La route `/market` est obligatoire : depuis la scission des flux futures
 #: de Binance (annoncée le 6 mars 2026, ancienne adresse retirée le
@@ -59,6 +61,33 @@ OKX_PUBLIC_WS = "wss://ws.okx.com/ws/v5/public"
 #: le contrat de Binance sur l'indice de dominance, qui cote quelques
 #: milliers de points et n'est pas du bitcoin.
 BITCOIN_SYMBOLS = frozenset({"BTCUSDT", "BTCUSDC", "BTCUSD"})
+
+#: Les contrats coin-margined de Binance — « BTCUSD_PERP », « ETHUSD_261225 ».
+#: Depuis le passage du flux à la route `/market`, Binance y diffuse aussi
+#: leurs liquidations, et leur quantité se compte en **contrats** d'une valeur
+#: fixe en dollars, pas en pièces : multipliée par le prix, elle faisait d'une
+#: liquidation de 983 700 $ (9 837 contrats de 100 $) une de 703,6 M$, et du
+#: 12 novembre 2026 une journée à 5,6 Md$ de longs liquidés.
+_COIN_MARGINED = re.compile(r"([A-Z0-9]+)USD_(PERP|\d{6})")
+
+#: La valeur d'un contrat coin-margined quand le catalogue manque : 100 $
+#: pour le bitcoin, 10 $ pour les autres (catalogue COIN-M du 13 novembre
+#: 2026 : trois contrats à 100 $, tous sur le bitcoin, vingt-sept à 10 $).
+COIN_CONTRACT_BTC = 100.0
+COIN_CONTRACT_OTHER = 10.0
+
+
+def coin_contract_size(symbol: str,
+                       sizes: Optional[dict[str, float]] = None
+                       ) -> Optional[float]:
+    """La valeur en dollars d'un contrat coin-margined, ou `None` pour un
+    contrat linéaire (USDT, USDC), dont la quantité est déjà en pièces."""
+    match = _COIN_MARGINED.fullmatch(symbol or "")
+    if not match:
+        return None
+    if sizes and symbol in sizes:
+        return sizes[symbol]
+    return COIN_CONTRACT_BTC if match.group(1) == "BTC" else COIN_CONTRACT_OTHER
 
 
 def is_bitcoin(symbol: str) -> bool:
@@ -161,6 +190,9 @@ class LiquidationFeed(ExchangeConnector):
         #: matières premières —, lus à son catalogue (§ sources.
         #: fetch_binance_tradfi_symbols) et écartés du fil.
         self.excluded: frozenset[str] = frozenset()
+        #: La valeur en dollars des contrats coin-margined, lue au catalogue
+        #: COIN-M (§ coin_contract_size) ; vide, la règle de repli sert.
+        self.coin_sizes: dict[str, float] = {}
         self._catalog_due = 0.0
         self._catalog_task = None
 
@@ -283,8 +315,10 @@ class LiquidationFeed(ExchangeConnector):
     CATALOG_RETRY = 600.0
 
     async def _load_excluded(self) -> None:
-        """Lit les contrats hors cryptomonnaies de Binance, sans jamais
-        retenir le fil : un catalogue illisible laisse la liste d'avant."""
+        """Lit les contrats hors cryptomonnaies de Binance, et la valeur des
+        contrats coin-margined, sans jamais retenir le fil : un catalogue
+        illisible laisse la liste d'avant — et, pour les contrats, la règle
+        de repli (§ coin_contract_size)."""
         import asyncio
 
         from . import sources
@@ -294,6 +328,11 @@ class LiquidationFeed(ExchangeConnector):
             self._catalog_due = time.time() + self.CATALOG_EVERY
         except Exception:
             self._catalog_due = time.time() + self.CATALOG_RETRY
+        try:
+            self.coin_sizes = await asyncio.to_thread(
+                sources.fetch_binance_coin_contracts)
+        except Exception:  # noqa: BLE001 — la règle de repli suffit
+            pass
 
     async def _stream(self) -> None:
         import asyncio
@@ -331,6 +370,12 @@ class LiquidationFeed(ExchangeConnector):
             price = float(order.get("ap") or order.get("p") or 0)
             if order.get("s") in self.excluded:
                 return          # action ou matière première : hors du fil
+            # Un contrat coin-margined se compte en contrats d'une valeur
+            # fixe en dollars : la quantité repasse en pièces, pour que
+            # prix × quantité dise le montant, ici comme au journal.
+            size = coin_contract_size(order.get("s", ""), self.coin_sizes)
+            if size is not None and price > 0:
+                quantity = quantity * size / price
             event = Liquidation(
                 time=float(order.get("T", message.get("E", 0))) / 1000,
                 symbol=order.get("s", "?"),

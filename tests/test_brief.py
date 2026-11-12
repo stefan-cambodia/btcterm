@@ -191,7 +191,43 @@ def test_l_agenda_annonce_la_prochaine_echeance():
     assert loin.text.startswith("PCE ") and "dans 8 j" in loin.text, loin
     assert loin.tone == ""
     assert brief.agenda_item(NOW, [event("CPI", -3)]).tone == "warn"
-    print("  ✓ les échéances des 48 h, la prochaine au moins")
+
+    # La semaine de Forex Factory et les échéances d'options s'y mêlent,
+    # du cache seulement : la publication se nomme, l'impact moyen reste
+    # dehors.
+    debut = dt.datetime.fromtimestamp(NOW, dt.timezone.utc)
+
+    class Hub:
+        def week_calendar_cached(self):
+            return [{"title": "Core PPI m/m", "country": "USD", "impact": "High",
+                     "when": debut + dt.timedelta(hours=10), "forecast": "",
+                     "previous": ""},
+                    {"title": "Unemployment Claims", "country": "USD",
+                     "impact": "Medium", "when": debut + dt.timedelta(hours=3),
+                     "forecast": "", "previous": ""}]
+
+        def option_chain_cached(self):
+            from btcterm import options as opt
+            echeance = (debut + dt.timedelta(hours=20)).astimezone(dt.timezone.utc)
+            nom = f"{echeance.day}{echeance:%b}{echeance:%y}".upper()
+            return opt.option_chain([{
+                "instrument_name": f"BTC-{nom}-75000-C", "mark_iv": 50.0,
+                "open_interest": 1_000.0, "underlying_price": 75_000.0,
+                "estimated_delivery_price": 75_000.0, "volume_usd": 1.0}])
+
+    melange = brief.agenda_item(NOW, brief._agenda(Hub(), NOW))
+    assert "Core PPI m/m " in melange.text, melange.text
+    assert "Unemployment" not in melange.text
+    assert "OPT " in melange.text, melange.text
+
+    class Muet:
+        def week_calendar_cached(self):
+            raise OSError("cache illisible")
+        def option_chain_cached(self):
+            raise OSError("cache illisible")
+    assert brief._agenda(Muet(), NOW), "la liste tenue à la main reste"
+    print("  ✓ les échéances des 48 h, la prochaine au moins ; semaine US et "
+          "options mêlées")
 
 
 class HubFactice:

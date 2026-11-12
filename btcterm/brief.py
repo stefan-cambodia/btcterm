@@ -60,6 +60,8 @@ MIN_SPAN_H = 12
 #: Échéances macro listées : celles des prochaines heures — et toujours
 #: la prochaine, si loin soit-elle.
 AGENDA_HOURS = 48
+#: Échéances nommées au plus : la ligne doit tenir sur un téléphone.
+AGENDA_ROWS = 4
 #: News retenues, les mieux notées de la fenêtre.
 NEWS_ROWS = 3
 #: Un trou plus long entre deux instantanés est une interruption — la
@@ -444,7 +446,8 @@ def dominance_item(dominance) -> Optional[Item]:
 
 
 def agenda_item(now: float, events) -> Item:
-    """Les échéances macro qui arrivent — la prochaine au moins."""
+    """Les échéances qui arrivent — la prochaine au moins : la liste tenue
+    à la main, et ce que le hub y mêle (§ _agenda)."""
     ahead = [e for e in events if e.when_utc.timestamp() > now]
     if not ahead:
         return Item("Agenda", "calendrier épuisé — à compléter "
@@ -452,13 +455,17 @@ def agenda_item(now: float, events) -> Item:
     soon = [e for e in ahead
             if e.when_utc.timestamp() - now <= AGENDA_HOURS * 3600] or ahead[:1]
     parts = []
-    for event in soon[:3]:
+    for event in soon[:AGENDA_ROWS]:
         ts = event.when_utc.timestamp()
-        parts.append(f"{event.kind} {_jour(ts)} ({_dans(ts - now)})")
+        # « US » ne dit rien seul : la publication se nomme, la première
+        # de son instant.
+        name = (event.label.split(" · ")[0] if event.kind == "US"
+                else event.kind)
+        parts.append(f"{name} {_jour(ts)} ({_dans(ts - now)})")
     first = soon[0].when_utc.timestamp() - now
     return Item("Agenda", " · ".join(parts),
                 "warn" if first <= 24 * 3600 else "",
-                " ; ".join(e.label for e in soon[:3]))
+                " ; ".join(e.label for e in soon[:AGENDA_ROWS]))
 
 
 def alerts_item(rows) -> Item:
@@ -581,6 +588,27 @@ def _gamma(hub) -> tuple[Optional[dict], Optional[float]]:
     return gex, opt.gamma_flip(opt.gamma_profile(chain), gex["spot"])
 
 
+def _agenda(hub, now: float) -> list:
+    """Les échéances de la synthèse : la liste tenue à la main, les
+    publications américaines d'impact fort de la semaine (Forex Factory)
+    et les grosses échéances d'options — ces deux dernières du cache
+    seulement, la synthèse n'attend pas leurs sources. Le PPI de 20 h 30
+    manquait au matin même où il tombait."""
+    events = list(macrocal.upcoming(
+        dt.datetime.fromtimestamp(now, macrocal.NEW_YORK).date()))
+    try:
+        events += [event for event in macrocal.week_events(
+            hub.week_calendar_cached()) if event.impact == "High"]
+    except Exception:  # noqa: BLE001 — une source en moins
+        pass
+    try:
+        events += macrocal.option_events(opt.expiry_summary(
+            hub.option_chain_cached(), pd.Timestamp(now, unit="s", tz="UTC")))
+    except Exception:  # noqa: BLE001
+        pass
+    return sorted(events, key=lambda event: event.when_utc)
+
+
 def _vol_rank(hub) -> Optional[dict]:
     """Le rang du DVOL sur un an (§ options.vol_rank) ; rien sans DVOL."""
     try:
@@ -649,8 +677,7 @@ def build(hub, now: Optional[float] = None,
     add("Cycle", lambda: cycle_item(_cycle_state(hub, now),
                                     _mvrv_state(hub),
                                     _mvrv_state(hub, cycle.puell_state)))
-    add("Agenda", lambda: agenda_item(now, macrocal.upcoming(
-        dt.datetime.fromtimestamp(now, macrocal.NEW_YORK).date())))
+    add("Agenda", lambda: agenda_item(now, _agenda(hub, now)))
     if journal is not None:
         add("Alertes", lambda: alerts_item(journal.alerts_between(start, now)))
     read_news = news or newsdb.top_since

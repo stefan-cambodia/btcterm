@@ -55,7 +55,7 @@ import time
 from pathlib import Path
 from typing import Optional
 
-from .liquidations import BITCOIN_SQL, MAP_BINS
+from .liquidations import BITCOIN_SQL, MAP_BINS, coin_contract_size
 
 __all__ = ["DB_DIR", "DB_PATH", "GRACE", "RETENTION_DAYS",
            "SNAPSHOT_RETENTION_DAYS", "Journal", "rebase_universe",
@@ -524,6 +524,50 @@ class Journal:
             )
             self._db.commit()
 
+    def rescale_coin_margined(self, sizes: Optional[dict] = None,
+                              backup: bool = True) -> tuple[int, Optional[Path]]:
+        """Corrige les liquidations coin-margined écrites en contrats.
+
+        Du 12 novembre 2026, 01:16 UTC, au correctif du flux, Binance a
+        diffusé les liquidations de ses contrats coin-margined
+        (« BTCUSD_PERP ») avec une quantité en contrats de 100 $ ou 10 $,
+        que le fil prenait pour des pièces : 381 lignes, et des montants
+        gonflés d'un facteur proche du cours sur cent. Chaque ligne
+        reprend sa quantité en pièces et son montant en dollars (§
+        liquidations.coin_contract_size). Une ligne à l'ancien format se
+        reconnaît à sa quantité entière — un nombre de contrats ; corrigée,
+        elle ne l'est plus : relancer ne trouve plus rien. Une copie du
+        journal précède toute écriture (`journal-avant-correction-
+        AAAAMMJJ.db`, à côté). Rend le nombre de lignes corrigées et la
+        copie.
+        """
+        with self._lock:
+            db = self._connection()
+            rows = [row for row in db.execute(
+                "SELECT rowid, symbol, price, quantity FROM liquidations "
+                "WHERE instr(symbol, 'USD_') > 0 AND price > 0 "
+                "AND quantity = CAST(quantity AS INTEGER)")
+                if coin_contract_size(row["symbol"], sizes) is not None]
+            if not rows:
+                return 0, None
+            copy = None
+            if backup:
+                copy = self.path.with_name(
+                    f"journal-avant-correction-{time.strftime('%Y%m%d')}.db")
+                target = sqlite3.connect(copy)
+                try:
+                    db.backup(target)
+                finally:
+                    target.close()
+            for row in rows:
+                size = coin_contract_size(row["symbol"], sizes)
+                dollars = row["quantity"] * size
+                db.execute("UPDATE liquidations SET quantity = ?, notional = ? "
+                           "WHERE rowid = ?",
+                           (dollars / row["price"], dollars, row["rowid"]))
+            db.commit()
+        return len(rows), copy
+
     def purge(self, days: float = RETENTION_DAYS) -> None:
         """Oublie ce qui dépasse la rétention. Sans base, ne crée rien.
 
@@ -891,4 +935,20 @@ if __name__ == "__main__":
                     "arbitrage, et ce que la fenêtre couvre vraiment.")
     parser.add_argument("--heures", type=float, default=24,
                         help="fenêtre à relire (défaut : 24)")
-    _relire(parser.parse_args().heures)
+    parser.add_argument("--corriger-coin-m", action="store_true",
+                        help="corrige une fois les liquidations coin-margined "
+                             "écrites en contrats, après une copie du journal")
+    options = parser.parse_args()
+    if options.corriger_coin_m:
+        from . import resolver, sources
+        resolver.install()      # Binance, depuis un réseau qui le détourne
+        try:
+            tailles = sources.fetch_binance_coin_contracts()
+        except Exception as exc:  # noqa: BLE001 — la règle de repli suffit
+            print(f"catalogue COIN-M illisible ({exc}) : règle de repli")
+            tailles = None
+        corrigees, copie = Journal().rescale_coin_margined(tailles)
+        print(f"{corrigees} ligne(s) corrigée(s)"
+              + (f" — copie : {copie}" if copie else ""))
+    else:
+        _relire(options.heures)
