@@ -23,10 +23,23 @@ from .exchanges import OrderBook
 
 __all__ = ["DEFAULT_FEES", "ArbitrageOpportunity", "ArbitrageEngine"]
 
-# Frais maker par plateforme, en fraction (0.001 = 0,10 %).
+#: Frais **taker** par plateforme, au premier palier d'un compte qui
+#: commence, en fraction (0.001 = 0,10 %). Taker, parce que le moteur
+#: achète au meilleur vendeur et revend au meilleur acheteur : deux ordres
+#: qui prennent la liquidité. Le tableau se disait « maker » et mêlait les
+#: deux ; Kraken y figurait à 0,26 %, le taker de son ancien barème, quand
+#: sa page officielle (kraken.com/pro/fees, lue le 12 novembre 2026) donne
+#: 0,40 % maker et 0,80 % taker au premier palier, BTC/USDT relevant du
+#: barème des cryptomonnaies et non de celui des stablecoins — un écart
+#: passant par Kraken paraissait rentable de 0,54 point de trop. Binance,
+#: Bybit et OKX : 0,10 % (page officielle de Bybit,
+#: sources concordantes pour les deux autres). Coinbase ne publie plus son
+#: barème hors d'un compte connecté ; les sources secondaires citent 0,60
+#: à 0,90 % au premier palier : 0,60 %, non vérifiable. Un compte à fort
+#: volume paie moins — le net affiché est celui du premier palier.
 DEFAULT_FEES: dict[str, float] = {
     "Binance": 0.001,
-    "Kraken": 0.0026,
+    "Kraken": 0.008,
     "Bybit": 0.001,
     "OKX": 0.001,
     "Coinbase": 0.006,

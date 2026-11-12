@@ -292,6 +292,23 @@ d'un carnet une fois (`OrderBook.quote`), et non plus trois fois par paire :
 lire un meilleur prix parcourt tout un côté du carnet, et vingt paires y
 revenaient cent vingt fois. Le balayage passe de 0,19 à 0,03 ms.
 
+**Le net se compte au tarif taker.** Le moteur achète au meilleur vendeur
+d'une plateforme et revend au meilleur acheteur d'une autre : deux ordres
+qui prennent la liquidité. `DEFAULT_FEES` se disait pourtant « maker » et
+mêlait les deux, et Kraken y figurait à 0,26 %, le taker de son ancien
+barème. Sa page officielle (`kraken.com/pro/fees`, lue le 12 novembre
+2026) donne 0,40 % maker et 0,80 % taker au premier palier, BTC/USDT
+relevant du barème des cryptomonnaies et non de celui des stablecoins : un
+écart passant par Kraken paraissait rentable de 0,54 point de trop. Les
+frais sont désormais ceux du premier palier d'un compte qui commence, au
+tarif taker : Binance, Bybit et OKX 0,10 % (page officielle de Bybit,
+sources concordantes pour les deux autres), Kraken 0,80 %, Coinbase
+0,60 % — ce dernier non vérifiable, Coinbase ne publiant plus son barème
+hors d'un compte connecté et les sources secondaires citant 0,60 à 0,90 %.
+Un compte à fort volume paie moins : le net affiché est un plancher de
+coûts, que l'infobulle de la colonne « Net % » rappelle.
+`tests/test_arbitrage.py` vérifie le calcul et garde ces valeurs datées.
+
 Le garde-fou a ensuite nommé la cause Kraken, qu'on croyait fortuite :
 cinquante-quatre resynchronisations dans le journal du service en une
 matinée, toutes de Kraken, une toutes les deux minutes quand le marché
@@ -3541,6 +3558,11 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Un net d'arbitrage compté aux mauvais frais**~~ — le tableau des
+  frais se disait maker, quand le moteur paie le taker des deux côtés, et
+  gardait pour Kraken 0,26 %, son ancien taker : 0,80 % aujourd'hui au
+  premier palier, d'après sa page officielle. Fait le 12 novembre 2026
+  (§2.2) : taker au premier palier partout, Coinbase dit non vérifiable.
 - ~~**Un cours en euros à 0,3 % du marché**~~ — vu le 12 novembre 2026 :
   le taux € venait d'exchangerate-api v4, arrondi à deux décimales,
   périmé, et — comme toute référence — à côté du marché où le bitcoin se

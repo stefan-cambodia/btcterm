@@ -91,7 +91,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
 | **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ ; dessous, le solde horaire des gros ordres et la prime Coinbase journalisés (onglet du carnet) | 2 s · 5 min |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian et cadrées sur l'étendue médiane des carnets ; dessous, l'historique journalisé de la liquidité à ±0,1 % du prix (onglet du carnet) | 250 ms · 5 min |
-| **Arbitrage** | écarts inter-plateformes nets de frais, triés par rentabilité | 250 ms |
+| **Arbitrage** | écarts inter-plateformes nets des frais taker du premier palier (Kraken 0,80 %, Coinbase 0,60 %, les autres 0,10 %), triés par rentabilité | 250 ms |
 | **Liquidations** | positions fermées de force — Binance, toutes paires, OKX, tous ses perpétuels sur cryptomonnaies, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
 | **Flux ETF** | entrées/sorties nettes des ETF spot ; en plein écran, cumul depuis le lancement, classement des émetteurs et fenêtre réglable (30 j / 90 j / 1 an / tout). Un jour encore en cours de publication est dit « partiel », sa barre pâlie, les fonds attendus nommés au survol | 5 min |
@@ -628,6 +628,7 @@ python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
 python tests/test_news_scoring.py        # scoring et collecte des news, sources en défaut nommées
 python tests/test_liquidations.py        # flux de liquidations, badge de grille compté
 python tests/test_orderbook.py           # carnets : niveaux fantômes, synchronisation Binance et OKX, profondeur, liquidité journalisée
+python tests/test_arbitrage.py           # arbitrage : net des deux frais taker, frais vérifiés à la source
 python tests/test_cache.py               # cache du hub : secours, fraîcheur, pannes dites
 python tests/test_macrocal.py            # calendrier macro tenu à la main, lu dans le fuseau de la machine
 python tests/test_terminal_wiring.py     # panneaux posés et branchés, badges lents, frais on-chain

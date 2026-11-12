@@ -178,9 +178,10 @@ def test_le_rendu_ne_compte_pas_les_opportunites():
     from terminal.panels import arbitrage
 
     hub = MarketHub(collect_news=False, keep_journal=False)
-    # Kraken cote 0,9 % au-dessus : acheter Binance, revendre Kraken.
+    # Kraken cote 2 % au-dessus : acheter Binance, revendre Kraken reste
+    # rentable une fois payés les frais taker (0,10 % et 0,80 %).
     for name, (bid, ask) in {"Binance": (80_000, 80_001),
-                             "Kraken": (80_800, 80_801)}.items():
+                             "Kraken": (81_600, 81_601)}.items():
         hub.books[name].replace({bid: 1}, {ask: 1})
         hub.books[name].connected = True
 

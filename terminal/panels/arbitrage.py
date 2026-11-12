@@ -2,8 +2,9 @@
 Panneau arbitrage : écarts exploitables entre plateformes.
 
 Panneau « rapide », alimenté par le moteur du hub. Les montants affichés
-sont nets des frais maker des deux plateformes ; ils ne tiennent compte
-ni des frais de transfert, ni du temps d'exécution.
+sont nets des frais taker des deux plateformes, au premier palier
+(§ arbitrage.DEFAULT_FEES) ; ils ne tiennent compte ni des frais de
+transfert, ni du temps d'exécution.
 """
 
 from __future__ import annotations
@@ -44,14 +45,17 @@ def render(hub, currency=None):
                                "fontSize": "11px", "padding": "12px"}), badge
 
     fx = display(hub, currency)
+    net = ("net des frais taker des deux plateformes, au premier palier "
+           "d'un compte — hors transfert et délai d'exécution")
     header = html.Thead(html.Tr([
-        html.Th(label, title=fx.note,
+        html.Th(label, title=title,
                 style={"color": C["muted"], "fontSize": "9px",
                        "textAlign": align, "padding": "2px 6px",
                        "fontWeight": "400"})
-        for label, align in ((f"Acheter ({fx.warning}{fx.unit})", "left"),
-                             (f"Vendre ({fx.unit})", "left"),
-                             ("Brut %", "right"), ("Net %", "right"))
+        for label, align, title in (
+            (f"Acheter ({fx.warning}{fx.unit})", "left", fx.note),
+            (f"Vendre ({fx.unit})", "left", fx.note),
+            ("Brut %", "right", fx.note), ("Net %", "right", net))
     ]))
 
     rows = []
