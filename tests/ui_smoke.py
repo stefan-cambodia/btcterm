@@ -1241,7 +1241,9 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             Array.from(document.querySelectorAll('#cell-news .cell-tab'))
                  .find(t => t.textContent === 'CALENDRIER').click();
         """)
-        time.sleep(2.5)
+        # Le contenu, pas un délai : sous charge, 2,5 s ne suffisaient pas.
+        browser.wait_for("(document.getElementById('cal-list')?.textContent"
+                         " || '').length > 20", timeout=15)
         cal = browser.js("""
             return {liste: document.getElementById('cal-list').textContent,
                     badge: document.getElementById('cal-next').textContent};

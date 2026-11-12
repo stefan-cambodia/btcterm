@@ -577,7 +577,11 @@ Deux pièges justifient que ce soit du code et non un simple tableau :
   pain et put/call ; `listed` et `render` les reçoivent en `extra` et les
   rangent parmi les dates tenues à la main. Elles viennent de la chaîne :
   le pied, qui dit l'horizon de la liste tenue à la main, ne les compte pas,
-  et l'alerte d'échéance macro non plus.
+  et l'alerte d'échéance macro non plus. Le panneau lit la chaîne déjà en
+  cache (`MarketHub.option_chain_cached`), jamais Deribit : à froid, l'appel
+  réseau retardait l'onglet de deux secondes et demie. Le relevé de marché
+  la relit toutes les cinq minutes, le cache est donc chaud en marche ; au
+  premier démarrage, le calendrier n'a que ses dates tenues à la main.
 
 ### 2.7 `journal` — la séance se relit
 

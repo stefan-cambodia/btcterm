@@ -1333,6 +1333,16 @@ class MarketHub:
         except Exception:
             return opt.option_chain([])
 
+
+    def option_chain_cached(self) -> pd.DataFrame:
+        """La chaîne d'options déjà en cache, sans jamais toucher au réseau
+        — vide si rien n'y est encore. Pour les rendus qui ne doivent pas
+        attendre Deribit : le calendrier s'affichait en deux secondes et
+        demie de plus à froid. Le relevé de marché la relit toutes les cinq
+        minutes (§ record_market_snapshot) : en marche, le cache est chaud,
+        au pire vieux d'une lecture."""
+        cached = self._cache.peek("options")
+        return cached if cached is not None else opt.option_chain([])
     def futures_curve(self) -> pd.DataFrame:
         """La base des futures Deribit à échéance, annualisée (§ options)."""
         try:

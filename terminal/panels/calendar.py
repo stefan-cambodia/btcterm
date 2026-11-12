@@ -212,11 +212,13 @@ def register(app, hub):
         Input("tick-rare", "n_intervals"),
     )
     def _refresh(_tick):
-        # Les échéances d'options de la chaîne que le panneau OPTIONS
-        # tient en cache ; une chaîne illisible laisse le calendrier tenu à
-        # la main.
+        # Les échéances d'options de la chaîne déjà en cache — jamais
+        # d'attente de Deribit : à froid, le calendrier s'affichait deux
+        # secondes et demie plus tard ; une chaîne absente ou illisible
+        # laisse le calendrier tenu à la main.
         try:
-            extra = tuple(option_events(opt.expiry_summary(hub.option_chain())))
+            extra = tuple(option_events(opt.expiry_summary(
+                hub.option_chain_cached())))
         except Exception:
             extra = ()
         return render(extra=extra)

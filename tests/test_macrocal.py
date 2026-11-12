@@ -231,6 +231,27 @@ def test_les_echeances_d_options_au_calendrier():
     assert opt.expiry_summary(chaine.iloc[0:0]) == []
     print("  ✓ échéances lourdes au calendrier, à 8 h UTC, montant, max pain, P/C")
 
+
+def test_le_calendrier_n_attend_pas_deribit():
+    """Le calendrier lit la chaîne en cache, jamais le réseau : à froid,
+    il s'affichait deux secondes et demie plus tard. Vide à froid, la
+    chaîne du cache ensuite, même vieillie."""
+    from unittest import mock
+    from btcterm import options as opt
+    from btcterm.hub import MarketHub
+
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    with mock.patch("btcterm.sources.fetch_deribit_summary",
+                    side_effect=AssertionError("réseau touché")):
+        assert hub.option_chain_cached().empty
+        chaine = opt.option_chain([{
+            "instrument_name": "BTC-27NOV26-75000-C", "mark_iv": 50.0,
+            "open_interest": 10.0, "underlying_price": 75_000.0,
+            "estimated_delivery_price": 75_000.0, "volume_usd": 1.0}])
+        hub._cache.get("options", 60, lambda: chaine)
+        assert len(hub.option_chain_cached()) == 1
+    print("  ✓ la chaîne du cache, ou rien : jamais d'attente de Deribit")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCalendrier macro — {len(tests)} vérifications\n" + "─" * 60)
