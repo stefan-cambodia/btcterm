@@ -84,7 +84,13 @@ def _mayer_color(value: float) -> str:
     return C["text"]
 
 
-def rows(state: dict | None) -> list[tuple[str, str, str, str]]:
+def _mvrv_color(value: float) -> str:
+    return (C["red"] if value >= cycle.MVRV_HIGH
+            else C["green"] if value < cycle.MVRV_LOW else C["text"])
+
+
+def rows(state: dict | None, mvrv: dict | None = None
+         ) -> list[tuple[str, str, str, str]]:
     """Les lignes du tableau : intitulé, valeur, couleur, infobulle.
 
     Une mesure que la série ne permet pas de calculer n'a pas de ligne.
@@ -156,11 +162,26 @@ def rows(state: dict | None) -> list[tuple[str, str, str, str]]:
             C["red"] if state["pi_ratio"] >= 1 else C["text"],
             "moyenne de 111 jours sur deux fois celle de 350 : 1 aux "
             "sommets de 2017 et 2021"))
+    if mvrv is not None:
+        rank = mvrv["rank"]
+        out.append((
+            "MVRV · Coin Metrics",
+            f"{mvrv['mvrv']:.2f}" + (f" · réalisé {mvrv['realized']:,.0f} $"
+                                     if mvrv["realized"] else ""),
+            _mvrv_color(mvrv["mvrv"]),
+            "capitalisation sur capitalisation réalisée, au "
+            f"{mvrv['date']:%d/%m/%Y} : sous {cycle.MVRV_LOW:g} les creux "
+            f"passés, au-dessus de {cycle.MVRV_HIGH:g} les sommets ; le prix "
+            "réalisé, prix moyen auquel chaque bitcoin a bougé pour la "
+            "dernière fois, est le prix de revient du marché"
+            + (f" ; plus haut que {rank * 100:.0f} % des jours depuis 2012"
+               if rank is not None else "")
+            + " — données Coin Metrics, CC BY-NC"))
     return out
 
 
-def table(state: dict | None):
-    lines = rows(state)
+def table(state: dict | None, mvrv: dict | None = None):
+    lines = rows(state, mvrv)
     if not lines:
         return html.Div("historique indisponible",
                         style={"fontFamily": MONO, "fontSize": "10px",
@@ -214,7 +235,8 @@ def register(app, hub):
         state = cycle.metrics(closes, height)
         # La révision suit la vue et l'agrandissement : en changer
         # recadre, le tour d'horloge non.
+        mvrv = hub.mvrv()
         figure = build_cycle_chart(
             view, closes, maximized=maximized,
-            uirevision=f"cycle:{view}:{maximized}")
-        return figure, table(state), badges(state)
+            uirevision=f"cycle:{view}:{maximized}", mvrv=mvrv)
+        return figure, table(state, cycle.mvrv_state(mvrv)), badges(state)

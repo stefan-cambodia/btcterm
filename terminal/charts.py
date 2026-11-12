@@ -1601,7 +1601,7 @@ def build_options_history(snapshots: pd.DataFrame,
 # Cycle : le halving, le sommet, la moyenne de 200 jours
 # ─────────────────────────────────────────────────────────────
 
-CYCLE_VIEWS = ("CYCLES", "MAYER", "REPLI")
+CYCLE_VIEWS = ("CYCLES", "MAYER", "REPLI", "MVRV")
 CYCLE_DEFAULT_VIEW = "CYCLES"
 
 #: Une teinte par cycle passé ; le cycle en cours est à l'encre du texte,
@@ -1612,7 +1612,8 @@ _CYCLE_COLORS = {"2012": C["orange"], "2016": C["purple"], "2020": C["blue"]}
 
 def build_cycle_chart(view: str, closes: pd.Series,
                       uirevision: str = "cycle",
-                      maximized: bool = False) -> go.Figure:
+                      maximized: bool = False,
+                      mvrv: pd.DataFrame | None = None) -> go.Figure:
     """Le cycle en trois vues (§ cycle).
 
     **CYCLES** superpose les cycles, en multiple du cours du jour du
@@ -1620,7 +1621,10 @@ def build_cycle_chart(view: str, closes: pd.Series,
     hauteur y vaut un même multiple. **MAYER** trace le cours rapporté à
     sa moyenne de 200 jours, entre ses deux bornes d'usage. **REPLI**
     trace la distance au plus haut couru, en % — la profondeur et la
-    durée des marchés baissiers s'y lisent d'un coup.
+    durée des marchés baissiers s'y lisent d'un coup. **MVRV** trace la
+    capitalisation sur la capitalisation réalisée (Coin Metrics), entre la
+    zone des creux (sous 1) et celle des sommets (au-dessus de 3,5) ; en
+    plein écran, le cours et le prix réalisé, sur une échelle log.
     """
     from btcterm import cycle
 
@@ -1647,6 +1651,47 @@ def build_cycle_chart(view: str, closes: pd.Series,
                     annotation_position="top left",
                     annotation_font=dict(size=9, color=C["muted"]))
         yaxis["title_text"] = "cours / MA 200 j" if maximized else None
+    elif view == "MVRV":
+        if mvrv is not None and not mvrv.empty:
+            if maximized:
+                fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                                    row_heights=[0.55, 0.45],
+                                    vertical_spacing=0.06)
+                fig.add_trace(go.Scatter(
+                    x=mvrv["time"], y=mvrv["price"], name="cours",
+                    mode="lines", line=dict(color=C["text"], width=1.3),
+                    hovertemplate="cours %{y:,.0f} $<extra></extra>"),
+                    row=1, col=1)
+                fig.add_trace(go.Scatter(
+                    x=mvrv["time"], y=mvrv["price"] / mvrv["mvrv"],
+                    name="prix réalisé", mode="lines",
+                    line=dict(color=C["orange"], width=1.6),
+                    hovertemplate="réalisé %{y:,.0f} $<extra></extra>"),
+                    row=1, col=1)
+                fig.update_yaxes(type="log", row=1, col=1)
+                target = dict(row=2, col=1)
+            else:
+                target = {}
+            fig.add_trace(go.Scatter(
+                x=mvrv["time"], y=mvrv["mvrv"], name="MVRV", mode="lines",
+                line=dict(color=C["cyan"], width=1.4),
+                hovertemplate="MVRV %{y:.2f}<extra></extra>"), **target)
+            for level, color, text in (
+                    (cycle.MVRV_HIGH, C["red"], "zone des sommets"),
+                    (cycle.MVRV_LOW, C["green"], "sous le prix réalisé")):
+                fig.add_hline(
+                    y=level, line=dict(color=color, width=1, dash="dot"),
+                    annotation_text=f"{level:g} · {text}",
+                    annotation_position="top left",
+                    annotation_font=dict(size=9, color=C["muted"]),
+                    **target)
+            # L'attribution que demande la licence des données.
+            fig.add_annotation(
+                text="données : Coin Metrics (coinmetrics.io), CC BY-NC",
+                xref="paper", yref="paper", x=1, y=0, xanchor="right",
+                yanchor="bottom", showarrow=False,
+                font=dict(family=MONO, size=8, color=C["muted"]))
+        yaxis["title_text"] = None
     elif view == "REPLI":
         depth = cycle.drawdown(closes)
         if len(depth):
@@ -1699,4 +1744,12 @@ def build_cycle_chart(view: str, closes: pd.Series,
             text="historique journalier indisponible", xref="paper",
             yref="paper", x=0.5, y=0.5, showarrow=False,
             font=dict(family=MONO, size=11, color=C["muted"]))
+    if view == "MVRV" and maximized and len(fig.data) > 1:
+        # Deux graphiques : chaque axe au style du terminal — sans quoi le
+        # second gardait le quadrillage blanc de Plotly —, et chaque titre
+        # sur le sien.
+        fig.update_xaxes(**axis_common)
+        fig.update_yaxes(**axis_common)
+        fig.update_yaxes(title_text="cours et prix réalisé ($)", row=1, col=1)
+        fig.update_yaxes(title_text="MVRV", row=2, col=1)
     return fig

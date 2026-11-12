@@ -38,7 +38,8 @@ __all__ = ["Halving", "HALVINGS", "HALVING_INTERVAL", "BLOCK_MINUTES",
            "closes", "next_halving", "mayer", "drawdown", "cycle_paths",
            "metrics", "BLOCKS_PER_DAY", "block_subsidy", "daily_issuance",
            "etf_supply", "btc_amount", "supply_text", "RETARGET_INTERVAL",
-           "difficulty_estimate", "hash_ribbons"]
+           "difficulty_estimate", "hash_ribbons", "MVRV_LOW", "MVRV_HIGH",
+           "mvrv_state"]
 
 #: Blocs entre deux halvings, et rythme visé par le protocole.
 HALVING_INTERVAL = 210_000
@@ -379,3 +380,30 @@ def hash_ribbons(frame: Optional[pd.DataFrame], fast: int = 30,
     else:
         state = "sain"
     return {"frame": work, "state": state, "since": since}
+
+
+#: Bornes d'usage du MVRV : sous 1, le marché vaut moins que le prix payé en
+#: moyenne pour chaque bitcoin — les creux de 2015, 2018-2019, 2022 ;
+#: au-dessus de 3,5, il le vaut plus de trois fois et demie — les sommets
+#: de 2013, 2017 et (presque) 2021.
+MVRV_LOW = 1.0
+MVRV_HIGH = 3.5
+
+
+def mvrv_state(frame: Optional[pd.DataFrame]) -> Optional[dict]:
+    """Le MVRV du jour, le prix réalisé qui s'en déduit, et son rang.
+
+    `frame` : `time`, `mvrv`, `price` (§ sources.fetch_mvrv). Le prix
+    réalisé est le prix moyen auquel chaque bitcoin a bougé pour la
+    dernière fois — le prix de revient du marché. Rend `mvrv`, `realized`,
+    `date` et `rank` (la part des jours passés où il était plus bas).
+    """
+    if frame is None or frame.empty:
+        return None
+    last = frame.iloc[-1]
+    mvrv = float(last["mvrv"])
+    price = float(last["price"]) if pd.notna(last["price"]) else None
+    history = frame["mvrv"].iloc[:-1]
+    return {"mvrv": mvrv, "date": pd.Timestamp(last["time"]),
+            "realized": price / mvrv if price and mvrv else None,
+            "rank": float((history < mvrv).mean()) if len(history) else None}

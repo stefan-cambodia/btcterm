@@ -281,6 +281,72 @@ def test_l_heure_d_un_bloc_chez_blockstream():
     print("  ✓ heure du bloc : hauteur → hash → horodatage")
 
 
+def test_le_mvrv_chez_coin_metrics():
+    """Le MVRV et le cours, paginés ; le prix réalisé qui s'en déduit, et
+    son rang ; la vue du panneau et sa ligne de tableau, Coin Metrics
+    nommé — la licence des données le demande."""
+    class Reponse:
+        def __init__(self, payload):
+            self.payload = payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    pages = [
+        {"data": [{"time": "2018-12-15T00:00:00.000000000Z",
+                   "CapMVRVCur": "0.69", "PriceUSD": "3200"},
+                  {"time": "2021-11-10T00:00:00.000000000Z",
+                   "CapMVRVCur": "2.72", "PriceUSD": "65000"}],
+         "next_page_url": "https://exemple/suite"},
+        {"data": [{"time": "2026-11-11T00:00:00.000000000Z",
+                   "CapMVRVCur": "1.37", "PriceUSD": "73800"}]},
+    ]
+    demandes = []
+
+    def faux_get(url, params=None, **_):
+        demandes.append((url, params))
+        return Reponse(pages[len(demandes) - 1])
+
+    original = sources._http.get
+    sources._http.get = faux_get
+    try:
+        mvrv = sources.fetch_mvrv()
+    finally:
+        sources._http.get = original
+    assert demandes[0][1]["metrics"] == "CapMVRVCur,PriceUSD"
+    assert demandes[1] == ("https://exemple/suite", None), "la page suivante"
+    assert list(mvrv["mvrv"]) == [0.69, 2.72, 1.37]
+
+    etat = cycle.mvrv_state(mvrv)
+    assert etat["mvrv"] == 1.37 and abs(etat["realized"] - 73800 / 1.37) < 1e-6
+    assert etat["rank"] == 0.5, "plus haut que l'un des deux jours passés"
+    assert cycle.mvrv_state(mvrv.iloc[0:0]) is None
+
+    from terminal.charts import build_cycle_chart
+    from terminal.panels import cycle as panneau
+    petite = build_cycle_chart("MVRV", pd.Series(dtype=float), mvrv=mvrv)
+    assert [t.name for t in petite.data] == ["MVRV"]
+    assert any("Coin Metrics" in (a.text or "") for a in petite.layout.annotations)
+    grande = build_cycle_chart("MVRV", pd.Series(dtype=float), mvrv=mvrv,
+                               maximized=True)
+    assert [t.name for t in grande.data] == ["cours", "prix réalisé", "MVRV"]
+    lignes = panneau.rows(None, etat) + panneau.rows(
+        {"halving": {"estimated": False, "eta": pd.Timestamp("2028-04-12"),
+                     "target": 1_050_000, "days_left": 517.0,
+                     "blocks_left": 74_464, "height": 975_536,
+                     "progress": 0.65},
+         "cycle_day": None, "same_day": [], "ath": 124_659.0,
+         "ath_date": pd.Timestamp("2025-10-06"), "drawdown": -41.0,
+         "days_since_ath": 402, "mayer": None, "ma200w": None,
+         "pi_ratio": None}, etat)
+    assert any(label == "MVRV · Coin Metrics" and "réalisé 53,869 $" in valeur
+               for label, valeur, _, _ in lignes), lignes
+    print("  ✓ MVRV paginé, prix réalisé et rang ; vue et ligne, Coin Metrics nommé")
+
+
 def test_le_panneau_tient_avec_et_sans_donnees():
     from terminal.charts import CYCLE_VIEWS, build_cycle_chart
     from terminal.panels import cycle as panneau

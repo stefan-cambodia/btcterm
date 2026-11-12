@@ -1255,6 +1255,20 @@ réseau (`tests/test_cycle.py`) :
   affichée, et dit l'état au-dessus du graphique (« rubans : sains depuis le
   26/08/26 ») — au centre : à droite, la barre d'outils de Plotly le
   couvrait ;
+- `mvrv_state` — le MVRV, capitalisation de marché sur capitalisation
+  réalisée, lu chez Coin Metrics (`sources.fetch_mvrv`, l'API
+  communautaire, sans clé) : la seule source on-chain gratuite qui le
+  serve, la capitalisation réalisée elle-même ne l'étant pas — le prix
+  réalisé s'en déduit, prix sur MVRV, le prix moyen auquel chaque bitcoin a
+  bougé pour la dernière fois. Sous 1, les creux de 2015, 2018 et 2022 ;
+  au-dessus de 3,5, les sommets de 2013 et 2017 — 2021 s'est arrêté à 2,7 en
+  novembre. Les valeurs ont été comparées à ces références avant d'être
+  branchées. Le 12 novembre 2026 : 1,37, prix réalisé 53 884 $. La vue
+  « MVRV » du panneau CYCLE trace la courbe entre ses deux zones, et en
+  plein écran le cours et le prix réalisé au-dessus, en log ; le tableau a
+  sa ligne. Les données sont sous licence CC BY-NC 4.0 : usage non
+  commercial, et « Coin Metrics » nommé là où elles s'affichent — sur le
+  graphique et dans le tableau. Gardé six heures ;
 - `etf_supply` — les flux nets des ETF d'une fenêtre en bitcoins, face à
   l'émission des mineurs : chaque séance convertie au cours de clôture de son
   jour (la dernière connue avant lui, à défaut), l'émission comptée tous les
@@ -3757,6 +3771,8 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Un cycle sans prix de revient du marché**~~ — fait le 12 novembre 2026
+  (§2.15) : le MVRV de Coin Metrics et le prix réalisé au panneau CYCLE.
 - ~~**Des mineurs qu'on ne voyait pas capituler**~~ — fait le 12 novembre
   2026 (§2.15) : les hash ribbons sur le graphique ON-CHAIN, et le prochain
   ajustement de difficulté estimé au badge.

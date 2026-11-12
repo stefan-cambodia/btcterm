@@ -30,7 +30,7 @@ __all__ = [
     "BINANCE_REST", "OHLCV_COLUMNS", "RSS_FEEDS",
     "fetch_klines", "fetch_ticker_24h", "fetch_depth",
     "KLINE_FREQ", "KLINE_HOURS", "generate_demo_ohlcv",
-    "fetch_eur_rate", "fetch_m2_supply", "fetch_block_time",
+    "fetch_eur_rate", "fetch_m2_supply", "fetch_block_time", "fetch_mvrv",
     "fetch_funding_history", "fetch_open_interest", "fetch_perp_snapshot",
     "fetch_bybit_perp", "fetch_okx_perp",
     "clean_etf_table", "fetch_market_global", "market_global", "INTERMITTENT",
@@ -122,6 +122,10 @@ BLOCKSTREAM_FEES = "https://blockstream.info/api/fee-estimates"
 #: info le sert aussi, mais avec toutes ses transactions — 7 Mo pour une
 #: heure.
 BLOCKSTREAM_API = "https://blockstream.info/api"
+#: Les métriques on-chain gratuites de Coin Metrics (données communautaires,
+#: licence CC BY-NC 4.0 : usage non commercial, « Coin Metrics » nommé là
+#: où elles s'affichent). Sans clé ; dix requêtes par six secondes au plus.
+COINMETRICS_API = "https://community-api.coinmetrics.io/v4/timeseries/asset-metrics"
 
 #: Agrégats de marché (capitalisation, dominance) — CoinGecko, endpoint
 #: public sans clé. Les séries historiques, elles, sont payantes : ce
@@ -576,6 +580,37 @@ def fetch_block_time(height: int) -> int:
     response = _http.get(f"{BLOCKSTREAM_API}/block/{block_hash}", timeout=10)
     response.raise_for_status()
     return int(response.json()["timestamp"])
+
+
+def fetch_mvrv(start: str = "2012-01-01") -> pd.DataFrame:
+    """Le MVRV du bitcoin et son cours, un point par jour, chez Coin Metrics.
+
+    `CapMVRVCur` — capitalisation de marché sur capitalisation réalisée —
+    est libre ; la capitalisation réalisée elle-même ne l'est pas, mais le
+    prix réalisé s'en déduit (`price / mvrv`). Retourne `time`, `mvrv`,
+    `price` ; lève si la source ne répond pas.
+    """
+    params = {"assets": "btc", "metrics": "CapMVRVCur,PriceUSD",
+              "frequency": "1d", "start_time": start, "page_size": 10_000}
+    rows: list[dict] = []
+    url: Optional[str] = COINMETRICS_API
+    for _ in range(4):
+        response = _http.get(url, params=params, timeout=20)
+        response.raise_for_status()
+        payload = response.json()
+        rows += payload.get("data", [])
+        url, params = payload.get("next_page_url"), None
+        if not url:
+            break
+    frame = pd.DataFrame(rows)
+    if frame.empty or "CapMVRVCur" not in frame:
+        raise ValueError("réponse vide de Coin Metrics")
+    frame = pd.DataFrame({
+        "time": pd.to_datetime(frame["time"]).dt.tz_localize(None),
+        "mvrv": pd.to_numeric(frame["CapMVRVCur"], errors="coerce"),
+        "price": pd.to_numeric(frame.get("PriceUSD"), errors="coerce"),
+    })
+    return frame.dropna(subset=["mvrv"]).sort_values("time").reset_index(drop=True)
 
 
 def fetch_fee_estimates() -> dict[str, float]:
