@@ -873,6 +873,16 @@ calendrier (§2.6) ont appris au terminal :
   côté de sa MA 200, la seule lecture que le bilan n'ait pas démentie.
   Elle est lue sur la dernière bougie journalière *close*, et se tait
   sur la démonstration comme sur un historique périmé ;
+- **gamma flip** — le cours passe de l'autre côté du gamma flip des
+  options (§3.16) : les teneurs de marché changent de régime, du marché
+  qu'ils tassent au marché qu'ils étirent, ou l'inverse. Le cours doit
+  dépasser le flip de 0,5 % (`GAMMA_MARGIN_PCT`), le flip bougeant avec la
+  chaîne ; la première lecture fixe le côté sans sonner, comme celle des
+  flux ETF, et la garde d'un quart d'heure (`COOLDOWN`) tient la rafale. Le
+  message dit le signe réel du GEX au prix du moment plutôt que de le
+  supposer (« cours au-dessus du gamma flip (75,536 $, cours 76,010 $) : les
+  teneurs tassent désormais les mouvements (GEX +38 M$/1 %) ») ; case
+  « flip γ » du panneau, cochée par défaut ;
 - **échéance proche** — un FOMC, un CPI, un NFP ou un PCE du calendrier
   tombe dans moins de trente minutes (`EVENT_LEAD`) : un tel chiffre
   bouge le cours en quelques secondes, et c'est avant qu'il faut le
@@ -3729,6 +3739,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Un changement de régime des teneurs qui ne sonnait pas**~~ — fait le
+  12 novembre 2026 (§2.8) : une alerte quand le cours franchit le gamma
+  flip, marge et garde comprises.
 - ~~**Des échéances d'options absentes du calendrier**~~ — fait le
   12 novembre 2026 (§2.6) : celles qui pèsent au moins 5 % de l'open
   interest, lues dans la chaîne, avec montant, max pain et put/call.

@@ -437,6 +437,54 @@ def test_flux_etf_une_fois_par_jour():
           " jour partiel nommé")
 
 
+def test_le_cours_franchit_le_gamma_flip():
+    """Le cours passe le gamma flip, marge franchie : les teneurs changent
+    de régime, une sonnerie. La première lecture fixe le côté sans sonner,
+    un cours qui effleure le flip se tait, et la garde évite la rafale."""
+    from btcterm import options as opt
+    from btcterm.alerts import COOLDOWN
+
+    def ligne(strike, sorte, oi):
+        return {"instrument_name": f"BTC-27NOV26-{strike}-{sorte}",
+                "mark_iv": 50.0, "open_interest": oi,
+                "underlying_price": 75_000.0,
+                "estimated_delivery_price": 74_900.0, "volume_usd": 1.0}
+
+    chaine = opt.option_chain([ligne(70_000, "P", 300), ligne(80_000, "C", 300)])
+    debut = pd.Timestamp("2026-11-12 09:00", tz="UTC").timestamp()
+    flip = opt.gamma_flip(opt.gamma_profile(
+        chaine, pd.Timestamp(debut, unit="s", tz="UTC")), 74_900)
+    assert 70_000 < flip < 80_000
+    hub = FakeHub()
+    hub.option_chain = lambda: chaine
+    e = engine()
+
+    def tour(prix, decalage):
+        hub.price = prix
+        e.evaluate(hub, now=debut + decalage)
+        return [a for a in e.alerts if a.kind == "gamma"]
+
+    assert tour(flip * 0.98, 0) == [], "la première lecture ne sonne pas"
+    assert tour(flip * 1.002, SLOW_EVERY + 1) == [], "dans la marge : rien"
+    sonneries = tour(flip * 1.01, 2 * (SLOW_EVERY + 1))
+    assert len(sonneries) == 1 and "au-dessus du gamma flip" in sonneries[0].message
+    assert "M$/1 %" in sonneries[0].message
+    assert len(tour(flip * 0.98, 3 * (SLOW_EVERY + 1))) == 1, \
+        "un retour sous la garde ne sonne pas"
+    assert len(tour(flip * 1.02, COOLDOWN + 4 * (SLOW_EVERY + 1))) == 2
+    assert "au-dessus" in e.alerts[-1].message
+
+    muet = engine(gamma_flip=False)
+    hub.price = flip * 0.98
+    muet.evaluate(hub, now=debut)
+    hub.price = flip * 1.02
+    muet.evaluate(hub, now=debut + SLOW_EVERY + 1)
+    assert not [a for a in muet.alerts if a.kind == "gamma"]
+    assert normalize_config({"gamma_flip": False})["gamma_flip"] is False
+    print("  ✓ flip franchi, marge et garde tenues, première lecture muette, "
+          "règle débrayable")
+
+
 def test_reseau_charge():
     """Mempool gonflé et blocs lents : un front chacun, sous délai de garde."""
     hub = FakeHub()

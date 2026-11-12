@@ -106,6 +106,7 @@ import pandas as pd
 
 from . import indicators as ind
 from . import macrocal, newsdb, sources
+from . import options as opt
 from .journal import liquidity_totals
 
 __all__ = ["Alert", "AlertEngine", "DEFAULT_CONFIG",
@@ -136,6 +137,8 @@ DEFAULT_CONFIG: dict = {
     "trend_flip": True,
     #: prévenir avant les échéances macro du calendrier (§ macrocal).
     "event_soon": True,
+    #: sonner quand le cours franchit le gamma flip des options (§ options).
+    "gamma_flip": True,
     #: glissement de la dominance BTC sur 24 h, en points de part.
     "dominance_shift_pts": 1.5,
     #: flux ETF : |flux net du dernier jour publié| en M$.
@@ -163,6 +166,11 @@ COOLDOWN = 600.0
 #: Réarmement d'un seuil de prix : le cours doit s'écarter d'autant de
 #: l'autre côté du seuil avant que celui-ci puisse resonner.
 HYSTERESIS_PCT = 0.2
+
+#: Marge du gamma flip : le cours doit le dépasser d'autant, d'un côté puis
+#: de l'autre, pour que le régime soit dit changé. Le flip bouge avec la
+#: chaîne d'options, et un cours qui l'effleure sonnerait à chaque minute.
+GAMMA_MARGIN_PCT = 0.5
 
 #: Cadence des contrôles qui coûtent (REST en cache, lecture SQLite) :
 #: financement, news et lecture technique ne sont regardés qu'à ce rythme.
@@ -241,7 +249,7 @@ def normalize_config(data) -> dict:
         config["rsi_overbought"] = DEFAULT_CONFIG["rsi_overbought"]
         config["rsi_oversold"] = DEFAULT_CONFIG["rsi_oversold"]
     for key in ("sound", "signal_strong", "trend_flip", "event_soon",
-                "sources_down"):
+                "gamma_flip", "sources_down"):
         if isinstance(data.get(key), bool):
             config[key] = data[key]
     levels = []
@@ -281,6 +289,10 @@ class AlertEngine:
         self._last_signal_candle = None
         #: Dernier jour de flux ETF sonné — ou tenu pour vu au démarrage.
         self._etf_last_date = None
+        #: Côté du cours par rapport au gamma flip (`above`, `below`), et
+        #: instant de la dernière sonnerie de cette règle.
+        self._gamma_side: Optional[str] = None
+        self._gamma_last = float("-inf")
         self._next_slow = 0.0
         #: Où envoyer chaque sonnerie hors du navigateur (§ notify) ;
         #: `None` tant qu'aucun sujet ntfy n'est configuré.
@@ -347,6 +359,7 @@ class AlertEngine:
             self._next_slow = now + SLOW_EVERY
             for rule in (self._check_funding, self._check_news,
                          self._check_technical, self._check_trend,
+                         self._check_gamma,
                          self._check_event, self._check_dominance,
                          self._check_etf, self._check_chain,
                          self._check_volatility, self._check_skew,
@@ -517,6 +530,47 @@ class AlertEngine:
             self._fire("flip", f"clôture du {day} {sens} de la MA 200 "
                                 f"journalière ({df['close'].iloc[-2]:,.0f} $)",
                        now)
+
+    def _check_gamma(self, hub, _opps, config, now) -> None:
+        """Le cours franchit le gamma flip : les teneurs de marché changent
+        de régime (§ options.gamma_flip). D'un côté, ils vendent la hausse
+        et achètent la baisse — le marché se tasse ; de l'autre, ils suivent
+        le mouvement — il s'étire. Le cours doit dépasser le flip de
+        `GAMMA_MARGIN_PCT`, et la première lecture fixe le côté sans sonner,
+        comme celle des flux ETF. Le message dit le signe réel du GEX au
+        prix du moment plutôt que de le supposer.
+        """
+        if not config["gamma_flip"]:
+            return
+        reader = getattr(hub, "option_chain", None)
+        price = hub.reference_price()
+        if reader is None or not price:
+            return
+        chain = reader()
+        moment = pd.Timestamp(now, unit="s", tz="UTC")
+        gex = opt.gamma_exposure(chain, moment)
+        if gex is None:
+            return
+        flip = opt.gamma_flip(opt.gamma_profile(chain, moment), gex["spot"])
+        if flip is None:
+            return
+        margin = GAMMA_MARGIN_PCT / 100
+        side = ("above" if price >= flip * (1 + margin)
+                else "below" if price <= flip * (1 - margin) else None)
+        if side is None:
+            return
+        previous, self._gamma_side = self._gamma_side, side
+        if previous is None or previous == side:
+            return
+        if now - self._gamma_last < COOLDOWN:
+            return
+        self._gamma_last = now
+        sens = "au-dessus du" if side == "above" else "sous le"
+        regime = "tassent" if gex["total"] >= 0 else "étirent"
+        self._fire("gamma",
+                   f"cours {sens} gamma flip ({flip:,.0f} $, cours "
+                   f"{price:,.0f} $) : les teneurs {regime} désormais les "
+                   f"mouvements (GEX {gex['total'] / 1e6:+z,.0f} M$/1 %)", now)
 
     def _check_event(self, _hub, _opps, config, now) -> None:
         """Une échéance macro approche : le temps de réduire ou de s'écarter.
