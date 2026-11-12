@@ -36,6 +36,7 @@ from .arbitrage import ArbitrageEngine
 from .analysis import (hourly_profile, monthly_returns, rule_stats,
                        signal_stats)
 from .history import KlineHistory
+from .journal import HEATMAP_RETENTION_DAYS as HEATMAP_DAYS
 from .journal import SNAPSHOT_FIELDS, Journal
 from .newsdb import NewsCollector
 from .tape import (BinanceTradeConnector, BybitTradeConnector,
@@ -554,6 +555,11 @@ class MarketHub:
         #: Échantillons de liquidité de la période en cours, par
         #: plateforme : [somme des achats, somme des ventes, nombre].
         self._depth_acc: dict[str, list[float]] = {}
+        #: La carte du carnet (§ _sample_heatmap) : l'instant de la dernière
+        #: colonne écrite, et la dernière erreur — que la boucle avalait, et
+        #: qu'aucun écran n'aurait dite.
+        self._heatmap_at: Optional[float] = None
+        self._heatmap_error: Optional[str] = None
         self._observe_thread: Optional[threading.Thread] = None
         #: Levé quand le hub s'arrête — ou, en régime service, dès que
         #: le signal d'arrêt arrive (terminal/wsgi.py), avant même que
@@ -763,8 +769,9 @@ class MarketHub:
                 # n'arrête pas d'observer.
                 try:
                     self._sample_heatmap()
-                except Exception:
-                    pass
+                    self._heatmap_error = None
+                except Exception as exc:  # noqa: BLE001 — dite à SOURCES
+                    self._heatmap_error = sources.brief_error(exc)
             if (self.journal is not None
                     and time.monotonic() >= next_purge):
                 next_purge = time.monotonic() + self.PURGE_EVERY
@@ -1269,6 +1276,23 @@ class MarketHub:
         else:
             tasks.append({"name": "Instantané de marché", "state": "inactif",
                           "age": None, "detail": "lancé sans journal"})
+        # La carte du carnet : une colonne toutes les dix secondes. Muette
+        # quand aucun carnet sain ne donne de quoi l'écrire, en panne quand
+        # l'écriture échoue.
+        if self.journal is not None:
+            last = self._heatmap_at
+            fresh = last is not None and now - last < 3 * self.DEPTH_SAMPLE_EVERY
+            tasks.append({
+                "name": "Carte du carnet",
+                "state": ("panne" if self._heatmap_error
+                          else "ok" if fresh else "muet"),
+                "age": (now - last) if last else None,
+                "detail": self._heatmap_error or
+                f"une colonne toutes les {self.DEPTH_SAMPLE_EVERY:.0f} s, "
+                f"{HEATMAP_DAYS} jours gardés"})
+        else:
+            tasks.append({"name": "Carte du carnet", "state": "inactif",
+                          "age": None, "detail": "lancée sans journal"})
         tasks.append({
             "name": "Résolution DNS de secours",
             "state": "ok" if resolver.is_installed() else "inactif",
@@ -1604,8 +1628,9 @@ class MarketHub:
         if col is None:
             return False
         base, step, values = col
-        self.journal.record_heatmap(time.time() if now is None else now,
-                                    base, step, heatmap.encode(values))
+        stamp = time.time() if now is None else now
+        self.journal.record_heatmap(stamp, base, step, heatmap.encode(values))
+        self._heatmap_at = stamp
         return True
 
     def _flush_depth(self, now: Optional[float] = None) -> None:

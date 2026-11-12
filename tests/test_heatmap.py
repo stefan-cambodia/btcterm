@@ -124,6 +124,11 @@ def test_le_hub_photographie_les_carnets_et_le_journal_purge():
         hub = MarketHub(collect_news=False, keep_journal=False)
         hub.journal = Journal(Path(dossier) / "journal.db")
         assert MarketHub.PURGE_EVERY <= 24 * 3600
+        def ligne():
+            taches = hub.sources_status()["Tâches de fond"]
+            return next(t for t in taches if t["name"] == "Carte du carnet")
+
+        assert ligne()["state"] == "muet", "rien d'écrit encore"
         assert not hub._sample_heatmap(), "aucun carnet : rien à écrire"
         hub.books["Binance"].replace({73_990.0: 2.0}, {74_010.0: 1.0})
         hub.books["Binance"].connected = True
@@ -135,6 +140,10 @@ def test_le_hub_photographie_les_carnets_et_le_journal_purge():
         assert hub._sample_heatmap(now=maintenant)
         ((ts, base, pas, valeurs),) = hub.journal.heatmap_between(0, maintenant + 1)
         assert pas == 25 and valeurs.sum() == 3.75, "le carnet croisé ne compte pas"
+        assert ligne()["state"] == "ok" and ligne()["age"] < 60
+        hub._heatmap_error = "disque plein"
+        assert ligne()["state"] == "panne" and ligne()["detail"] == "disque plein"
+        hub._heatmap_error = None
 
         vieux = maintenant - (HEATMAP_RETENTION_DAYS + 1) * 86_400
         hub.journal.record_heatmap(vieux, base, pas, heatmap.encode(valeurs))

@@ -1304,7 +1304,9 @@ de référence, au pas rond le plus proche de 0,04 % du prix (`nice_step` :
 prix les sépare de lui-même. La colonne part au journal en flottants 32 bits
 compressés, environ 330 octets (table `book_heatmap`, trois jours de
 rétention, `HEATMAP_RETENTION_DAYS` : 8 640 colonnes et moins de 3 Mo par
-jour).
+jour). La tâche a sa ligne au panneau SOURCES (« Carte du carnet ») : muette
+quand aucune colonne n'est venue depuis trente secondes, en panne quand
+l'écriture échoue — la boucle avalait l'erreur, et rien ne l'aurait dite.
 
 `/api/heatmap` relit les colonnes de la plage visible et les agrège
 (`aggregate`) : moyennées par bougie (bornée entre la minute et le jour),
