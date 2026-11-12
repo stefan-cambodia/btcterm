@@ -459,10 +459,11 @@ def news_items(rows) -> list[Item]:
 
 
 def cycle_item(state: Optional[dict],
-               mvrv: Optional[dict] = None) -> Optional[Item]:
+               mvrv: Optional[dict] = None,
+               puell: Optional[dict] = None) -> Optional[Item]:
     """Où en est le cours dans son cycle (§ cycle) : jour depuis le
     halving, distance au sommet, multiple de Mayer, MVRV (Coin Metrics),
-    halving à venir."""
+    multiple de Puell hors de ses bornes seulement, halving à venir."""
     if not state:
         return None
     parts = []
@@ -485,23 +486,31 @@ def cycle_item(state: Optional[dict],
         parts.append(f"MVRV {mvrv['mvrv']:.2f}")
         if not cycle.MVRV_LOW <= mvrv["mvrv"] < cycle.MVRV_HIGH:
             tone = "warn"
+    # Le Puell ne se dit qu'à ses bornes : la ligne est déjà longue, et
+    # entre les deux, il ne fait que confirmer le MVRV.
+    if puell is not None and not (cycle.PUELL_LOW <= puell["puell"]
+                                  < cycle.PUELL_HIGH):
+        parts.append(f"Puell {puell['puell']:.2f}")
+        tone = "warn"
     halving = state["halving"]
     parts.append(f"halving dans {'~' if halving['estimated'] else ''}"
                  f"{halving['days_left']:.0f} j")
     return Item("Cycle", " · ".join(parts), tone,
                 "multiple du cours du jour du halving ; sommet en clôture "
                 "journalière ; Mayer : cours / moyenne de 200 jours ; MVRV : "
-                "capitalisation / capitalisation réalisée, données Coin "
+                "capitalisation / capitalisation réalisée ; Puell : émission "
+                "du jour en dollars / sa moyenne d'un an — données Coin "
                 "Metrics ; halving compté à dix minutes le bloc")
 
 
-def _mvrv_state(hub) -> Optional[dict]:
-    """Le MVRV du jour (§ cycle.mvrv_state), ou rien si la source manque."""
+def _mvrv_state(hub, state=None) -> Optional[dict]:
+    """Le MVRV du jour (§ cycle.mvrv_state) — ou, avec `state`, une autre
+    lecture de la même série, le Puell —, ou rien si la source manque."""
     reader = getattr(hub, "mvrv", None)
     if reader is None:
         return None
     try:
-        return cycle.mvrv_state(reader())
+        return (state or cycle.mvrv_state)(reader())
     except Exception:  # noqa: BLE001 — une mention en moins, pas une ligne
         return None
 
@@ -587,7 +596,8 @@ def build(hub, now: Optional[float] = None,
     add("Dominance", lambda: dominance_item(
         change(snapshots, "btc_dominance", now)))
     add("Cycle", lambda: cycle_item(_cycle_state(hub, now),
-                                    _mvrv_state(hub)))
+                                    _mvrv_state(hub),
+                                    _mvrv_state(hub, cycle.puell_state)))
     add("Agenda", lambda: agenda_item(now, macrocal.upcoming(
         dt.datetime.fromtimestamp(now, macrocal.NEW_YORK).date())))
     if journal is not None:

@@ -119,7 +119,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 | **Dominance** | parts de capitalisation et leur tendance journalisée — hors actifs que la source compte par intermittence —, cap totale et volume 24 h (onglet de la macro) | 5 min |
 | **On-chain** | hashrate et difficulté sur un an, avec les « hash ribbons » — moyennes de 30 et 60 jours du hashrate, capitulations des mineurs ombrées, état en légende — ; rythme des blocs, prochain ajustement de difficulté estimé (« ajust. −7.6 % J-2 »), mempool, frais de transaction (onglet de la macro) | 5 min |
 | **Marchés** | le bitcoin face au S&P 500, au Nasdaq, à l'or, au dollar et au taux à 10 ans : performance comparée en base 100 ou corrélation glissante sur 30 séances, tableau des cours, variations et corrélations à 30 et 90 séances (onglet de la macro) | 5 min |
-| **Cycle** | où en est le bitcoin depuis le halving et depuis le sommet : compte à rebours du prochain halving, cycles superposés en multiple du cours du jour du halving, multiple de Mayer et son rang, repli depuis le plus haut, moyenne de 200 semaines, Pi cycle, et le MVRV — capitalisation sur capitalisation réalisée, données Coin Metrics — avec le prix réalisé, le prix de revient du marché (onglet de la macro) | 5 min |
+| **Cycle** | où en est le bitcoin depuis le halving et depuis le sommet : compte à rebours du prochain halving, cycles superposés en multiple du cours du jour du halving, multiple de Mayer et son rang, repli depuis le plus haut, moyenne de 200 semaines, Pi cycle, le MVRV — capitalisation sur capitalisation réalisée, données Coin Metrics — avec le prix réalisé, le prix de revient du marché, et le multiple de Puell — l'émission du jour en dollars sur sa moyenne d'un an (onglet de la macro) | 5 min |
 | **Sources** | l'état de chaque source — carnets, fils de liquidations, API REST, tâches de fond : ok, secours, panne, muet ou coupé, âge de la dernière donnée fraîche et dernière erreur ; ouvert aussi par l'avertissement « ⚠ N sources » du bandeau (onglet de l'arbitrage) | 10 s |
 | **Options** | marché des options Deribit en cinq vues : DVOL contre volatilité réalisée ; volatilité par échéance avec ses ailes 25 delta, au-dessus de la base annualisée des futures ; open interest par strike d'une échéance, forward et max pain ; exposition gamma des teneurs de marché (GEX) par strike et son « gamma flip » ; historique du skew et de la volatilité, noté par le journal. Skew, put/call, open interest total au titre ; DVOL aussi au bandeau (onglet de la macro) | 1 min |
 
@@ -446,11 +446,22 @@ halving, jour pour jour, sur une échelle logarithmique. **MAYER** trace le
 cours rapporté à sa moyenne de 200 jours, entre ses bornes d'usage — sous 0,8
 il en est loin, au-dessus de 2,4 il s'en est détaché comme aux sommets.
 **REPLI** trace la distance au plus haut : profondeur et durée des marchés
-baissiers s'y lisent d'un coup. Le tableau donne la date estimée du prochain
+baissiers s'y lisent d'un coup. **MVRV** trace la capitalisation sur la
+capitalisation réalisée, entre 1 (les creux) et 3,5 (les sommets passés).
+**PUELL** trace le multiple de Puell, sur une échelle logarithmique : la
+valeur des bitcoins émis dans la journée sur sa moyenne d'un an, ce que
+gagnent les mineurs rapporté à ce qu'ils gagnent d'habitude — sous 0,5, leur
+paie est tombée à moins de la moitié de l'ordinaire (2015, 2018, 2022) ;
+au-dessus de 4, elle a quadruplé (2013, 2017). Les bornes sont une convention, et les sommets de 2021 et 2024 sont
+restés loin sous la borne haute. L'année qui suit chaque halving est ombrée :
+la moyenne y compte encore des jours à subvention double, et le multiple
+sort bas sans que les mineurs souffrent. Ces deux vues lisent Coin Metrics
+(CC BY-NC, nommé à l'écran). Le tableau donne la date estimée du prochain
 halving (à dix minutes le bloc) et les blocs restants, le jour du cycle et ce
 que valaient les précédents au même jour, le sommet et le repli, le multiple de
 Mayer avec la part des jours passés où il était plus bas, la moyenne de 200
-semaines et le rapport du Pi cycle. Tout vient de l'historique journalier du
+semaines, le rapport du Pi cycle, le MVRV et le prix réalisé, le multiple
+de Puell et son rang. Le cours vient de l'historique journalier du
 disque, qui commence en août 2017 — le cycle de 2016 n'y entre qu'à son
 quatre-centième jour —, et de la hauteur de la chaîne chez blockchain.info ;
 sans elle, la date est estimée et porte un tilde. Le panneau reste en dollars.

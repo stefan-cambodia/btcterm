@@ -1631,7 +1631,7 @@ def build_options_history(snapshots: pd.DataFrame,
 # Cycle : le halving, le sommet, la moyenne de 200 jours
 # ─────────────────────────────────────────────────────────────
 
-CYCLE_VIEWS = ("CYCLES", "MAYER", "REPLI", "MVRV")
+CYCLE_VIEWS = ("CYCLES", "MAYER", "REPLI", "MVRV", "PUELL")
 CYCLE_DEFAULT_VIEW = "CYCLES"
 
 #: Une teinte par cycle passé ; le cycle en cours est à l'encre du texte,
@@ -1655,6 +1655,9 @@ def build_cycle_chart(view: str, closes: pd.Series,
     capitalisation sur la capitalisation réalisée (Coin Metrics), entre la
     zone des creux (sous 1) et celle des sommets (au-dessus de 3,5) ; en
     plein écran, le cours et le prix réalisé, sur une échelle log.
+    **PUELL** trace le multiple de Puell — l'émission du jour en dollars
+    sur sa moyenne d'un an (Coin Metrics) — entre 0,5 et 4, les années qui
+    suivent un halving ombrées ; en plein écran, le cours au-dessus.
     """
     from btcterm import cycle
 
@@ -1681,8 +1684,21 @@ def build_cycle_chart(view: str, closes: pd.Series,
                     annotation_position="top left",
                     annotation_font=dict(size=9, color=C["muted"]))
         yaxis["title_text"] = "cours / MA 200 j" if maximized else None
-    elif view == "MVRV":
-        if mvrv is not None and not mvrv.empty:
+    elif view in ("MVRV", "PUELL"):
+        if view == "PUELL":
+            ratio = cycle.puell(mvrv)
+            spec = ("Puell", C["purple"], "Puell %{y:.2f}<extra></extra>",
+                    ((cycle.PUELL_HIGH, C["red"], "mineurs comblés"),
+                     (cycle.PUELL_LOW, C["green"], "mineurs à la peine")))
+        elif mvrv is not None and not mvrv.empty:
+            ratio = mvrv.set_index("time")["mvrv"]
+            spec = ("MVRV", C["cyan"], "MVRV %{y:.2f}<extra></extra>",
+                    ((cycle.MVRV_HIGH, C["red"], "zone des sommets"),
+                     (cycle.MVRV_LOW, C["green"], "sous le prix réalisé")))
+        else:
+            ratio = pd.Series(dtype=float)
+        if len(ratio):
+            name, color, hover, bands = spec
             if maximized:
                 fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
                                     row_heights=[0.55, 0.45],
@@ -1692,29 +1708,50 @@ def build_cycle_chart(view: str, closes: pd.Series,
                     mode="lines", line=dict(color=C["text"], width=1.3),
                     hovertemplate="cours %{y:,.0f} $<extra></extra>"),
                     row=1, col=1)
-                fig.add_trace(go.Scatter(
-                    x=mvrv["time"], y=mvrv["price"] / mvrv["mvrv"],
-                    name="prix réalisé", mode="lines",
-                    line=dict(color=C["orange"], width=1.6),
-                    hovertemplate="réalisé %{y:,.0f} $<extra></extra>"),
-                    row=1, col=1)
+                if view == "MVRV":
+                    fig.add_trace(go.Scatter(
+                        x=mvrv["time"], y=mvrv["price"] / mvrv["mvrv"],
+                        name="prix réalisé", mode="lines",
+                        line=dict(color=C["orange"], width=1.6),
+                        hovertemplate="réalisé %{y:,.0f} $<extra></extra>"),
+                        row=1, col=1)
                 fig.update_yaxes(type="log", row=1, col=1)
                 target = dict(row=2, col=1)
             else:
                 target = {}
             fig.add_trace(go.Scatter(
-                x=mvrv["time"], y=mvrv["mvrv"], name="MVRV", mode="lines",
-                line=dict(color=C["cyan"], width=1.4),
-                hovertemplate="MVRV %{y:.2f}<extra></extra>"), **target)
-            for level, color, text in (
-                    (cycle.MVRV_HIGH, C["red"], "zone des sommets"),
-                    (cycle.MVRV_LOW, C["green"], "sous le prix réalisé")):
+                x=ratio.index, y=ratio, name=name, mode="lines",
+                line=dict(color=color, width=1.1 if view == "PUELL" else 1.4),
+                hovertemplate=hover), **target)
+            if view == "PUELL":
+                # L'année qui suit un halving : la moyenne mêle des jours à
+                # subvention double, le multiple y sort bas sans que les
+                # mineurs souffrent pour autant.
+                for halving in cycle.HALVINGS:
+                    debut = pd.Timestamp(halving.date)
+                    if debut + pd.Timedelta(days=cycle.PUELL_WINDOW) < ratio.index[0]:
+                        continue
+                    fig.add_vrect(
+                        x0=debut, x1=debut + pd.Timedelta(days=cycle.PUELL_WINDOW),
+                        fillcolor=C["muted"], opacity=0.08, line_width=0,
+                        **target)
+            for level, color, text in bands:
                 fig.add_hline(
                     y=level, line=dict(color=color, width=1, dash="dot"),
                     annotation_text=f"{level:g} · {text}",
                     annotation_position="top left",
                     annotation_font=dict(size=9, color=C["muted"]),
                     **target)
+            if view == "PUELL":
+                # Logarithmique : les pics de 2013 (plus de 10) écrasaient
+                # dix ans de courbe sous la borne de 4. Sur un axe log,
+                # Plotly place les traits des bornes en valeurs, mais leurs
+                # légendes en logarithmes : sans conversion, celle de 4
+                # partait à 10 000.
+                fig.update_yaxes(type="log", **target)
+                for note in fig.layout.annotations:
+                    if note.yref in ("y", "y2") and note.y:
+                        note.y = float(np.log10(note.y))
             # L'attribution que demande la licence des données.
             fig.add_annotation(
                 text="données : Coin Metrics (coinmetrics.io), CC BY-NC",
@@ -1774,12 +1811,14 @@ def build_cycle_chart(view: str, closes: pd.Series,
             text="historique journalier indisponible", xref="paper",
             yref="paper", x=0.5, y=0.5, showarrow=False,
             font=dict(family=MONO, size=11, color=C["muted"]))
-    if view == "MVRV" and maximized and len(fig.data) > 1:
+    if view in ("MVRV", "PUELL") and maximized and len(fig.data) > 1:
         # Deux graphiques : chaque axe au style du terminal — sans quoi le
         # second gardait le quadrillage blanc de Plotly —, et chaque titre
         # sur le sien.
         fig.update_xaxes(**axis_common)
         fig.update_yaxes(**axis_common)
-        fig.update_yaxes(title_text="cours et prix réalisé ($)", row=1, col=1)
-        fig.update_yaxes(title_text="MVRV", row=2, col=1)
+        fig.update_yaxes(title_text="cours et prix réalisé ($)"
+                         if view == "MVRV" else "cours ($)", row=1, col=1)
+        fig.update_yaxes(title_text=view.capitalize() if view == "PUELL"
+                         else "MVRV", row=2, col=1)
     return fig

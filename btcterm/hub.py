@@ -1726,13 +1726,14 @@ class MarketHub:
             return {}
 
     def mvrv(self) -> pd.DataFrame:
-        """Le MVRV journalier depuis 2012 (§ sources.fetch_mvrv), gardé six
-        heures — Coin Metrics publie un point par jour ; vide si la source
-        se tait et que le cache n'a rien."""
+        """Le MVRV et l'émission journaliers depuis 2012 (§
+        sources.fetch_mvrv), gardés six heures — Coin Metrics publie un
+        point par jour ; vide si la source se tait et que le cache n'a
+        rien."""
         try:
             return self._cache.get("mvrv", 6 * 3600, sources.fetch_mvrv)
         except Exception:
-            return pd.DataFrame(columns=["time", "mvrv", "price"])
+            return pd.DataFrame(columns=["time", "mvrv", "price", "issuance"])
 
     def difficulty_epoch(self, now: Optional[float] = None) -> Optional[dict]:
         """Le prochain ajustement de difficulté (§ cycle.difficulty_estimate).

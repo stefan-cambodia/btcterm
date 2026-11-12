@@ -1,19 +1,22 @@
 """
 Panneau cycle : où en est le bitcoin depuis le halving, et depuis le sommet.
 
-À gauche, le graphique, en trois vues — **CYCLES**, les cycles superposés
+À gauche, le graphique, en cinq vues — **CYCLES**, les cycles superposés
 en multiple du cours du jour du halving ; **MAYER**, le cours rapporté à
-sa moyenne de 200 jours ; **REPLI**, la distance au plus haut couru. À
+sa moyenne de 200 jours ; **REPLI**, la distance au plus haut couru ;
+**MVRV**, la capitalisation sur la capitalisation réalisée ; **PUELL**,
+l'émission du jour en dollars sur sa moyenne d'un an. À
 droite, la situation du jour : compte à rebours du prochain halving, jour
 du cycle et ce que valaient les précédents au même jour, sommet et repli,
-multiple de Mayer et son rang, moyenne de 200 semaines, Pi cycle
-(`btcterm.cycle`).
+multiple de Mayer et son rang, moyenne de 200 semaines, Pi cycle, MVRV
+et multiple de Puell (`btcterm.cycle`).
 
 Tout y est en dollars : ce sont des multiples et des rapports, et les
 cycles se comparent dans l'unité où ils ont été cotés.
 
 Sources : les clôtures journalières du disque, la hauteur de la chaîne
-chez blockchain.info — sans elle, le compte à rebours est estimé, et le dit.
+chez blockchain.info — sans elle, le compte à rebours est estimé, et le dit
+—, le MVRV et l'émission chez Coin Metrics (CC BY-NC, nommé à l'écran).
 """
 
 from __future__ import annotations
@@ -89,7 +92,13 @@ def _mvrv_color(value: float) -> str:
             else C["green"] if value < cycle.MVRV_LOW else C["text"])
 
 
-def rows(state: dict | None, mvrv: dict | None = None
+def _puell_color(value: float) -> str:
+    return (C["red"] if value >= cycle.PUELL_HIGH
+            else C["green"] if value < cycle.PUELL_LOW else C["text"])
+
+
+def rows(state: dict | None, mvrv: dict | None = None,
+         puell: dict | None = None
          ) -> list[tuple[str, str, str, str]]:
     """Les lignes du tableau : intitulé, valeur, couleur, infobulle.
 
@@ -177,11 +186,30 @@ def rows(state: dict | None, mvrv: dict | None = None
             + (f" ; plus haut que {rank * 100:.0f} % des jours depuis 2012"
                if rank is not None else "")
             + " — données Coin Metrics, CC BY-NC"))
+    if puell is not None:
+        rank = puell["rank"]
+        out.append((
+            "Puell · Coin Metrics",
+            f"{puell['puell']:.2f}",
+            _puell_color(puell["puell"]),
+            "valeur en dollars des bitcoins émis le "
+            f"{puell['date']:%d/%m/%Y}, sur sa moyenne de "
+            f"{cycle.PUELL_WINDOW} jours — ce que gagnent les mineurs, "
+            "rapporté à ce qu'ils gagnent d'habitude : sous "
+            f"{cycle.PUELL_LOW:g} les creux passés, au-dessus de "
+            f"{cycle.PUELL_HIGH:g} les sommets de 2013 et 2017"
+            + (f" ; plus haut que {rank * 100:.0f} % des jours depuis 2013"
+               if rank is not None else "")
+            + (f" ; halving du {puell['halving']:%d/%m/%Y} il y a moins d'un "
+               "an, la moyenne compte encore des jours à subvention double : "
+               "le multiple sort bas" if puell["halving"] is not None else "")
+            + " — données Coin Metrics, CC BY-NC"))
     return out
 
 
-def table(state: dict | None, mvrv: dict | None = None):
-    lines = rows(state, mvrv)
+def table(state: dict | None, mvrv: dict | None = None,
+          puell: dict | None = None):
+    lines = rows(state, mvrv, puell)
     if not lines:
         return html.Div("historique indisponible",
                         style={"fontFamily": MONO, "fontSize": "10px",
@@ -239,4 +267,5 @@ def register(app, hub):
         figure = build_cycle_chart(
             view, closes, maximized=maximized,
             uirevision=f"cycle:{view}:{maximized}", mvrv=mvrv)
-        return figure, table(state, cycle.mvrv_state(mvrv)), badges(state)
+        return (figure, table(state, cycle.mvrv_state(mvrv),
+                              cycle.puell_state(mvrv)), badges(state))

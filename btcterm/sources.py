@@ -583,14 +583,18 @@ def fetch_block_time(height: int) -> int:
 
 
 def fetch_mvrv(start: str = "2012-01-01") -> pd.DataFrame:
-    """Le MVRV du bitcoin et son cours, un point par jour, chez Coin Metrics.
+    """Le MVRV du bitcoin, son cours et l'émission, un point par jour, chez
+    Coin Metrics.
 
     `CapMVRVCur` — capitalisation de marché sur capitalisation réalisée —
     est libre ; la capitalisation réalisée elle-même ne l'est pas, mais le
-    prix réalisé s'en déduit (`price / mvrv`). Retourne `time`, `mvrv`,
-    `price` ; lève si la source ne répond pas.
+    prix réalisé s'en déduit (`price / mvrv`). `IssTotUSD` — la valeur en
+    dollars des bitcoins créés ce jour-là, subvention de bloc seule — nourrit
+    le multiple de Puell (§ cycle.puell) ; les revenus des mineurs frais
+    compris (`RevUSD`) ne sont pas dans l'offre libre. Retourne `time`,
+    `mvrv`, `price`, `issuance` ; lève si la source ne répond pas.
     """
-    params = {"assets": "btc", "metrics": "CapMVRVCur,PriceUSD",
+    params = {"assets": "btc", "metrics": "CapMVRVCur,PriceUSD,IssTotUSD",
               "frequency": "1d", "start_time": start, "page_size": 10_000}
     rows: list[dict] = []
     url: Optional[str] = COINMETRICS_API
@@ -605,10 +609,18 @@ def fetch_mvrv(start: str = "2012-01-01") -> pd.DataFrame:
     frame = pd.DataFrame(rows)
     if frame.empty or "CapMVRVCur" not in frame:
         raise ValueError("réponse vide de Coin Metrics")
+    def column(name: str) -> pd.Series:
+        # Une métrique absente de toute la réponse : une colonne vide,
+        # pas une erreur — le MVRV n'a pas à tomber avec l'émission.
+        if name not in frame:
+            return pd.Series(np.nan, index=frame.index)
+        return pd.to_numeric(frame[name], errors="coerce")
+
     frame = pd.DataFrame({
         "time": pd.to_datetime(frame["time"]).dt.tz_localize(None),
-        "mvrv": pd.to_numeric(frame["CapMVRVCur"], errors="coerce"),
-        "price": pd.to_numeric(frame.get("PriceUSD"), errors="coerce"),
+        "mvrv": column("CapMVRVCur"),
+        "price": column("PriceUSD"),
+        "issuance": column("IssTotUSD"),
     })
     return frame.dropna(subset=["mvrv"]).sort_values("time").reset_index(drop=True)
 

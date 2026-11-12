@@ -39,7 +39,8 @@ __all__ = ["Halving", "HALVINGS", "HALVING_INTERVAL", "BLOCK_MINUTES",
            "metrics", "BLOCKS_PER_DAY", "block_subsidy", "daily_issuance",
            "etf_supply", "btc_amount", "supply_text", "RETARGET_INTERVAL",
            "difficulty_estimate", "hash_ribbons", "MVRV_LOW", "MVRV_HIGH",
-           "mvrv_state"]
+           "mvrv_state", "PUELL_LOW", "PUELL_HIGH", "PUELL_WINDOW", "puell",
+           "puell_state"]
 
 #: Blocs entre deux halvings, et rythme visé par le protocole.
 HALVING_INTERVAL = 210_000
@@ -407,3 +408,57 @@ def mvrv_state(frame: Optional[pd.DataFrame]) -> Optional[dict]:
     return {"mvrv": mvrv, "date": pd.Timestamp(last["time"]),
             "realized": price / mvrv if price and mvrv else None,
             "rank": float((history < mvrv).mean()) if len(history) else None}
+
+
+#: Bornes d'usage du multiple de Puell, une convention plus qu'une norme :
+#: sous 0,5, les bitcoins émis valent moins de la moitié de leur moyenne
+#: annuelle — les mineurs les moins efficaces ne couvrent plus leurs coûts,
+#: les creux de 2015, 2018-2019, 2022 ; au-dessus de 4, quatre fois plus —
+#: les sommets de 2013 et 2017.
+#: Les sommets de 2021 et 2024 sont restés bien en dessous : la borne
+#: haute ne sonne plus guère.
+PUELL_LOW = 0.5
+PUELL_HIGH = 4.0
+
+#: La moyenne de référence, en jours.
+PUELL_WINDOW = 365
+
+
+def puell(frame: Optional[pd.DataFrame]) -> pd.Series:
+    """Le multiple de Puell, jour par jour, indexé par la date.
+
+    La valeur en dollars des bitcoins émis ce jour-là (`issuance`, §
+    sources.fetch_mvrv) sur sa moyenne des `PUELL_WINDOW` jours : ce que
+    gagnent les mineurs, rapporté à ce qu'ils gagnent d'habitude. L'émission
+    varie avec le nombre de blocs trouvés dans la journée — 111 un jour,
+    135 le lendemain —, la courbe est donc nerveuse ; c'est sa zone qui
+    compte, pas son dernier point. Vide sans un an d'émission.
+    """
+    if frame is None or frame.empty or "issuance" not in frame:
+        return pd.Series(dtype=float)
+    issued = (frame.set_index("time")["issuance"].astype(float)
+              .where(lambda s: s > 0).dropna())
+    average = issued.rolling(PUELL_WINDOW, min_periods=PUELL_WINDOW).mean()
+    return (issued / average).dropna()
+
+
+def puell_state(frame: Optional[pd.DataFrame]) -> Optional[dict]:
+    """Le multiple de Puell du dernier jour publié, et son rang.
+
+    Rend `puell`, `date`, `rank` (la part des jours passés où il était plus
+    bas) et `halving` : la date du dernier halving s'il remonte à moins
+    d'un an. La moyenne mêle alors des jours d'avant, à subvention double,
+    et le multiple sort bas sans que les mineurs souffrent pour autant —
+    l'écart se résorbe à l'anniversaire du halving.
+    """
+    series = puell(frame)
+    if series.empty:
+        return None
+    value = float(series.iloc[-1])
+    date = pd.Timestamp(series.index[-1])
+    history = series.iloc[:-1]
+    recent = [h.date for h in HALVINGS
+              if 0 <= (date - pd.Timestamp(h.date)).days < PUELL_WINDOW]
+    return {"puell": value, "date": date,
+            "rank": float((history < value).mean()) if len(history) else None,
+            "halving": pd.Timestamp(recent[-1]) if recent else None}

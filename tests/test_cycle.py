@@ -316,7 +316,8 @@ def test_le_mvrv_chez_coin_metrics():
         mvrv = sources.fetch_mvrv()
     finally:
         sources._http.get = original
-    assert demandes[0][1]["metrics"] == "CapMVRVCur,PriceUSD"
+    assert demandes[0][1]["metrics"] == "CapMVRVCur,PriceUSD,IssTotUSD"
+    assert mvrv["issuance"].isna().all(), "émission absente : colonne vide, pas d'erreur"
     assert demandes[1] == ("https://exemple/suite", None), "la page suivante"
     assert list(mvrv["mvrv"]) == [0.69, 2.72, 1.37]
 
@@ -345,6 +346,83 @@ def test_le_mvrv_chez_coin_metrics():
     assert any(label == "MVRV · Coin Metrics" and "réalisé 53,869 $" in valeur
                for label, valeur, _, _ in lignes), lignes
     print("  ✓ MVRV paginé, prix réalisé et rang ; vue et ligne, Coin Metrics nommé")
+
+
+def test_le_multiple_de_puell():
+    """L'émission du jour en dollars sur sa moyenne d'un an : rien avant un
+    an d'historique, le rang, l'année d'après un halving signalée ; la vue
+    PUELL, ses bornes et l'ombre des halvings ; la ligne du tableau et la
+    synthèse, qui ne le dit qu'à ses bornes."""
+    from btcterm import brief
+    from terminal.charts import build_cycle_chart
+    from terminal.panels import cycle as panneau
+
+    jours = pd.date_range("2023-01-01", periods=800, freq="D")
+    emission = pd.Series(10e6, index=range(800))
+    emission.iloc[-1] = 30e6                       # un jour faste
+    serie = pd.DataFrame({"time": jours, "mvrv": 1.5, "price": 50_000.0,
+                          "issuance": emission})
+    multiple = cycle.puell(serie)
+    assert multiple.index[0] == jours[cycle.PUELL_WINDOW - 1], \
+        "rien avant un an d'émission"
+    attendu = 30e6 / ((364 * 10e6 + 30e6) / 365)
+    assert abs(multiple.iloc[-1] - attendu) < 1e-9
+    assert abs(multiple.iloc[-2] - 1.0) < 1e-12
+
+    etat = cycle.puell_state(serie)
+    assert etat["date"] == jours[-1] and etat["rank"] == 1.0
+    # 800 jours depuis le 1er janvier 2023 : le 10 mars 2025, moins d'un an
+    # après le halving du 20 avril 2024.
+    assert etat["halving"] == pd.Timestamp("2024-04-20")
+    tard = serie.assign(time=pd.date_range("2024-01-01", periods=800, freq="D"))
+    assert cycle.puell_state(tard)["halving"] is None, "le 10 mars 2026 : plus d'un an"
+    assert cycle.puell_state(serie.iloc[:300]) is None
+    assert cycle.puell_state(serie.drop(columns="issuance")) is None
+    assert cycle.puell(None).empty
+
+    petite = build_cycle_chart("PUELL", pd.Series(dtype=float), mvrv=serie)
+    assert [t.name for t in petite.data] == ["Puell"]
+    assert {round(f.y0, 2) for f in petite.layout.shapes
+            if f.type == "line"} == {cycle.PUELL_LOW, cycle.PUELL_HIGH}
+    assert any(f.type == "rect" for f in petite.layout.shapes), "halving ombré"
+    assert petite.layout.yaxis.type == "log"
+    assert sorted(round(a.y, 3) for a in petite.layout.annotations
+                  if a.yref == "y") == [round(np.log10(cycle.PUELL_LOW), 3),
+                                        round(np.log10(cycle.PUELL_HIGH), 3)], \
+        "sur un axe log, les légendes des bornes se placent en logarithmes"
+    assert any("Coin Metrics" in (a.text or "") for a in petite.layout.annotations)
+    grande = build_cycle_chart("PUELL", pd.Series(dtype=float), mvrv=serie,
+                               maximized=True)
+    assert [t.name for t in grande.data] == ["cours", "Puell"]
+    assert grande.layout.yaxis2.title.text == "Puell"
+    assert grande.layout.yaxis2.type == "log" and grande.layout.yaxis.type == "log"
+    vide = build_cycle_chart("PUELL", pd.Series(dtype=float),
+                             mvrv=serie.iloc[:10])
+    assert not vide.data and "indisponible" in vide.layout.annotations[0].text
+
+    lignes = panneau.rows(None, None, etat)
+    assert lignes == [] or lignes[0][0] == "Puell · Coin Metrics"
+    complet = panneau.rows({"halving": {"estimated": False,
+                                        "eta": pd.Timestamp("2028-04-12"),
+                                        "target": 1_050_000, "days_left": 517.0,
+                                        "blocks_left": 74_464, "height": 975_536,
+                                        "progress": 0.65},
+                            "cycle_day": None, "same_day": [], "ath": 124_659.0,
+                            "ath_date": pd.Timestamp("2025-10-06"),
+                            "drawdown": -41.0, "days_since_ath": 402,
+                            "mayer": None, "ma200w": None, "pi_ratio": None},
+                           None, etat)
+    ((_, valeur, _, aide),) = [l for l in complet if l[0].startswith("Puell")]
+    assert valeur == f"{attendu:.2f}" and "subvention double" in aide
+
+    situation = {"cycle_day": None, "drawdown": -41.0, "days_since_ath": 402,
+                 "mayer": None, "halving": {"estimated": False,
+                                            "days_left": 517.0}}
+    calme = brief.cycle_item(situation, None, {**etat, "puell": 1.2})
+    assert "Puell" not in calme.text and calme.tone == ""
+    creux = brief.cycle_item(situation, None, {**etat, "puell": 0.42})
+    assert "Puell 0.42" in creux.text and creux.tone == "warn"
+    print("  ✓ Puell : un an de recul, rang, halving signalé ; vue, ligne, synthèse aux bornes")
 
 
 def test_le_panneau_tient_avec_et_sans_donnees():

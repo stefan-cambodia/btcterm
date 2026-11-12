@@ -1282,6 +1282,25 @@ réseau (`tests/test_cycle.py`) :
   sa ligne. Les données sont sous licence CC BY-NC 4.0 : usage non
   commercial, et « Coin Metrics » nommé là où elles s'affichent — sur le
   graphique et dans le tableau. Gardé six heures ;
+- `puell` / `puell_state` — le multiple de Puell : `IssTotUSD`, la valeur
+  en dollars des bitcoins émis dans la journée (subvention seule ; les
+  revenus frais compris, `RevUSD`, ne sont pas dans l'offre libre), sur sa
+  moyenne des 365 jours (`PUELL_WINDOW`), lu dans la même requête que le
+  MVRV — la colonne `issuance` de `fetch_mvrv`, vide sans erreur si la
+  métrique manque. Bornes d'usage 0,5 et 4 (`PUELL_LOW`, `PUELL_HIGH`),
+  une convention de sites d'indicateurs plutôt qu'une norme ; les valeurs
+  ont été comparées à l'histoire avant d'être branchées : plus de 10 en
+  2013, 6,6 en 2017, 3,5 en 2021, 2,4 en 2024 ; 0,3 aux creux de 2015, 2018
+  et 2022 ; 0,91 le 12 novembre 2026. L'émission suit le nombre de blocs
+  trouvés dans la journée — 111 un jour, 135 le lendemain —, la courbe est
+  donc nerveuse : la vue « PUELL » la trace en log, l'année qui suit chaque
+  halving ombrée (la moyenne y mêle des jours à subvention double, et
+  `puell_state` le signale par `halving`), le tableau a sa ligne, la
+  synthèse ne le nomme qu'hors de ses bornes. Pas d'alerte : un point
+  quotidien qui saute de 20 % d'un jour à l'autre ferait sonner chaque
+  passage de borne plusieurs fois. Sur un axe log, Plotly place les traits
+  des bornes en valeurs mais leurs légendes en logarithmes :
+  `build_cycle_chart` convertit ces dernières ;
 - `etf_supply` — les flux nets des ETF d'une fenêtre en bitcoins, face à
   l'émission des mineurs : chaque séance convertie au cours de clôture de son
   jour (la dernière connue avant lui, à défaut), l'émission comptée tous les
@@ -3798,6 +3817,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   CYCLE de la synthèse.
 - ~~**Un cycle sans prix de revient du marché**~~ — fait le 12 novembre 2026
   (§2.15) : le MVRV de Coin Metrics et le prix réalisé au panneau CYCLE.
+- ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
+  (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
+  synthèse hors de ses bornes.
 - ~~**Des mineurs qu'on ne voyait pas capituler**~~ — fait le 12 novembre
   2026 (§2.15) : les hash ribbons sur le graphique ON-CHAIN, et le prochain
   ajustement de difficulté estimé au badge.

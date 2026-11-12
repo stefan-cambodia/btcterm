@@ -1062,13 +1062,25 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "!!document.querySelector('#cycle-chart .js-plotly-plot')"
             " && (document.getElementById('cycle-badges')?.textContent"
             " || '').length > 8", timeout=30)
-        for vue in ("MAYER", "REPLI", "CYCLES"):
+        # Cinq vues dans la barre de titre de la grille : la dernière ne
+        # doit pas passer sous le bord, que l'overflow cacherait sans bruit.
+        bord = browser.js("""
+            const vues = document.getElementById('cycle-view');
+            const barre = vues.parentElement.getBoundingClientRect();
+            const labels = vues.querySelectorAll('label');
+            return {fin: labels[labels.length - 1].getBoundingClientRect().right,
+                    bord: barre.right, n: labels.length};
+        """)
+        check("CYCLE : les cinq vues tiennent dans la barre de titre",
+              bord["n"] == 5 and bord["fin"] <= bord["bord"] + 0.5,
+              f"{bord['n']} vues, {bord['bord'] - bord['fin']:.0f} px de marge")
+        for vue in ("MAYER", "REPLI", "MVRV", "PUELL", "CYCLES"):
             browser.js("""
                 Array.from(document.querySelectorAll('#cycle-view label'))
                      .find(l => l.textContent.trim() === arguments[0]).click();
             """, [vue])
             attendu = {"CYCLES": "halving", "MAYER": "Mayer",
-                       "REPLI": "repli"}[vue]
+                       "REPLI": "repli", "MVRV": "MVRV", "PUELL": "Puell"}[vue]
             # La vue est là quand sa propre série l'est, ou que le panneau
             # a dit son absence : pas de délai fixe.
             browser.wait_for(f"""
