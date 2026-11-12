@@ -317,6 +317,33 @@ def test_l_exposition_gamma_des_teneurs():
           "convention dite")
 
 
+def test_le_sourire_d_une_echeance():
+    """Le sourire prend l'option hors de la monnaie de chaque strike — le
+    put sous le forward, le call au-dessus —, en %, et se trace sous
+    l'open interest en plein écran seulement."""
+    from terminal import charts
+
+    chaine = opt.option_chain(_sourire("13NOV26"))
+    echeance = chaine["expiry"].iloc[0]
+    sourire = opt.smile(chaine, echeance)
+    assert list(sourire.columns) == ["strike", "iv", "side"]
+    assert set(sourire.loc[sourire["strike"] < 75_000, "side"]) == {"P"}
+    assert set(sourire.loc[sourire["strike"] >= 75_000, "side"]) == {"C"}
+    attendu = (0.40 - 0.20 * math.log(60_000 / 75_000)) * 100
+    assert abs(float(sourire.loc[sourire["strike"] == 60_000, "iv"].iloc[0])
+               - attendu) < 1e-6, "en %"
+    assert sourire["strike"].is_monotonic_increasing
+    assert opt.smile(chaine, None).empty and opt.smile(chaine.iloc[0:0], echeance).empty
+
+    table = opt.strike_table(chaine, echeance)
+    petite = charts.build_strikes_chart(table, 75_000, 75_000, smile=sourire)
+    assert [t.name for t in petite.data] == ["calls", "puts"], "pas de sourire dans la grille"
+    grande = charts.build_strikes_chart(table, 75_000, 75_000, maximized=True,
+                                        smile=sourire)
+    assert [t.name for t in grande.data] == ["calls", "puts", "vol. implicite"]
+    print("  ✓ sourire hors de la monnaie, en %, sous l'open interest en plein écran")
+
+
 def test_le_vide_vaut_panne():
     class Reponse:
         def __init__(self, payload):

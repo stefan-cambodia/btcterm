@@ -2406,6 +2406,12 @@ module `options` (§2.11) en quatre vues :
   étiquettes du forward et du max pain s'écartent l'une de l'autre, la plus
   basse à gauche de sa ligne : centrées, elles se chevauchaient dès que les
   deux niveaux étaient proches.
+- **Sourire** — en plein écran, la vue STRIKES ajoute sous l'open interest le
+  sourire de volatilité de la même échéance (`options.smile`) : la
+  volatilité implicite strike par strike, de l'option hors de la monnaie —
+  le put sous le forward, le call au-dessus —, là où TERME n'en garde que
+  trois points. Le 12 novembre 2026, décembre : 68 % à 45 000 $, 37 % vers
+  80 000, 50 % à 110 000 — la protection se paie.
 - **GEX** — l'exposition gamma des teneurs de marché, par strike
   (`options.gamma_exposure`) : pour chaque option vivante, le gamma de
   Black-76 sur le forward de son échéance (`gamma`, vérifié contre la dérivée

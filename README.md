@@ -29,6 +29,19 @@ perpétuel comparés sur trois plateformes, calendrier macro, dominance.*
 revenir ; ici le prix en 4 h avec ses signaux gradués et le profil de volume
 de la plage visible.*
 
+![Le prix en quinze minutes avec ses couches : niveaux clés et VWAP, gros ordres, carte du carnet, open interest](docs/captures/plein-ecran-couches.png)
+
+*Les couches du graphique du prix : niveaux clés, gamma flip et VWAP ancré
+(NIV), gros ordres en bulles (ORD), carte de chaleur du carnet sous les
+chandeliers (MURS, qui se remplit depuis le démarrage du service), open
+interest en volet (OI).*
+
+![L'exposition gamma des teneurs de marché par strike, et son profil selon le prix](docs/captures/options-gex.png)
+
+*La vue GEX des options : ce que les teneurs de marché achètent ou vendent
+par 1 % de mouvement, strike par strike, et le gamma flip où le régime
+change.*
+
 ![Le journal de la séance, la position, les réglages d'alertes et les données de chaîne](docs/captures/grille-journal.png)
 
 *Le journal relit la séance — alertes sonnées, épisodes d'arbitrage, bilan

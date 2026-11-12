@@ -1243,14 +1243,22 @@ def build_term_chart(curve: pd.DataFrame, futures: pd.DataFrame,
 
 def build_strikes_chart(table: pd.DataFrame, forward: float | None,
                         pain: float | None, uirevision: str = "options:strikes",
-                        maximized: bool = False) -> go.Figure:
+                        maximized: bool = False,
+                        smile: pd.DataFrame | None = None) -> go.Figure:
     """L'open interest par strike d'une échéance, calls contre puts.
 
     Le forward de l'échéance et son max pain en verticales : l'écart entre
     les deux dit de quel côté la plupart des options finiraient sans
-    valeur si le prix ne bougeait pas.
+    valeur si le prix ne bougeait pas. En plein écran, dessous, le sourire
+    de volatilité de la même échéance (§ options.smile) : la volatilité
+    implicite strike par strike, là où la vue TERME n'en garde que trois
+    points — les puts lointains plus chers que les calls, c'est la
+    protection qui se paie.
     """
-    fig = go.Figure()
+    with_smile = bool(maximized and smile is not None and not smile.empty)
+    fig = (make_subplots(rows=2, cols=1, shared_xaxes=True,
+                         row_heights=[0.6, 0.4], vertical_spacing=0.08)
+           if with_smile else go.Figure())
     view = table
     if forward and not table.empty:
         low, high = STRIKES_SPAN
@@ -1264,11 +1272,33 @@ def build_strikes_chart(table: pd.DataFrame, forward: float | None,
                 marker=dict(color=color, opacity=0.8),
                 hovertemplate=(f"{name} %{{y:,.0f}} BTC · strike "
                                "%{x:,.0f}<extra></extra>"),
-            ))
+            ), **({"row": 1, "col": 1} if with_smile else {}))
+    if with_smile:
+        shown = smile
+        if forward:
+            low, high = STRIKES_SPAN
+            shown = smile[(smile["strike"] >= forward * low)
+                          & (smile["strike"] <= forward * high)]
+        fig.add_trace(go.Scatter(
+            x=shown["strike"], y=shown["iv"], name="vol. implicite",
+            mode="lines+markers", line=dict(color=C["yellow"], width=1.6),
+            marker=dict(size=4, color=[C["red"] if s == "P" else C["green"]
+                                       for s in shown["side"]]),
+            hovertemplate="vol. %{y:.1f} % · strike %{x:,.0f}<extra></extra>"),
+            row=2, col=1)
     _options_layout(fig, uirevision, maximized)
     fig.update_layout(barmode="group", bargap=0.25, hovermode="closest",
                       yaxis_title_text=("open interest (BTC)" if maximized
                                         else None))
+    if with_smile:
+        # Chaque axe au style du terminal : le second gardait sinon le
+        # quadrillage blanc de Plotly.
+        axis = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
+                    tickfont=dict(size=9, color=C["muted"]))
+        fig.update_xaxes(**axis)
+        fig.update_yaxes(**axis)
+        fig.update_yaxes(title_text="vol. implicite (%)", ticksuffix=" %",
+                         row=2, col=1)
     # Centrées sur leurs lignes, les deux étiquettes se chevauchaient dès
     # que forward et max pain étaient proches — « forward 73,789max pain
     # 76,000 » dans la grille : chacune s'écarte donc du côté opposé à

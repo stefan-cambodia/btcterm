@@ -50,6 +50,16 @@ VUES = {
         "intervalle": "5m"},
     "plein-ecran.png": {"onglets": (), "intervalle": "4h",
                         "plein_ecran": True},
+    # Les couches du graphique du prix : niveaux clés et VWAP, gros ordres,
+    # carte du carnet, open interest — décochées au départ, recochées
+    # après pour ne pas peser sur les vues suivantes.
+    "plein-ecran-couches.png": {"onglets": (), "intervalle": "15m",
+                                "plein_ecran": True,
+                                "cases": ("NIV", "ORD", "MURS", "OI")},
+    # L'exposition gamma des teneurs, en plein écran de la rangée basse.
+    "options-gex.png": {"onglets": ("OPTIONS",), "intervalle": "1d",
+                        "plein_ecran": "macro",
+                        "selecteurs": {"options-view": "GEX"}},
 }
 #: Largeur des images du dépôt.
 LARGEUR = 1600
@@ -81,6 +91,14 @@ def intervalle(browser, valeur: str) -> bool:
     return browser.wait_for(
         f"(d => d.loaded === '{valeur}' && d.bars > 0)"
         "(window.lwcPrice.debug())", timeout=30)
+
+
+def cocher(browser, conteneur: str, libelle: str) -> None:
+    """Clique l'option `libelle` d'un sélecteur (case ou bouton radio)."""
+    browser.js("""
+        const l = Array.from(document.querySelectorAll('#' + arguments[0] + ' label'))
+          .find(e => e.textContent.trim() === arguments[1]);
+        if (l) l.click();""", [conteneur, libelle])
 
 
 def reduire(image: Path) -> None:
@@ -117,8 +135,16 @@ def run(out: Path, url: str = URL, brut: bool = False) -> int:
             if not intervalle(browser, vue["intervalle"]):
                 print(f"  ✗ l'intervalle {vue['intervalle']} ne s'est pas chargé")
                 return 1
-            if vue.get("plein_ecran"):
-                browser.js("document.getElementById('zoom-price').click();")
+            for case in vue.get("cases", ()):
+                cocher(browser, "price-extras", case)
+                time.sleep(1.5)
+            for selecteur, libelle in vue.get("selecteurs", {}).items():
+                cocher(browser, selecteur, libelle)
+                time.sleep(2)
+            zone = vue.get("plein_ecran")
+            if zone:
+                cellule = "price" if zone is True else zone
+                browser.js(f"document.getElementById('zoom-{cellule}').click();")
                 time.sleep(2)
                 browser.wait_for(PRIX_PRET)
             # Le temps que les panneaux se remplissent — la synthèse et
@@ -129,6 +155,9 @@ def run(out: Path, url: str = URL, brut: bool = False) -> int:
                 browser.js("document.body.dispatchEvent(new KeyboardEvent("
                            "'keydown', {key: 'Escape', bubbles: true}));")
                 time.sleep(1.5)
+            for case in vue.get("cases", ()):
+                cocher(browser, "price-extras", case)
+                time.sleep(1)
             if not brut:
                 reduire(out / fichier)
             print(f"  ✓ {fichier}")

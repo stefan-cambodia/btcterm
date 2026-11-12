@@ -36,7 +36,7 @@ import pandas as pd
 
 __all__ = [
     "MIN_DAYS", "call_delta", "gamma", "gamma_exposure", "gamma_profile",
-    "gamma_flip", "chart_levels", "expiry_summary", "front_expiry", "futures_curve", "max_pain",
+    "gamma_flip", "chart_levels", "expiry_summary", "smile", "front_expiry", "futures_curve", "max_pain",
     "option_chain", "parse_instrument", "put_call_ratio", "strike_table",
     "summary", "term_structure",
 ]
@@ -323,6 +323,25 @@ def strike_table(chain: pd.DataFrame,
              .reindex(columns=["C", "P"], fill_value=0.0))
     table.columns = ["call_oi", "put_oi"]
     return table.reset_index()
+
+
+def smile(chain: pd.DataFrame, expiry: Optional[pd.Timestamp]) -> pd.DataFrame:
+    """Le sourire de volatilité d'une échéance : `strike`, `iv` (en %), la
+    volatilité de l'option hors de la monnaie — le put sous le forward, le
+    call au-dessus, celles qui s'échangent et dont la marque est la mieux
+    tenue (la règle de `_smile`) —, et `side` (`P` ou `C`). Vide sans
+    échéance ou sans cotation."""
+    columns = ["strike", "iv", "side"]
+    if expiry is None or chain is None or chain.empty:
+        return pd.DataFrame(columns=columns)
+    group = chain[chain["expiry"] == expiry]
+    if group.empty:
+        return pd.DataFrame(columns=columns)
+    forward = float(group["forward"].median())
+    otm = group[((group["kind"] == "P") & (group["strike"] < forward))
+                | ((group["kind"] == "C") & (group["strike"] >= forward))]
+    return (otm.assign(iv=otm["iv"] * 100, side=otm["kind"])[columns]
+            .sort_values("strike").reset_index(drop=True))
 
 
 def max_pain(table: pd.DataFrame) -> Optional[float]:
