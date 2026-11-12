@@ -2665,17 +2665,41 @@ Chaque source distante a une stratégie de repli explicite :
 | Source | Repli |
 |---|---|
 | toute donnée REST déjà servie | dernière valeur connue, conservée par `TTLCache` |
+| série lente, au redémarrage du service | sa dernière valeur sur disque (`~/.btcterm/cache`), servie fraîche ou de secours, trente jours au plus |
 | nom d'exchange résolu en 127.0.0.1 par le FAI | résolution de secours par DNS sur HTTPS (`resolver`, §2.9) |
 | chandeliers Binance, sans rien en cache | historique sauvegardé, sans la bougie en cours, signalé par un bandeau |
 | chandeliers Binance, sans rien en cache ni sur disque | série de démonstration, signalée par un bandeau |
 | taux EUR | dernier taux lu, ou à froid `EUR_FALLBACK` ; en euros, ⚠ au bandeau et bandeau orange du graphique ; source réinterrogée une fois par minute |
-| masse monétaire M2 | tableau vide, le panneau macro le dit |
+| masse monétaire M2 | dernière valeur, même d'avant le redémarrage ; sans elle, tableau vide, le panneau macro le dit |
 | marché à terme Binance | tableau ou dictionnaire vide, le panneau perpétuel le dit |
 | agrégats de marché, données de chaîne | idem : le panneau affiche son indisponibilité |
 | ticker 24 h | dict vide, le bandeau affiche `—` |
 | WebSocket (tous) | reconnexion (3 s fixes, ou backoff exponentiel plafonné à 30 s) |
 | flux RSS (`news`) | le feed en échec est sauté, les autres continuent |
 | CryptoPanic sans clé | source simplement désactivée |
+
+**La mémoire survit au redémarrage.** Le cache ne vivait qu'en mémoire : un
+service relancé pendant une panne de DBnomics — trois en trois jours en
+novembre 2026, dont une au démarrage — montrait un panneau MACRO vide
+jusqu'au retour de la source, alors que la valeur d'une heure plus tôt
+valait autant. Les familles nommées dans `MarketHub.PERSISTENT` — flux ETF,
+M2, stablecoins, MVRV et émission, séries de chaîne, DVOL, marchés
+traditionnels, Fear & Greed : les séries lentes — s'écrivent à chaque
+lecture réussie dans `~/.btcterm/cache` (un fichier par clé, écrit par un
+temporaire renommé, dossier en 0700), et une clé absente de la mémoire
+repart de son fichier : fraîche, servie sans réseau ; vieillie, la source
+réinterrogée, et le fichier servi de secours — dit comme tel — si elle se
+tait. Au-delà de trente jours (`STORE_MAX_AGE`), le fichier est oublié :
+des flux ETF d'il y a deux mois montrés comme les derniers mentiraient plus
+qu'un panneau vide. Les instantanés — perpétuel, open interest, agrégats,
+options — restent hors du disque pour la même raison, et les bougies ont
+déjà leur base. Pickle plutôt que JSON : il rend les DataFrame à
+l'identique, types de dates compris, et les fichiers ne viennent que du
+cache lui-même. Un fichier abîmé est effacé, un disque qui refuse se dit
+une fois par famille ; dans les deux cas la mémoire sert. L'âge de la
+valeur servie, dans la ligne de panne, se lit désormais à l'unité (« 5 h »,
+pas « 18000 s »). Le journal tenu ou non décide : sans lui
+(`BTCTERM_NO_JOURNAL`, les tests), rien ne s'écrit.
 
 Deux précautions encadrent le premier repli. **Le secours se dit.** Le
 journal de séance a montré six heures et demie d'instantanés sans
@@ -3894,6 +3918,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
   (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
   synthèse hors de ses bornes.
+- ~~**Un redémarrage qui oubliait tout**~~ — fait le 12 novembre 2026
+  (§4.3) : les séries lentes gardées sur disque, servies au redémarrage
+  même quand leur source se tait.
 - ~~**La foule sans les gros**~~ — fait le 12 novembre 2026 (§2.7) : un
   pane du positionnement sous le financement du PERPÉTUEL, la part des
   longs de tous les comptes contre celle de l'argent des gros, prolongée

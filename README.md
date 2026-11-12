@@ -295,6 +295,11 @@ figures Plotly.
 **Hors ligne** — si Binance est injoignable au démarrage, le panneau prix sert
 une série de démonstration générée localement plutôt qu'un cadre vide, et le
 signale par un bandeau orange : les chiffres affichés ne sont alors pas réels.
+Les séries lentes — flux ETF, M2, stablecoins, MVRV, séries de chaîne, DVOL,
+marchés traditionnels, Fear & Greed — survivent au redémarrage : leur dernière
+lecture est gardée dans `~/.btcterm/cache` (trente jours au plus), et un
+service relancé pendant la panne d'une de ces sources la sert de secours —
+le panneau SOURCES le dit — au lieu d'un panneau vide.
 
 **Depuis un pays qui bloque les exchanges** — certains fournisseurs d'accès
 (au Cambodge, par exemple) ne refusent pas `api.binance.com`, `stream.bybit.com`

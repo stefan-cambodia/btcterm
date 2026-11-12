@@ -690,7 +690,7 @@ def test_l_echec_apres_un_silence_ouvre_une_panne():
         cache.get("k", 0, panne)
         assert capture.lignes[-1] == (
             "source k en panne à sa première lecture depuis 180 min : "
-            "injoignable — dernière valeur : 11160 s (panne précédente "
+            "injoignable — dernière valeur : 3 h (panne précédente "
             "constatée : 5 min)"), capture.lignes[-1]
         # Le retour, deux minutes plus tard, compte la nouvelle panne.
         cache._failing["k"] -= 120
@@ -915,6 +915,94 @@ def test_l_etat_des_sources():
     assert [panneau._age(s) for s in (None, 12, 600, 7200, 3 * 86_400)] == [
         "—", "12 s", "10 min", "2 h", "3 j"]
     print("  ✓ état par clé, familles, pannes en tête, flux et tâches dits")
+
+
+def test_la_memoire_survit_au_redemarrage():
+    """Les familles persistantes s'écrivent sur disque à chaque lecture
+    réussie ; un cache neuf — le service relancé — les y retrouve :
+    fraîches, servies sans réseau ; vieillies, la source réinterrogée, et
+    le fichier servi de secours si elle se tait. Rien sur disque pour les
+    autres familles ; un fichier abîmé ou trop vieux est oublié."""
+    import pickle
+
+    def panne():
+        raise ConnectionError("injoignable")
+
+    serie = pd.DataFrame({"time": pd.to_datetime(["2026-11-10", "2026-11-11"]),
+                          "m2": [22_100.5, 22_140.0]})
+    with tempfile.TemporaryDirectory() as tmp:
+        dossier = Path(tmp) / "cache"
+        avant = TTLCache(store=dossier, persist=("m2", "chain"))
+        avant.get("m2", 60, lambda: serie)
+        avant.get("chain:hash-rate:2years", 60, lambda: [1, 2, 3])
+        avant.get("perp", 60, lambda: {"funding_rate": 1e-4})
+        fichiers = sorted(p.name for p in dossier.iterdir())
+        assert fichiers == ["chain%3Ahash-rate%3A2years.pkl", "m2.pkl"], fichiers
+        assert oct(dossier.stat().st_mode & 0o777) == "0o700", "à nous seul"
+
+        # Relancé, sources muettes : fraîches, servies sans les appeler.
+        apres = TTLCache(store=dossier, persist=("m2", "chain"))
+        lu = apres.get("m2", 60, panne)
+        assert lu.equals(serie) and lu["time"].dtype == serie["time"].dtype
+        assert not apres.stale("m2")
+        assert apres.get("chain:hash-rate:2years", 60, panne) == [1, 2, 3]
+        try:
+            apres.get("perp", 60, panne)
+        except ConnectionError:
+            pass
+        else:
+            raise AssertionError("une famille non persistante ne revient pas")
+
+        # Vieillies : la source est réinterrogée ; muette, le fichier sert
+        # de secours, et la panne se dit avec l'âge de la valeur.
+        capture = Capture()
+        hub_module.log.addHandler(capture)
+        try:
+            vieux = TTLCache(store=dossier, persist=("m2",))
+            with open(dossier / "m2.pkl", "rb") as f:
+                stamp, valeur = pickle.load(f)
+            with open(dossier / "m2.pkl", "wb") as f:
+                pickle.dump((stamp - 5 * 3600, valeur), f)
+            assert vieux.get("m2", 60, panne).equals(serie)
+            assert vieux.stale("m2")
+            assert capture.lignes[-1].endswith("dernière valeur : 5 h"), \
+                capture.lignes[-1]
+            # La source revient : la valeur neuve remplace le fichier.
+            neuve = serie.assign(m2=[1.0, 2.0])
+            assert vieux.get("m2", 0, lambda: neuve).equals(neuve)
+            assert TTLCache(store=dossier, persist=("m2",)).get(
+                "m2", 60, panne).equals(neuve)
+        finally:
+            hub_module.log.removeHandler(capture)
+
+        # Trop vieux, ou abîmé : oublié, effacé, la source appelée.
+        with open(dossier / "m2.pkl", "wb") as f:
+            pickle.dump((time.time() - TTLCache.STORE_MAX_AGE - 1, serie), f)
+        assert TTLCache(store=dossier, persist=("m2",)).get(
+            "m2", 60, lambda: "source") == "source"
+        (dossier / "chain%3Ahash-rate%3A2years.pkl").write_bytes(b"\x00abime")
+        assert TTLCache(store=dossier, persist=("chain",)).get(
+            "chain:hash-rate:2years", 60, lambda: "source") == "source"
+
+        # Un disque qui refuse : la mémoire sert, l'échec se dit une fois.
+        bloque = Path(tmp) / "fichier"
+        bloque.write_text("pas un dossier")
+        capture = Capture()
+        hub_module.log.addHandler(capture)
+        try:
+            muet = TTLCache(store=bloque / "cache", persist=("m2",))
+            assert muet.get("m2", 60, lambda: 1) == 1
+            assert muet.get("m2", 0, lambda: 2) == 2
+        finally:
+            hub_module.log.removeHandler(capture)
+        assert sum("inutilisable" in l for l in capture.lignes) == 1
+
+    # Le hub : à côté du journal quand il est tenu, nulle part sinon.
+    assert MarketHub(collect_news=False, keep_journal=False)._cache._store is None
+    assert {"m2", "etf", "mvrv", "chain"} <= set(MarketHub.PERSISTENT)
+    assert not {"perp", "oi", "global", "options"} & set(MarketHub.PERSISTENT)
+    print("  ✓ séries lentes sur disque : servies au redémarrage, de secours "
+          "si la source se tait, oubliées trop vieilles")
 
 
 if __name__ == "__main__":

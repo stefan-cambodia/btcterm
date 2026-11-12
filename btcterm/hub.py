@@ -15,12 +15,16 @@ from __future__ import annotations
 
 import datetime as dt
 import logging
+import os
+import pickle
 import socket
 import sqlite3
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Callable, Optional
+from pathlib import Path
+from typing import Any, Callable, Iterable, Optional
+from urllib.parse import quote
 
 import pandas as pd
 
@@ -81,6 +85,18 @@ def _asleep_seconds() -> float:
 def _span(seconds: float) -> str:
     """Une durée de panne, à la minute."""
     return "moins d'une minute" if seconds < 60 else f"{seconds / 60:.0f} min"
+
+
+def _age(seconds: float) -> str:
+    """L'âge d'une valeur gardée, à l'unité qui se lit : une valeur relue
+    du disque peut avoir des heures, et « 18000 s » ne se lisait pas."""
+    if seconds < 120:
+        return f"{seconds:.0f} s"
+    if seconds < 7_200:
+        return f"{seconds / 60:.0f} min"
+    if seconds < 172_800:
+        return f"{seconds / 3_600:.0f} h"
+    return f"{seconds / 86_400:.0f} j"
 
 
 class SourceBackoff(ConnectionError):
@@ -158,12 +174,32 @@ class TTLCache:
     il reliait sinon la panne d'avant le sommeil à son retour, et le
     journal disait « après 95 min » de quatre-vingt-quatre minutes de
     sommeil.
+
+    **La mémoire survit au redémarrage**, pour les familles nommées dans
+    `persist` (la partie de la clé avant le premier « : ») : chaque
+    lecture réussie s'écrit dans `store`, un fichier par clé, et une clé
+    absente de la mémoire repart de son fichier. Fraîche, elle est servie
+    sans réseau ; vieillie, la source est réinterrogée — et si elle se
+    tait, c'est le fichier qui est servi, de secours, comme une valeur
+    gardée en mémoire. Sans cela, un service relancé pendant une panne de
+    DBnomics — trois en trois jours en novembre 2026 — montrait un
+    panneau MACRO vide jusqu'au retour de la source. Un fichier de plus
+    de `STORE_MAX_AGE` est écarté : servir des flux ETF d'il y a deux mois
+    comme les derniers connus mentirait plus qu'un panneau vide.
     """
 
+    #: Âge au-delà duquel un fichier du cache n'est plus servi.
+    STORE_MAX_AGE = 30 * 86_400
+
     def __init__(self, watch: Optional[SleepWatch] = None,
-                 grace: float = 60.0):
+                 grace: float = 60.0, store: Optional[Path] = None,
+                 persist: Iterable[str] = ()):
         self._watch = watch
         self._grace = grace
+        self._store = Path(store) if store is not None else None
+        self._persist = frozenset(persist)
+        #: Les familles dont l'écriture a déjà échoué : dit une fois.
+        self._store_failed: set[str] = set()
         self._entries: dict[str, tuple[float, Any]] = {}
         #: Clé → vrai si la dernière lecture a été servie de secours
         #: (source en panne), ou a échoué sans rien à servir. Une clé
@@ -189,6 +225,8 @@ class TTLCache:
             entry = self._entries.get(key)
             self._read_at[key] = time.time()
             self._ttl[key] = ttl
+        if entry is None and self._persistent(key):
+            entry = self._load(key)
         if entry and time.time() - entry[0] < ttl:
             return entry[1]
 
@@ -204,10 +242,72 @@ class TTLCache:
             raise
 
         self._note_recovery(key)
+        stamp = time.time()
         with self._lock:
-            self._entries[key] = (time.time(), value)
+            self._entries[key] = (stamp, value)
             self._stale[key] = False
+        if self._persistent(key):
+            self._save(key, stamp, value)
         return value
+
+    # ── Mémoire sur disque ──────────────────────────────────
+
+    def _persistent(self, key: str) -> bool:
+        return (self._store is not None
+                and key.split(":", 1)[0] in self._persist)
+
+    def _path(self, key: str) -> Path:
+        # Réversible et sans collision : « chain:hash-rate:2years »
+        # devient « chain%3Ahash-rate%3A2years.pkl ».
+        return self._store / (quote(key, safe="") + ".pkl")
+
+    def _save(self, key: str, stamp: float, value: Any) -> None:
+        """Écrit la valeur et son instant, par un fichier temporaire
+        renommé : un arrêt au milieu ne laisse jamais un fichier à
+        moitié écrit. Un disque plein se dit une fois par famille, et
+        n'arrête rien — la mémoire sert toujours."""
+        path = self._path(key)
+        try:
+            self._store.mkdir(mode=0o700, parents=True, exist_ok=True)
+            temporary = path.with_suffix(".tmp")
+            with open(temporary, "wb") as handle:
+                pickle.dump((stamp, value), handle, protocol=5)
+            os.replace(temporary, path)
+        except Exception as exc:  # noqa: BLE001 — le cache mémoire suffit
+            family = key.split(":", 1)[0]
+            if family not in self._store_failed:
+                self._store_failed.add(family)
+                log.warning("cache sur disque de %s inutilisable : %s",
+                            family, exc)
+
+    def _load(self, key: str) -> Optional[tuple[float, Any]]:
+        """La valeur d'avant le redémarrage, si son fichier existe, se lit
+        et n'a pas plus de `STORE_MAX_AGE`. Un fichier illisible ou trop
+        vieux est effacé : il ne servirait plus jamais. Le fichier est le
+        nôtre — écrit par `_save`, dans un dossier à nous seul (0700) —,
+        d'où pickle, qui rend les DataFrame à l'identique, types compris."""
+        path = self._path(key)
+        try:
+            with open(path, "rb") as handle:
+                try:
+                    stamp, value = pickle.load(handle)
+                except Exception:  # noqa: BLE001 — abîmé : on l'oublie
+                    stamp = None
+        except OSError:
+            # Absent, ou disque illisible : rien à lire, rien à effacer.
+            return None
+        if stamp is None or time.time() - stamp > self.STORE_MAX_AGE:
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+            return None
+        entry = (stamp, value)
+        with self._lock:
+            # Un autre thread a pu lire la source entre-temps : la mémoire,
+            # plus fraîche, l'emporte.
+            entry = self._entries.setdefault(key, entry)
+        return entry
 
     def stale(self, key: str) -> bool:
         """Vrai si la dernière lecture de `key` a été servie de secours."""
@@ -246,7 +346,7 @@ class TTLCache:
             self._failed_at[key] = now
         if not first:
             return
-        age = f"{now - entry[0]:.0f} s" if entry else "aucune"
+        age = _age(now - entry[0]) if entry else "aucune"
         if not lapsed:
             log.warning("source %s en panne : %s — dernière valeur : %s",
                         key, sources.brief_error(exc), age)
@@ -336,6 +436,15 @@ class MarketHub:
     """Carnets temps réel + données REST mises en cache."""
 
     #: Durées de vie des caches, en secondes.
+    #: Les familles du cache qui survivent au redémarrage (§ TTLCache) :
+    #: les séries lentes, dont une valeur d'hier reste juste — flux ETF,
+    #: M2, stablecoins, MVRV et émission, séries de chaîne, DVOL, marchés
+    #: traditionnels, Fear & Greed. Pas les instantanés — perpétuel, open
+    #: interest, agrégats, options — : servis vieux, ils mentiraient sur
+    #: le présent ; ni les bougies, que leur base sur disque garde déjà.
+    PERSISTENT = ("etf", "m2", "stables", "mvrv", "chain", "dvol", "market",
+                  "fear_greed_history")
+
     TTL_KLINES = 5
     #: Une page d'historique antérieur est close : ses bougies ne
     #: changeront plus jamais. Une heure de cache, sans coût de fraîcheur ;
@@ -595,7 +704,11 @@ class MarketHub:
         self._sleep = SleepWatch()
         #: Le réveil que la boucle a déjà traité (`SleepWatch.woke_at`).
         self._wake_handled: Optional[float] = None
-        self._cache = TTLCache(self._sleep, self.WAKE_GRACE)
+        self._cache = TTLCache(
+            self._sleep, self.WAKE_GRACE,
+            store=(self.journal.path.parent / "cache"
+                   if self.journal is not None else None),
+            persist=self.PERSISTENT)
         #: Instant avant lequel la source de change, tombée, n'est pas
         #: réinterrogée (`eur_rate`).
         self._eur_retry_at = 0.0
