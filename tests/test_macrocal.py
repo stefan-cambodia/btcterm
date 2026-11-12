@@ -190,6 +190,47 @@ def test_panneau_dans_le_fuseau_de_la_machine():
     print("  ✓ jour, heure et compte à rebours dans le fuseau de la machine")
 
 
+
+def test_les_echeances_d_options_au_calendrier():
+    """Les échéances qui pèsent, lues dans la chaîne Deribit, se mêlent aux
+    dates tenues à la main, à 8 h UTC — 15 h à Phnom Penh —, avec leur
+    montant, leur max pain et leur put/call ; les petites restent dehors."""
+    import pandas as pd
+    from btcterm import options as opt
+    from terminal.panels import calendar as panneau
+
+    def ligne(nom, oi, sorte="C"):
+        return {"instrument_name": f"BTC-{nom}-75000-{sorte}", "mark_iv": 50.0,
+                "open_interest": oi, "underlying_price": 75_000.0,
+                "estimated_delivery_price": 75_000.0, "volume_usd": 1.0}
+
+    chaine = opt.option_chain([ligne("27NOV26", 6_000), ligne("27NOV26", 3_000, "P"),
+                               ligne("14NOV26", 100), ligne("25DEC26", 20_000)])
+    maintenant = pd.Timestamp("2026-11-12 09:00", tz="UTC")
+    resume = opt.expiry_summary(chaine, maintenant)
+    assert [f"{e['expiry']:%d/%m}" for e in resume] == ["27/11", "25/12"], \
+        "la quotidienne du 14, moins de 5 %, reste dehors"
+    novembre = resume[0]
+    assert novembre["oi"] == 9_000 and novembre["notional"] == 9_000 * 75_000
+    assert novembre["pc"] == 0.5 and novembre["pain"] == 75_000
+
+    evenements = panneau.option_events(resume)
+    assert evenements[0].kind == "OPT"
+    assert evenements[0].when_utc == dt.datetime(2026, 11, 27, 8,
+                                                 tzinfo=dt.timezone.utc)
+    assert "0.7 Md$" in evenements[0].note and "P/C 0.50" in evenements[0].note
+
+    phnom_penh = dt.datetime(2026, 11, 12, 16, tzinfo=dt.timezone(dt.timedelta(hours=7)))
+    liste = panneau.listed(phnom_penh, limit=40, extra=tuple(evenements))
+    quand = [e.when_utc for e in liste]
+    assert quand == sorted(quand), "les échéances prennent leur rang"
+    assert sum(e.kind == "OPT" for e in liste) == 2
+    corps, _ = panneau.render(phnom_penh, extra=tuple(evenements))
+    texte = str(corps)
+    assert "Échéance Deribit" in texte and "15:00" in texte
+    assert opt.expiry_summary(chaine.iloc[0:0]) == []
+    print("  ✓ échéances lourdes au calendrier, à 8 h UTC, montant, max pain, P/C")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nCalendrier macro — {len(tests)} vérifications\n" + "─" * 60)

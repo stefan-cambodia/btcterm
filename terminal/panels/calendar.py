@@ -27,6 +27,7 @@ import datetime as dt
 from dash import Input, Output, html
 
 from btcterm import macrocal
+from btcterm import options as opt
 
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 
@@ -38,6 +39,7 @@ KIND_COLOR = {
     "CPI": C["orange"],
     "NFP": C["cyan"],
     "PCE": C["purple"],
+    "OPT": C["green"],
 }
 
 _JOURS = ("lun.", "mar.", "mer.", "jeu.", "ven.", "sam.", "dim.")
@@ -80,9 +82,33 @@ def _local(event: macrocal.MacroEvent, now: dt.datetime) -> dt.datetime:
     return event.when_utc.astimezone(now.tzinfo)
 
 
-def listed(now: dt.datetime, limit: int = ROWS) -> list[macrocal.MacroEvent]:
-    """Les événements du jour local et des suivants, dans l'ordre."""
-    events = [e for e in macrocal.EVENTS if _local(e, now).date() >= now.date()]
+def option_events(summaries: list[dict]) -> list[macrocal.MacroEvent]:
+    """Les échéances d'options qui pèsent (§ options.expiry_summary), en
+    événements du calendrier : Deribit expire à 8 h UTC, l'heure de New
+    York s'en déduit comme pour le reste. Ce ne sont pas des dates tenues à
+    la main : elles viennent de la chaîne, et le pied du panneau ne les
+    compte pas dans son horizon."""
+    events = []
+    for item in summaries:
+        when = item["expiry"].to_pydatetime().astimezone(macrocal.NEW_YORK)
+        note = f"{item['notional'] / 1e9:.1f} Md$"
+        if item.get("pain"):
+            note += f" · max pain {item['pain']:,.0f}"
+        if item.get("pc") is not None:
+            note += f" · P/C {item['pc']:.2f}"
+        events.append(macrocal.MacroEvent(
+            when.date(), when.time().replace(tzinfo=None), "OPT",
+            "Échéance Deribit", note=note))
+    return events
+
+
+def listed(now: dt.datetime, limit: int = ROWS,
+           extra: tuple = ()) -> list[macrocal.MacroEvent]:
+    """Les événements du jour local et des suivants, dans l'ordre —
+    `extra` y mêle ceux qui ne sont pas tenus à la main (les échéances
+    d'options)."""
+    events = sorted([*macrocal.EVENTS, *extra], key=lambda e: e.when_utc)
+    events = [e for e in events if _local(e, now).date() >= now.date()]
     return events[:limit]
 
 
@@ -108,7 +134,10 @@ def _row(event: macrocal.MacroEvent, now: dt.datetime):
         "padding": "3px 4px", "borderBottom": f"1px solid {C['border']}",
         # Une publication passée reste lisible, mais ne retient plus l'œil.
         **({"opacity": "0.55"} if passe else {}),
-    }, title=f"{event.date:%d/%m/%Y} à {event.time_ny:%H:%M}, heure de New York")
+    }, title=(f"{event.date:%d/%m/%Y} à {event.time_ny:%H:%M}, heure de New "
+              "York" + (" — 8 h UTC, l'expiration de Deribit ; montant, max "
+                        "pain et put/call de l'échéance, lus dans la chaîne"
+                        if event.kind == "OPT" else "")))
 
 
 def _badges(now: dt.datetime):
@@ -156,11 +185,12 @@ def _footer(today: dt.date):
                          for kind, end in ends.items()))
 
 
-def render(now: dt.datetime | None = None):
+def render(now: dt.datetime | None = None, extra: tuple = ()):
     """La liste et le titre, vus de `now` — une date avec son fuseau, celui
-    de la machine par défaut. Pure : c'est ce que les tests appellent."""
+    de la machine par défaut —, `extra` y mêlant les échéances d'options.
+    Pure : c'est ce que les tests appellent."""
     now = now if now is not None else dt.datetime.now().astimezone()
-    events = listed(now)
+    events = listed(now, extra=extra)
     if not events:
         body = html.Div(
             "liste de dates épuisée — compléter btcterm/macrocal.py",
@@ -182,4 +212,11 @@ def register(app, hub):
         Input("tick-rare", "n_intervals"),
     )
     def _refresh(_tick):
-        return render()
+        # Les échéances d'options de la chaîne que le panneau OPTIONS
+        # tient en cache ; une chaîne illisible laisse le calendrier tenu à
+        # la main.
+        try:
+            extra = tuple(option_events(opt.expiry_summary(hub.option_chain())))
+        except Exception:
+            extra = ()
+        return render(extra=extra)

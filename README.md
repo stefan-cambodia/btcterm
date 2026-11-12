@@ -99,7 +99,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 | **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; financement, prime et open interest comparés sur Binance, Bybit et OKX , et le portage annualisé — financement de chaque plateforme et base du future Deribit à trois mois, dans la même unité (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
 | **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF (et en bitcoins, face à l'émission), Fear & Greed, DVOL et skew, prime Coinbase, dominance, cycle (halving, sommet, Mayer), prochaines échéances macro, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
-| **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — avec compte à rebours (onglet des news) | 5 min |
+| **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — et grosses échéances d'options Deribit (montant, max pain, put/call), avec compte à rebours (onglet des news) | 5 min |
 | **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite, déplacement du skew (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US) ou contre l'offre de stablecoins (`STB`), décalage réglable et corrélations | 5 min |
 | **Analyse** | tendance, écart à la MA 200, RSI, ATR et dernier signal de 15m à 1w ; au choix, bilan des signaux contre une référence, règles simples face à la détention, frais compris, carte des rendements mensuels, ou carte des heures — l'amplitude moyenne par jour et par heure sur un an, quand le bitcoin bouge ; export CSV (onglet de la macro) | 30 s |
@@ -476,7 +476,10 @@ depuis la veille, et le clic l'y ouvre le panneau.
 
 **Calendrier** — les prochaines échéances qui font bouger le marché : décisions
 du FOMC (avec ou sans projections), inflation CPI et PCE, rapport sur l'emploi
-(NFP), chacune avec son compte à rebours, son jour et son heure dans le fuseau de la machine. Aucune API
+(NFP), et les échéances d'options Deribit qui pèsent au moins 5 % de l'open
+interest (`OPT`, en vert : l'hebdomadaire du vendredi, la mensuelle, les
+trimestrielles), à 8 h UTC, avec leur montant, leur max pain et leur put/call —
+lues dans la chaîne, pas tenues à la main ; chacune avec son compte à rebours, son jour et son heure dans le fuseau de la machine. Aucune API
 publique satisfaisante n'existe pour ces dates ; elles sont transcrites à la
 main dans `btcterm/macrocal.py` depuis les calendriers officiels — la Fed, le
 BLS et le BEA publient leurs dates un à deux ans à l'avance ; la liste court

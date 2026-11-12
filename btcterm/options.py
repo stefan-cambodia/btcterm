@@ -36,7 +36,7 @@ import pandas as pd
 
 __all__ = [
     "MIN_DAYS", "call_delta", "gamma", "gamma_exposure", "gamma_profile",
-    "gamma_flip", "chart_levels", "front_expiry", "futures_curve", "max_pain",
+    "gamma_flip", "chart_levels", "expiry_summary", "front_expiry", "futures_curve", "max_pain",
     "option_chain", "parse_instrument", "put_call_ratio", "strike_table",
     "summary", "term_structure",
 ]
@@ -484,3 +484,40 @@ def chart_levels(chain: Optional[pd.DataFrame],
                            "price": float(pain), "span": "options",
                            "kind": "pain"})
     return levels
+
+
+#: Part de l'open interest total au-delà de laquelle une échéance est un
+#: événement : le 12 novembre 2026, l'hebdomadaire du vendredi (9,5 %), la
+#: mensuelle (23 %) et les trimestrielles (41, 14 et 5 %) ; les quotidiennes
+#: pèsent quelques centaines de bitcoins, moins d'un pour cent.
+EXPIRY_EVENT_SHARE = 0.05
+
+
+def expiry_summary(chain: Optional[pd.DataFrame],
+                   now: Optional[pd.Timestamp] = None,
+                   share: float = EXPIRY_EVENT_SHARE) -> list[dict]:
+    """Les échéances qui pèsent, à venir : `expiry`, `oi` (BTC),
+    `notional` (dollars, à l'indice), `share`, `pain` (le max pain) et
+    `pc` (put/call en open interest). Pour le calendrier : des milliards de
+    dollars d'options qui expirent à 8 h UTC sont un rendez-vous, et le max
+    pain attire parfois le cours dans les heures qui précèdent."""
+    if chain is None or chain.empty:
+        return []
+    now = pd.Timestamp.now(tz="UTC") if now is None else now
+    live = chain[chain["expiry"] > now]
+    total = float(live["oi"].sum())
+    if not total:
+        return []
+    spot = float(live["index"].median())
+    events = []
+    for expiry, group in live.groupby("expiry"):
+        oi = float(group["oi"].sum())
+        if oi / total < share:
+            continue
+        calls = float(group.loc[group["kind"] == "C", "oi"].sum())
+        puts = float(group.loc[group["kind"] == "P", "oi"].sum())
+        events.append({"expiry": expiry, "oi": oi, "notional": oi * spot,
+                       "share": oi / total,
+                       "pain": max_pain(strike_table(chain, expiry)),
+                       "pc": puts / calls if calls else None})
+    return events

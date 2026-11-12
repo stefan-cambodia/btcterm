@@ -565,6 +565,19 @@ Deux pièges justifient que ce soit du code et non un simple tableau :
   décembre 2026 : l'avertissement ne pouvait pas sonner, et l'alerte
   d'échéance se serait tue sur trois des quatre familles sans que rien
   ne le dise.
+- **Les échéances d'options.** Le panneau y mêle les échéances Deribit qui
+  pèsent au moins 5 % de l'open interest (`options.expiry_summary`,
+  `EXPIRY_EVENT_SHARE` : le 12 novembre 2026, l'hebdomadaire du 13 —
+  2,5 Md$ —, la mensuelle du 27 — 5,9 Md$ —, les trimestrielles de décembre
+  — 10,5 Md$, 41 % du total —, mars et juin ; les quotidiennes restent
+  dehors). Des milliards de dollars d'options qui expirent à 8 h UTC sont un
+  rendez-vous, et le max pain attire parfois le cours dans les heures qui
+  précèdent. `calendar.option_events` en fait des `MacroEvent` du type
+  `OPT`, l'heure de New York déduite de 8 h UTC, la note disant montant, max
+  pain et put/call ; `listed` et `render` les reçoivent en `extra` et les
+  rangent parmi les dates tenues à la main. Elles viennent de la chaîne :
+  le pied, qui dit l'horizon de la liste tenue à la main, ne les compte pas,
+  et l'alerte d'échéance macro non plus.
 
 ### 2.7 `journal` — la séance se relit
 
@@ -3716,6 +3729,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Des échéances d'options absentes du calendrier**~~ — fait le
+  12 novembre 2026 (§2.6) : celles qui pèsent au moins 5 % de l'open
+  interest, lues dans la chaîne, avec montant, max pain et put/call.
 - ~~**Des options sans leur effet sur le spot**~~ — fait le 12 novembre 2026
   (§3.16) : la vue GEX, l'exposition gamma des teneurs par strike, son
   profil selon le prix et le gamma flip, convention dite ; flip et max pain
