@@ -37,7 +37,8 @@ __all__ = ["Halving", "HALVINGS", "HALVING_INTERVAL", "BLOCK_MINUTES",
            "MAYER_LOW", "MAYER_HIGH", "WEEKS_200",
            "closes", "next_halving", "mayer", "drawdown", "cycle_paths",
            "metrics", "BLOCKS_PER_DAY", "block_subsidy", "daily_issuance",
-           "etf_supply", "btc_amount", "supply_text"]
+           "etf_supply", "btc_amount", "supply_text", "RETARGET_INTERVAL",
+           "difficulty_estimate", "hash_ribbons"]
 
 #: Blocs entre deux halvings, et rythme visé par le protocole.
 HALVING_INTERVAL = 210_000
@@ -306,3 +307,75 @@ def metrics(series: pd.Series, height: Optional[int] = None,
         "same_day": [row for row in same_day if row["multiple"] is not None],
         "halving": next_halving(height, now),
     }
+
+
+#: Blocs entre deux ajustements de difficulté, et la borne du protocole :
+#: un ajustement ne multiplie ni ne divise la difficulté par plus de quatre.
+RETARGET_INTERVAL = 2016
+RETARGET_LIMIT = 4.0
+
+
+def difficulty_estimate(height: Optional[int], epoch_start: Optional[float],
+                        now: float) -> Optional[dict]:
+    """Le prochain ajustement de difficulté, estimé au rythme de la période
+    en cours.
+
+    `epoch_start` est l'heure (epoch) du premier bloc de la période — celui
+    dont la hauteur est un multiple de 2 016. Si la période tient le même
+    rythme jusqu'au bout, la difficulté sera multipliée par dix minutes sur
+    le temps moyen d'un bloc : un réseau qui a perdu des mineurs trouve ses
+    blocs plus lentement, et la difficulté baisse. Rend `blocks_done`,
+    `blocks_left`, `avg_minutes`, `change_pct` (borné par le protocole) et
+    `eta` (epoch) ; `None` au premier bloc d'une période ou sans données.
+    """
+    if not height or epoch_start is None:
+        return None
+    done = height % RETARGET_INTERVAL
+    elapsed = now - epoch_start
+    if done < 1 or elapsed <= 0:
+        return None
+    average = elapsed / done
+    factor = BLOCK_MINUTES * 60 / average
+    factor = min(max(factor, 1 / RETARGET_LIMIT), RETARGET_LIMIT)
+    left = RETARGET_INTERVAL - done
+    return {"blocks_done": done, "blocks_left": left,
+            "avg_minutes": average / 60, "change_pct": (factor - 1) * 100,
+            "eta": now + left * average, "start_height": height - done}
+
+
+def hash_ribbons(frame: Optional[pd.DataFrame], fast: int = 30,
+                 slow: int = 60, recent_days: int = 30) -> Optional[dict]:
+    """Les « hash ribbons » : les moyennes de 30 et 60 jours du hashrate.
+
+    Quand la courte passe sous la longue, des mineurs débranchent — leurs
+    machines ne paient plus, et ils vendent pour tenir : la
+    **capitulation**. Quand elle repasse au-dessus, la **reprise** : le
+    moment que l'indicateur (Charles Edwards, 2019) tient pour un bas de
+    cycle, plus souvent juste que faux sur les cycles passés, sans rien
+    garantir. Rend `frame` (`time`, `value`, `fast`, `slow`), `state`
+    (`capitulation`, `reprise` — croisement à la hausse depuis moins de
+    `recent_days` jours — ou `sain`) et `since`, la date du dernier
+    croisement ; `None` sans assez de jours pour la moyenne longue.
+    """
+    if frame is None or len(frame) < slow + 1:
+        return None
+    work = frame[["time", "value"]].copy()
+    work["time"] = pd.to_datetime(work["time"])
+    work = work.sort_values("time").reset_index(drop=True)
+    work["fast"] = work["value"].rolling(fast).mean()
+    work["slow"] = work["value"].rolling(slow).mean()
+    valid = work.dropna(subset=["fast", "slow"])
+    if valid.empty:
+        return None
+    below = (valid["fast"] < valid["slow"]).to_numpy()
+    changes = [i for i in range(1, len(below)) if below[i] != below[i - 1]]
+    since = (valid["time"].iloc[changes[-1]] if changes
+             else valid["time"].iloc[0])
+    last = valid["time"].iloc[-1]
+    if below[-1]:
+        state = "capitulation"
+    elif changes and (last - since).days < recent_days:
+        state = "reprise"
+    else:
+        state = "sain"
+    return {"frame": work, "state": state, "since": since}

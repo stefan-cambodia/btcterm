@@ -30,7 +30,7 @@ __all__ = [
     "BINANCE_REST", "OHLCV_COLUMNS", "RSS_FEEDS",
     "fetch_klines", "fetch_ticker_24h", "fetch_depth",
     "KLINE_FREQ", "KLINE_HOURS", "generate_demo_ohlcv",
-    "fetch_eur_rate", "fetch_m2_supply",
+    "fetch_eur_rate", "fetch_m2_supply", "fetch_block_time",
     "fetch_funding_history", "fetch_open_interest", "fetch_perp_snapshot",
     "fetch_bybit_perp", "fetch_okx_perp",
     "clean_etf_table", "fetch_market_global", "market_global", "INTERMITTENT",
@@ -118,6 +118,10 @@ FEAR_GREED_DAYS = 90
 BLOCKCHAIN_CHARTS = "https://api.blockchain.info/charts"
 BLOCKCHAIN_STATS = "https://api.blockchain.info/stats"
 BLOCKSTREAM_FEES = "https://blockstream.info/api/fee-estimates"
+#: L'heure d'un bloc par sa hauteur, en deux petites requêtes : blockchain.
+#: info le sert aussi, mais avec toutes ses transactions — 7 Mo pour une
+#: heure.
+BLOCKSTREAM_API = "https://blockstream.info/api"
 
 #: Agrégats de marché (capitalisation, dominance) — CoinGecko, endpoint
 #: public sans clé. Les séries historiques, elles, sont payantes : ce
@@ -561,6 +565,17 @@ def fetch_chain_stats() -> dict[str, Any]:
         # Hauteur de la chaîne : le compte à rebours du halving (§ cycle).
         "height": int(data.get("n_blocks_total", 0)),
     }
+
+
+def fetch_block_time(height: int) -> int:
+    """L'heure (epoch) du bloc à cette hauteur, chez blockstream.info."""
+    response = _http.get(f"{BLOCKSTREAM_API}/block-height/{int(height)}",
+                         timeout=10)
+    response.raise_for_status()
+    block_hash = response.text.strip()
+    response = _http.get(f"{BLOCKSTREAM_API}/block/{block_hash}", timeout=10)
+    response.raise_for_status()
+    return int(response.json()["timestamp"])
 
 
 def fetch_fee_estimates() -> dict[str, float]:

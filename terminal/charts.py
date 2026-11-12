@@ -705,6 +705,8 @@ def build_chain_chart(
     difficulty: pd.DataFrame,
     uirevision: str = "onchain",
     maximized: bool = False,
+    ribbons: dict | None = None,
+    days: int | None = None,
 ) -> go.Figure:
     """Hashrate en aire, difficulté en marches, sur deux axes.
 
@@ -712,8 +714,16 @@ def build_chain_chart(
     varie d'heure en heure au gré des mineurs branchés, la difficulté ne
     bouge que tous les 2 016 blocs, en marches d'escalier. L'écart entre
     les deux courbes annonce le sens du prochain ajustement.
+
+    `ribbons` (§ cycle.hash_ribbons) ajoute les moyennes de 30 et 60 jours
+    du hashrate, les périodes de capitulation ombrées de rouge, et l'état
+    en légende ; `days` borne l'affichage aux derniers jours — le hashrate
+    se lit plus long, pour que la moyenne de 60 jours soit pleine.
     """
     fig = go.Figure()
+    if days is not None and not hashrate.empty:
+        horizon = pd.to_datetime(hashrate["time"]).max() - pd.Timedelta(days=days)
+        hashrate = hashrate[pd.to_datetime(hashrate["time"]) >= horizon]
 
     if not hashrate.empty:
         fig.add_trace(go.Scatter(
@@ -722,6 +732,37 @@ def build_chain_chart(
             fill="tozeroy", fillcolor="rgba(0,212,170,0.07)",
             hovertemplate="%{y:,.0f} EH/s<extra></extra>",
         ))
+
+    if ribbons is not None and not hashrate.empty:
+        band = ribbons["frame"]
+        band = band[band["time"] >= pd.to_datetime(hashrate["time"]).min()]
+        for column, name, color, dash in (("fast", "MA 30", C["cyan"], "solid"),
+                                          ("slow", "MA 60", C["orange"], "dot")):
+            fig.add_trace(go.Scatter(
+                x=band["time"], y=band[column] / 1e6, name=name, mode="lines",
+                line=dict(color=color, width=1.2, dash=dash),
+                hovertemplate=f"{name} %{{y:,.0f}} EH/s<extra></extra>"))
+        # Les capitulations : la moyenne courte sous la longue.
+        under = (band["fast"] < band["slow"]).to_numpy()
+        start = None
+        times = band["time"].to_list()
+        for i, flag in enumerate(under):
+            if flag and start is None:
+                start = times[i]
+            if start is not None and (not flag or i == len(under) - 1):
+                fig.add_vrect(x0=start, x1=times[i], line_width=0,
+                              fillcolor=C["red"], opacity=0.08)
+                start = None
+        state = {"capitulation": ("capitulation", C["red"]),
+                 "reprise": ("reprise", C["green"]),
+                 "sain": ("sains", C["muted"])}[ribbons["state"]]
+        fig.add_annotation(
+            text=(f"rubans : {state[0]} depuis le "
+                  f"{pd.Timestamp(ribbons['since']):%d/%m/%y}"),
+            # Au centre : à droite, la barre d'outils de Plotly la couvrait.
+            xref="paper", yref="paper", x=0.5, y=1, xanchor="center",
+            yanchor="bottom", showarrow=False,
+            font=dict(family=MONO, size=9, color=state[1]))
 
     if not difficulty.empty:
         fig.add_trace(go.Scatter(

@@ -17,7 +17,11 @@ mais ne répond pas de façon fiable ici (voir `sources.BLOCKCHAIN_CHARTS`).
 
 from __future__ import annotations
 
+import time
+
 from dash import Input, Output, dcc, html
+
+from btcterm import cycle
 
 from ..charts import build_chain_chart
 from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
@@ -25,6 +29,9 @@ from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 #: Fenêtre des séries. Un an montre un cycle de difficulté complet sans
 #: écraser les paliers récents.
 TIMESPAN = "1year"
+#: Le hashrate se lit sur deux ans : la moyenne de soixante jours des hash
+#: ribbons doit être pleine dès le premier jour de l'année affichée.
+RIBBONS_SPAN = "2years"
 
 #: Rythme visé par le protocole, en minutes par bloc.
 TARGET_BLOCK_MINUTES = 10
@@ -59,8 +66,10 @@ def _frais(valeur: float) -> str:
         f"{valeur:.1f}" if valeur < 10 else f"{valeur:.0f}")
 
 
-def _badges(stats: dict, mempool, fees: dict | None = None):
-    """Hashrate, difficulté, rythme des blocs, mempool et frais."""
+def _badges(stats: dict, mempool, fees: dict | None = None,
+            epoch: dict | None = None):
+    """Hashrate, difficulté, rythme des blocs, prochain ajustement, mempool
+    et frais."""
     if not stats:
         return html.Span("réseau indisponible", style={"color": C["muted"]})
 
@@ -84,6 +93,24 @@ def _badges(stats: dict, mempool, fees: dict | None = None):
             html.Span(" · bloc ", style={"color": C["muted"]}),
             html.Span(f"{minutes:.1f} min", style={"color": couleur},
                       title="temps moyen entre deux blocs (cible : 10 min)"),
+        ]
+
+    if epoch:
+        # Le prochain ajustement, au rythme de la période en cours : un
+        # écart de 5 % ou plus se voit, le reste est le bruit des blocs.
+        change = epoch["change_pct"]
+        jours = epoch["blocks_left"] * epoch["avg_minutes"] / 1440
+        quand = time.strftime("%d/%m", time.localtime(epoch["eta"]))
+        children += [
+            html.Span(" · ajust. ", style={"color": C["muted"]}),
+            html.Span(f"{change:+z.1f} % J-{max(0, round(jours))}",
+                      style={"color": C["orange"] if abs(change) >= 5
+                             else C["muted"]},
+                      title=f"prochain ajustement de difficulté dans "
+                            f"{epoch['blocks_left']} blocs (≈ {jours:.1f} j, "
+                            f"le {quand}) : la période en cours tourne à "
+                            f"{epoch['avg_minutes']:.2f} min par bloc ; à ce "
+                            f"rythme, la difficulté changera de {change:+z.1f} %"),
         ]
 
     if mempool is not None and not mempool.empty:
@@ -117,12 +144,18 @@ def register(app, hub):
         Input("maximized", "data"),
     )
     def _refresh(_tick, maximized):
-        hashrate = hub.chain_chart("hash-rate", TIMESPAN)
+        hashrate = hub.chain_chart("hash-rate", RIBBONS_SPAN)
         difficulty = hub.chain_chart("difficulty", TIMESPAN)
         mempool = hub.chain_chart("mempool-size", "5weeks")
+        try:
+            epoch = hub.difficulty_epoch()
+        except Exception:
+            epoch = None
 
         return (
             build_chain_chart(hashrate, difficulty,
-                              maximized=(maximized == "macro")),
-            _badges(hub.chain_stats(), mempool, hub.chain_fees()),
+                              maximized=(maximized == "macro"),
+                              ribbons=cycle.hash_ribbons(hashrate),
+                              days=365),
+            _badges(hub.chain_stats(), mempool, hub.chain_fees(), epoch),
         )

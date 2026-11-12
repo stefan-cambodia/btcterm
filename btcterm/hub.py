@@ -1690,6 +1690,25 @@ class MarketHub:
         except Exception:
             return {}
 
+    def difficulty_epoch(self, now: Optional[float] = None) -> Optional[dict]:
+        """Le prochain ajustement de difficulté (§ cycle.difficulty_estimate).
+
+        La hauteur vient de l'instantané du réseau ; l'heure du premier bloc
+        de la période, de blockstream, gardée jusqu'à la période suivante —
+        elle ne change pas. Rien si l'un ou l'autre manque.
+        """
+        height = self.chain_stats().get("height")
+        if not height:
+            return None
+        start = height - height % cycle.RETARGET_INTERVAL
+        try:
+            started = self._cache.get(f"block_time:{start}", 15 * 86_400,
+                                      lambda: sources.fetch_block_time(start))
+        except Exception:
+            return None
+        return cycle.difficulty_estimate(height, started,
+                                         time.time() if now is None else now)
+
     def chain_fees(self) -> dict:
         """Frais de transaction estimés, en sat/vB, ou `{}`."""
         try:

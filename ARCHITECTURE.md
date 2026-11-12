@@ -1237,6 +1237,24 @@ réseau (`tests/test_cycle.py`) :
   de 350), et ce que valaient les cycles précédents au même jour. Une mesure
   qui demande plus de profondeur que la série n'en a revient vide plutôt
   qu'approchée ;
+- `difficulty_estimate` — le prochain ajustement de difficulté, au rythme de
+  la période en cours : la hauteur de l'instantané du réseau, l'heure du
+  premier bloc de la période de 2 016 (lue chez blockstream.info, deux
+  requêtes de quelques centaines d'octets — blockchain.info sert le bloc
+  entier, 7 Mo — et gardée jusqu'à la période suivante), d'où le temps
+  moyen d'un bloc, la variation que la difficulté prendra si le rythme
+  tient (bornée au facteur quatre du protocole) et la date. Le 12 novembre
+  2026 : 10,82 minutes par bloc, −7,6 % dans 209 blocs. Le badge du panneau
+  ON-CHAIN l'écrit (« ajust. −7.6 % J-2 »), orange au-delà de 5 % ;
+- `hash_ribbons` — les moyennes de 30 et 60 jours du hashrate : la courte
+  sous la longue, des mineurs débranchent et vendent pour tenir — la
+  capitulation, ombrée de rouge sur le graphique ; la courte qui repasse
+  au-dessus, la reprise, que l'indicateur (Charles Edwards, 2019) tient pour
+  un bas de cycle sans rien garantir. Le panneau lit le hashrate sur deux ans
+  pour que la moyenne longue soit pleine dès le premier jour de l'année
+  affichée, et dit l'état au-dessus du graphique (« rubans : sains depuis le
+  26/08/26 ») — au centre : à droite, la barre d'outils de Plotly le
+  couvrait ;
 - `etf_supply` — les flux nets des ETF d'une fenêtre en bitcoins, face à
   l'émission des mineurs : chaque séance convertie au cours de clôture de son
   jour (la dernière connue avant lui, à défaut), l'émission comptée tous les
@@ -3739,6 +3757,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Des mineurs qu'on ne voyait pas capituler**~~ — fait le 12 novembre
+  2026 (§2.15) : les hash ribbons sur le graphique ON-CHAIN, et le prochain
+  ajustement de difficulté estimé au badge.
 - ~~**Un changement de régime des teneurs qui ne sonnait pas**~~ — fait le
   12 novembre 2026 (§2.8) : une alerte quand le cours franchit le gamma
   flip, marge et garde comprises.

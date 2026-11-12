@@ -206,6 +206,81 @@ def test_les_etf_face_a_l_emission():
           "clôture, couverture dite")
 
 
+def test_l_ajustement_de_difficulte_et_les_rubans():
+    """Le prochain ajustement se lit au rythme de la période en cours,
+    borné par le protocole ; les rubans disent capitulation, reprise ou
+    santé ; le panneau et son graphique les montrent."""
+    debut = 1_793_301_298
+    # 1 807 blocs en 10,824 minutes chacun : −7,6 % dans 209 blocs.
+    estime = cycle.difficulty_estimate(975_535, debut, debut + 1_807 * 649.45)
+    assert estime["blocks_done"] == 1_807 and estime["blocks_left"] == 209
+    assert estime["start_height"] == 973_728
+    assert abs(estime["change_pct"] - (600 / 649.45 - 1) * 100) < 1e-9
+    assert abs(estime["eta"] - (debut + 2_016 * 649.45)) < 1e-3
+    lent = cycle.difficulty_estimate(975_535, debut, debut + 1_807 * 600 * 10)
+    assert lent["change_pct"] == -75.0, "÷ 4 au plus"
+    assert cycle.difficulty_estimate(973_728, debut, debut + 10) is None
+    assert cycle.difficulty_estimate(None, debut, debut) is None
+
+    jours = pd.date_range("2026-01-01", periods=200, freq="D")
+    # Cent jours de croissance, cinquante de chute, cinquante de reprise.
+    valeurs = ([800 + i for i in range(100)] + [900 - 4 * i for i in range(50)]
+               + [700 + 8 * i for i in range(50)])
+    serie = pd.DataFrame({"time": jours, "value": valeurs})
+    capitulation = cycle.hash_ribbons(serie.iloc[:150])
+    assert capitulation["state"] == "capitulation"
+    reprise = cycle.hash_ribbons(serie)
+    assert reprise["state"] == "reprise", reprise["state"]
+    assert reprise["since"] > jours[150]
+    sain = cycle.hash_ribbons(serie.iloc[:100])
+    assert sain["state"] == "sain"
+    assert cycle.hash_ribbons(serie.iloc[:40]) is None
+
+    from terminal.charts import build_chain_chart
+    from terminal.panels import onchain
+    figure = build_chain_chart(serie, pd.DataFrame(columns=["time", "value"]),
+                               ribbons=reprise, days=120)
+    assert {"MA 30", "MA 60"} <= {t.name for t in figure.data}
+    assert any("rubans : reprise" in (a.text or "")
+               for a in figure.layout.annotations)
+    badge = str(onchain._badges({"hash_rate_ghs": 9e11, "difficulty": 1.48e14},
+                                None, None, estime))
+    assert "ajust. " in badge and "-7.6 % J-" in badge
+    print("  ✓ ajustement au rythme de la période, borné ; rubans en trois états ; "
+          "badge et graphique")
+
+
+def test_l_heure_d_un_bloc_chez_blockstream():
+    """Deux petites requêtes : le hash par la hauteur, puis le bloc."""
+    class Reponse:
+        def __init__(self, text="", payload=None):
+            self.text, self.payload = text, payload
+
+        def raise_for_status(self):
+            pass
+
+        def json(self):
+            return self.payload
+
+    demandes = []
+
+    def faux_get(url, **_):
+        demandes.append(url)
+        if "/block-height/" in url:
+            return Reponse("00000000abc\n")
+        return Reponse(payload={"height": 973_728, "timestamp": 1_793_301_298})
+
+    original = sources._http.get
+    sources._http.get = faux_get
+    try:
+        assert sources.fetch_block_time(973_728) == 1_793_301_298
+    finally:
+        sources._http.get = original
+    assert demandes == [f"{sources.BLOCKSTREAM_API}/block-height/973728",
+                        f"{sources.BLOCKSTREAM_API}/block/00000000abc"]
+    print("  ✓ heure du bloc : hauteur → hash → horodatage")
+
+
 def test_le_panneau_tient_avec_et_sans_donnees():
     from terminal.charts import CYCLE_VIEWS, build_cycle_chart
     from terminal.panels import cycle as panneau
