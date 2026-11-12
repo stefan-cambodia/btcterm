@@ -309,12 +309,59 @@ def test_l_exposition_gamma_des_teneurs():
 
     # Sur le graphique du prix, parmi les niveaux clés.
     niveaux = opt.chart_levels(melange, NOW)
-    assert [n["kind"] for n in niveaux] == ["flip", "pain"], niveaux
+    assert [n["kind"] for n in niveaux][:2] == ["flip", "pain"], niveaux
     assert niveaux[0]["label"] == "γ flip" and niveaux[1]["label"] == "max pain 13/11"
+    assert [n["label"] for n in niveaux[2:]] in ([], ["+1σ 13/11", "−1σ 13/11"])
     assert all(n["span"] == "options" for n in niveaux)
     assert opt.chart_levels(chaine(), NOW) == [] and opt.chart_levels(None) == []
     print("  ✓ gamma = dérivée du delta, calls +, puts −, flip entre les deux, "
           "convention dite")
+
+
+def test_le_mouvement_attendu():
+    """forward × σ à la monnaie × √T, à l'échéance par défaut ou choisie ;
+    deux bornes parmi les niveaux du graphique, une bande dans STRIKES, une
+    mention à la synthèse ; rien quand la monnaie n'est pas encadrée."""
+    from btcterm import brief
+    from terminal import charts
+
+    chaine = opt.option_chain(_sourire("13NOV26") + _sourire("27NOV26"))
+    attendu = opt.expected_move(chaine, NOW)
+    annees = (pd.Timestamp("2026-11-13 08:00", tz="UTC") - NOW).total_seconds() \
+        / (365 * 86_400)
+    assert attendu["expiry"] == pd.Timestamp("2026-11-13 08:00", tz="UTC")
+    assert abs(attendu["atm"] - 0.40) < 1e-3
+    assert abs(attendu["move"] - 75_000 * attendu["atm"] * math.sqrt(annees)) < 1e-6
+    assert abs(attendu["pct"] - attendu["move"] / 75_000 * 100) < 1e-9
+    assert attendu["low"] < 75_000 < attendu["high"]
+    assert abs(attendu["days"] - annees * 365) < 1e-9
+    assert all(isinstance(attendu[k], float) for k in ("move", "pct", "low", "high"))
+    loin = opt.expected_move(chaine, NOW, pd.Timestamp("2026-11-27 08:00", tz="UTC"))
+    assert loin["pct"] > attendu["pct"], "plus loin, plus large"
+
+    niveaux = opt.chart_levels(chaine, NOW)
+    bornes = [n for n in niveaux if n["kind"] == "move"]
+    assert [n["label"] for n in bornes] == ["+1σ 13/11", "−1σ 13/11"]
+    assert bornes[0]["price"] == round(attendu["high"], 2)
+
+    # Des strikes tous au-dessus du forward : la monnaie n'est pas encadrée.
+    haut = opt.option_chain([l for l in _sourire("13NOV26") if
+                             int(l["instrument_name"].split("-")[2]) > 76_000])
+    assert opt.expected_move(haut, NOW) is None
+    assert opt.expected_move(None) is None
+    assert opt.expected_move(chaine, pd.Timestamp("2026-12-01", tz="UTC")) is None
+
+    figure = charts.build_strikes_chart(
+        opt.strike_table(chaine, attendu["expiry"]), 75_000.0, 75_000.0,
+        move=attendu)
+    bandes = [f for f in figure.layout.shapes if f.type == "rect"]
+    assert len(bandes) == 1 and bandes[0].x0 == attendu["low"]
+    assert any(a.text.startswith("±1σ ") for a in figure.layout.annotations)
+
+    item = brief.volatility_item((40.0, 38.0, 24.0), None, move=attendu)
+    assert f"±{attendu['pct']:.1f} % attendu au 13/11" in item.text, item.text
+    print("  ✓ forward × σ × √T : bornes au graphique, bande aux strikes, "
+          "mention à la synthèse")
 
 
 def test_le_sourire_d_une_echeance():

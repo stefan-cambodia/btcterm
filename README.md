@@ -111,7 +111,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 | **Position** | la position tenue, saisie à la main : résultat, distance au stop, multiple du risque ; taille qu'autorise un risque choisi, stop à quelques ATR ; résultat au bandeau. Rien ne quitte le navigateur (onglet des flux ETF) | 2 s |
 | **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; dessous, le positionnement — la part des longs de la foule contre celle de l'argent des gros ; financement, prime et open interest comparés sur Binance, Bybit et OKX , et le portage annualisé — financement de chaque plateforme et base du future Deribit à trois mois, dans la même unité (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
-| **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF (et en bitcoins, face à l'émission), Fear & Greed, DVOL et skew, prime Coinbase, prime coréenne, dominance, cycle (halving, sommet, Mayer, MVRV), prochaines échéances macro, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
+| **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF (et en bitcoins, face à l'émission), Fear & Greed, DVOL, skew et mouvement attendu, prime Coinbase, prime coréenne, dominance, cycle (halving, sommet, Mayer, MVRV), prochaines échéances macro, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE — et grosses échéances d'options Deribit (montant, max pain, put/call), avec compte à rebours (onglet des news) | 5 min |
 | **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, franchissement du gamma flip des options, bascules du cycle (MVRV en zone extrême, capitulation des mineurs), échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite, déplacement du skew (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US) ou contre l'offre de stablecoins (`STB`), décalage réglable et corrélations | 5 min |
@@ -247,8 +247,14 @@ jour au mois, ils ne se confondent pas avec les moyennes ; deux niveaux au même
 prix n'en font qu'un (`B S-1/M-1`). Ce sont des repères où les ordres
 s'accumulent d'ordinaire, pas des garanties de rebond ; aucun n'est tracé sur
 la série de démonstration. S'y ajoutent, en ambre, les niveaux que posent les
-options : le **gamma flip** (`γ flip`, voir le panneau OPTIONS) et le **max
-pain** de l'échéance par défaut (`max pain 27/11`). La même case trace le
+options : le **gamma flip** (`γ flip`, voir le panneau OPTIONS), le **max
+pain** de l'échéance par défaut (`max pain 27/11`) et les deux bornes du
+**mouvement attendu** d'ici là (`+1σ 27/11`, `−1σ 27/11`, en pointillé
+espacé) : la fourchette à un écart-type que le prix des options suppose —
+forward × volatilité à la monnaie × √(temps restant), ±7,7 % le 12 novembre
+2026, de 66 000 à 77 100 $. Le cours a, selon les options, environ deux
+chances sur trois d'y finir ; une lecture du risque payé, pas une prévision.
+La même case trace le
 **VWAP ancré** (en rose) et ses
 bandes à un écart-type (pointillées) : le prix moyen pondéré par le volume
 depuis le début de la journée UTC jusqu'en 1h, de la semaine en 4h à 12h, du
@@ -528,7 +534,8 @@ qui se paie —, au-dessus de la base annualisée des futures à échéance, le
 pendant à terme du financement du perpétuel. **STRIKES** montre l'open interest
 d'une échéance par strike, calls contre puts, avec le forward et le max pain :
 le prix où les acheteurs d'options perdraient le plus à l'échéance, une
-lecture du positionnement et non une prévision. **GEX** estime l'exposition gamma
+lecture du positionnement et non une prévision ; une bande claire y marque le
+mouvement attendu d'ici l'échéance (±1σ). **GEX** estime l'exposition gamma
 des teneurs de marché, par strike, en millions de dollars par 1 % de
 mouvement : ce qu'ils doivent acheter ou vendre pour rester couverts quand le
 prix bouge. Positive, ils vendent la hausse et achètent la baisse — le marché se

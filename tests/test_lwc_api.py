@@ -236,8 +236,9 @@ def test_niveaux_cles():
 
 
 def test_les_niveaux_des_options():
-    """Avec une chaîne d'options, `/api/levels` ajoute le gamma flip et le
-    max pain de l'échéance par défaut, en `span` « options »."""
+    """Avec une chaîne d'options, `/api/levels` ajoute le gamma flip, le
+    max pain de l'échéance par défaut et les deux bornes du mouvement
+    attendu d'ici là, en `span` « options »."""
     import datetime as dt
 
     mois = ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP",
@@ -266,10 +267,13 @@ def test_les_niveaux_des_options():
         sources.fetch_deribit_summary = original
     options = [n for n in page["levels"] if n["span"] == "options"]
     etiquettes = {n["label"].split(" ")[0] for n in options}
-    assert etiquettes == {"γ", "max"}, options
+    assert etiquettes == {"γ", "max", "+1σ", "−1σ"}, options
     flip = next(n for n in options if n["kind"] == "flip")
     assert 70_000 < flip["price"] < 80_000
-    print("  ✓ gamma flip et max pain parmi les niveaux, en span options")
+    # 50 % de volatilité sur quatorze jours, forward 75 000 : ±9,8 %.
+    bornes = sorted(n["price"] for n in options if n["kind"] == "move")
+    assert 66_000 < bornes[0] < 69_000 < 81_000 < bornes[1] < 84_000, bornes
+    print("  ✓ gamma flip, max pain et mouvement attendu parmi les niveaux")
 
 
 def test_sante_du_terminal():

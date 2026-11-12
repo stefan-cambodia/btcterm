@@ -1377,7 +1377,8 @@
                 color: LEVEL_COLORS[level.span] || LEVEL_COLORS.day,
                 lineWidth: 1,
                 lineStyle: level.kind === "open" ? LS.Dotted
-                    : level.kind === "flip" ? LS.LargeDashed : LS.Dashed,
+                    : level.kind === "flip" ? LS.LargeDashed
+                    : level.kind === "move" ? LS.SparseDotted : LS.Dashed,
                 axisLabelVisible: true,
                 title: level.label
             }));

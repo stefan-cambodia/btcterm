@@ -1264,7 +1264,8 @@ def build_term_chart(curve: pd.DataFrame, futures: pd.DataFrame,
 def build_strikes_chart(table: pd.DataFrame, forward: float | None,
                         pain: float | None, uirevision: str = "options:strikes",
                         maximized: bool = False,
-                        smile: pd.DataFrame | None = None) -> go.Figure:
+                        smile: pd.DataFrame | None = None,
+                        move: dict | None = None) -> go.Figure:
     """L'open interest par strike d'une échéance, calls contre puts.
 
     Le forward de l'échéance et son max pain en verticales : l'écart entre
@@ -1273,7 +1274,9 @@ def build_strikes_chart(table: pd.DataFrame, forward: float | None,
     de volatilité de la même échéance (§ options.smile) : la volatilité
     implicite strike par strike, là où la vue TERME n'en garde que trois
     points — les puts lointains plus chers que les calls, c'est la
-    protection qui se paie.
+    protection qui se paie. Le mouvement attendu d'ici l'échéance (§
+    options.expected_move) en bande claire : les strikes que le prix des
+    options tient pour à portée.
     """
     with_smile = bool(maximized and smile is not None and not smile.empty)
     fig = (make_subplots(rows=2, cols=1, shared_xaxes=True,
@@ -1334,6 +1337,12 @@ def build_strikes_chart(table: pd.DataFrame, forward: float | None,
                           annotation_text=f"{label} {value:,.0f}",
                           annotation_font=dict(size=9, color=color),
                           annotation_position=side)
+    if move is not None and not view.empty:
+        fig.add_vrect(x0=move["low"], x1=move["high"], fillcolor=C["text"],
+                      opacity=0.06, line_width=0, layer="below",
+                      annotation_text=f"±1σ {move['pct']:.1f} %",
+                      annotation_position="bottom left",
+                      annotation_font=dict(size=9, color=C["muted"]))
     if view.empty:
         _options_empty(fig, "open interest indisponible")
     return fig

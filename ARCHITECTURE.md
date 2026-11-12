@@ -2492,7 +2492,8 @@ module `options` (§2.11) en quatre vues :
   interruptions de séance ; tant qu'il y a moins de deux points, la vue dit
   l'historique en constitution et depuis quand ;
 - **STRIKES** — l'open interest d'une échéance par strike, calls contre puts,
-  le forward et le max pain en verticales, les strikes bornés à 0,6–1,5 fois
+  le forward et le max pain en verticales, le mouvement attendu d'ici
+  l'échéance en bande claire (§ ci-dessous), les strikes bornés à 0,6–1,5 fois
   le forward. Le choix de l'échéance n'apparaît que dans cette vue, limité
   aux six qui pèsent au moins 2 % de l'open interest ; mémorisé, il cède à
   l'échéance par défaut quand la sienne est passée, et cette dernière est
@@ -2533,7 +2534,18 @@ module `options` (§2.11) en quatre vues :
   les ajoute aux niveaux clés du graphique du prix, en ambre, `span`
   « options » (le flip en grands tirets) — une chaîne illisible n'ôte rien
   aux autres niveaux —, et la synthèse les écrit à la ligne volatilité
-  (« GEX −112 M$/1 %, flip 75,536 »).
+  (« GEX −112 M$/1 %, flip 75,536 »). S'y ajoute le **mouvement attendu**
+  (`options.expected_move`) : la fourchette à un écart-type que le prix des
+  options suppose d'ici l'échéance par défaut, forward × σ à la monnaie ×
+  √T — la volatilité à la monnaie interpolée en log-strike au forward
+  (`_smile`), T en années. Le 12 novembre 2026 : ±7,7 % d'ici le 27/11
+  (σ 38,5 %, 14,7 jours), de 66 065 à 77 140 $ ; ±2,2 % pour l'échéance du
+  lendemain. Linéaire plutôt que lognormale : à ces horizons l'écart est
+  sous le dollar près du forward, et c'est la convention des desks. Deux
+  niveaux de plus (`+1σ 27/11`, `−1σ 27/11`, `kind` « move », pointillé
+  espacé), une bande dans STRIKES, une mention à la synthèse (« ±7.7 %
+  attendu au 27/11 ») ; rien quand les strikes cotés n'encadrent pas la
+  monnaie — un σ extrapolé serait inventé.
 
 Le titre porte DVOL, le skew 25 delta à un mois et le ratio put/call ; le plein
 écran y ajoute la réalisée et la prime, la volatilité à un mois, le put/call
@@ -3918,6 +3930,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
   (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
   synthèse hors de ses bornes.
+- ~~**Des options sans fourchette attendue**~~ — fait le 12 novembre 2026
+  (§3.16) : le mouvement à un écart-type d'ici l'échéance par défaut,
+  parmi les niveaux clés, en bande dans STRIKES et à la synthèse.
 - ~~**Un redémarrage qui oubliait tout**~~ — fait le 12 novembre 2026
   (§4.3) : les séries lentes gardées sur disque, servies au redémarrage
   même quand leur source se tait.

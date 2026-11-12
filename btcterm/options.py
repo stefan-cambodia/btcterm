@@ -38,7 +38,7 @@ __all__ = [
     "MIN_DAYS", "call_delta", "gamma", "gamma_exposure", "gamma_profile",
     "gamma_flip", "chart_levels", "expiry_summary", "smile", "front_expiry", "futures_curve", "max_pain",
     "option_chain", "parse_instrument", "put_call_ratio", "strike_table",
-    "summary", "term_structure",
+    "summary", "term_structure", "expected_move",
 ]
 
 #: Deribit fait expirer options et futures à 08:00 UTC.
@@ -476,12 +476,48 @@ def summary(chain: pd.DataFrame, futures: pd.DataFrame,
     return out
 
 
+def expected_move(chain: Optional[pd.DataFrame],
+                  now: Optional[pd.Timestamp] = None,
+                  expiry: Optional[pd.Timestamp] = None) -> Optional[dict]:
+    """Le mouvement que le prix des options suppose d'ici une échéance.
+
+    La fourchette à un écart-type : forward × σ × √T, σ la volatilité à
+    la monnaie de l'échéance (§ _smile), T le temps qui reste, en années.
+    Le prix a, selon les options, environ deux chances sur trois d'y finir
+    — une lecture du risque payé, pas une prévision : le marché la dépasse
+    plus souvent qu'une loi normale ne le voudrait. L'échéance par défaut
+    est celle du max pain (`front_expiry`). Rend `expiry`, `days`,
+    `forward`, `atm`, `move` (en dollars), `pct`, `low`, `high` ; `None`
+    sans chaîne, sans échéance, ou quand les strikes cotés n'encadrent
+    pas la monnaie.
+    """
+    if chain is None or chain.empty:
+        return None
+    now = pd.Timestamp.now(tz="UTC") if now is None else now
+    expiry = front_expiry(chain, now) if expiry is None else expiry
+    if expiry is None:
+        return None
+    group = chain[chain["expiry"] == expiry]
+    years = _years(expiry, now)
+    if group.empty or years <= 0:
+        return None
+    smile = _smile(group, now)
+    atm, forward = smile["atm"], smile["forward"]
+    if not (atm > 0 and forward > 0):
+        return None
+    move = float(forward * atm * np.sqrt(years))
+    return {"expiry": expiry, "days": years * 365.0, "forward": float(forward),
+            "atm": float(atm), "move": move, "pct": move / forward * 100,
+            "low": forward - move, "high": forward + move}
+
+
 def chart_levels(chain: Optional[pd.DataFrame],
                  now: Optional[pd.Timestamp] = None) -> list[dict]:
     """Les niveaux que les options posent sur le graphique du prix, à côté
     des niveaux clés (§ analysis.key_levels, même forme) : le gamma flip
-    (`γ flip`) et le max pain de l'échéance par défaut (`max pain 27/11`),
-    `span` « options ». Le cours qui s'en approche se voit sans changer
+    (`γ flip`), le max pain de l'échéance par défaut (`max pain 27/11`) et
+    les deux bornes du mouvement attendu d'ici là (`+1σ 27/11`, `−1σ
+    27/11`, § expected_move), `span` « options ». Le cours qui s'en approche se voit sans changer
     d'onglet. Rien sans chaîne, et un niveau qu'on ne sait pas calculer
     manque plutôt que d'être faux.
     """
@@ -502,6 +538,12 @@ def chart_levels(chain: Optional[pd.DataFrame],
             levels.append({"label": f"max pain {front:%d/%m}",
                            "price": float(pain), "span": "options",
                            "kind": "pain"})
+        move = expected_move(chain, now, front)
+        if move is not None:
+            for sign, bound in (("+", "high"), ("−", "low")):
+                levels.append({"label": f"{sign}1σ {front:%d/%m}",
+                               "price": round(float(move[bound]), 2),
+                               "span": "options", "kind": "move"})
     return levels
 
 

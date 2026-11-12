@@ -249,7 +249,9 @@ def register(app, hub):
             figure = build_strikes_chart(
                 table, forward, opt.max_pain(table), maximized=maximized,
                 uirevision=f"options:strikes:{expiry}:{maximized}",
-                smile=opt.smile(chain, expiry) if maximized else None)
+                smile=opt.smile(chain, expiry) if maximized else None,
+                move=(opt.expected_move(chain, now, expiry)
+                      if expiry is not None else None))
 
         last_dvol = float(dvol["close"].iloc[-1]) if not dvol.empty else None
         last_rv = (float(realized["value"].iloc[-1])
