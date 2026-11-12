@@ -1288,10 +1288,24 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         # Vingt secondes : sous charge — une source qui fait attendre ses
         # délais —, le rendu de l'onglet a dépassé dix secondes une fois,
         # et le passage entier s'arrêtait sur un élément absent.
+        debut = time.time()
         ouvert = browser.wait_for("!!document.getElementById('liq-table')"
                                   " && !!document.getElementById('liq-badges')",
                                   timeout=20)
-        check("l'onglet s'ouvre", ouvert)
+        # Deux fois, l'onglet ne s'est pas ouvert en vingt secondes, alors
+        # qu'il s'ouvre en 0,6 s d'ordinaire : à l'échec, dire ce qu'on voit
+        # — l'onglet actif, ce que tient la cellule, un rendu Dash en cours.
+        etat_onglet = "" if ouvert else browser.js("""
+            const cellule = document.getElementById('cell-arb');
+            const actif = cellule && cellule.querySelector('.cell-tab-active');
+            return 'actif : ' + (actif ? actif.textContent : '?')
+                + ' · ' + (cellule ? cellule.innerText.length : -1) + ' car.'
+                + ' · chargement : '
+                + document.querySelectorAll('[data-dash-is-loading]').length;
+        """)
+        check("l'onglet s'ouvre", ouvert,
+              f"{time.time() - debut:.1f} s" + (f" — {etat_onglet}"
+                                               if etat_onglet else ""))
         time.sleep(1)
         liq = browser.js("""
             const b = document.getElementById('liq-badges');
@@ -1430,8 +1444,9 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             timeout=30)
         badges = browser.js(
             "return document.getElementById('options-badges').textContent;")
-        check("DVOL au bandeau, ou l'absence de Deribit dite",
-              "DVOL" in badges or "indisponible" in badges, badges[:48])
+        check("DVOL et son rang sur un an au bandeau, ou l'absence de Deribit dite",
+              ("DVOL" in badges and "rang" in badges) or "indisponible" in badges,
+              badges[:48])
 
         #: Ce qui dit qu'une vue est rendue : une de ses courbes, ou une
         #: figure vide qui annonce son absence. Un délai fixe lisait sous

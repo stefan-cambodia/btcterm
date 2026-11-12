@@ -2572,8 +2572,16 @@ module `options` (§2.11) en quatre vues :
   attendu au 27/11 ») ; rien quand les strikes cotés n'encadrent pas la
   monnaie — un σ extrapolé serait inventé.
 
-Le titre porte DVOL, le skew 25 delta à un mois et le ratio put/call ; le plein
-écran y ajoute la réalisée et la prime, la volatilité à un mois, le put/call
+Le titre porte DVOL et son **rang sur un an** (`options.vol_rank` : 0 au plus
+bas des bougies journalières de l'année, 100 au plus haut, vert sous 20, orange
+au-dessus de 80 — `VOL_RANK_LOW`, `VOL_RANK_HIGH`, les bornes d'usage ; rien
+sous un mois de bougies), le skew 25 delta à un mois et le ratio put/call ; le
+plein écran ajoute le **centile**, la part des jours plus bas. Le premier
+relevé, le 13 novembre 2026, a montré pourquoi les deux : DVOL 40,1, rang 13 %
+— le pic à 82,6 de l'année écrasait l'échelle —, centile 44 %. Le rang seul
+aurait dit « options bon marché » d'un niveau ordinaire ; l'infobulle et la
+synthèse (« rang 1 an 13 % (centile 44 %) ») le disent. Le plein écran y
+ajoute encore la réalisée et la prime, la volatilité à un mois, le put/call
 en volume, l'open interest total, le max pain et la base à trois mois. Le
 panneau a sa propre minuterie d'une minute — l'horloge rare du terminal en
 compte cinq —, qui n'existe, comme ses callbacks, que s'il est affiché. Les
@@ -3955,6 +3963,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
   (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
   synthèse hors de ses bornes.
+- ~~**Une volatilité sans repère**~~ — fait le 13 novembre 2026 (§3.16) :
+  le rang du DVOL sur un an au titre d'OPTIONS, le centile en plein écran
+  et à la synthèse.
 - ~~**Un calendrier aveugle hors des quatre grands rendez-vous**~~ — fait
   le 13 novembre 2026 (§2.6) : les publications américaines de la semaine
   selon Forex Factory, impact fort et moyen, au CALENDRIER, et l'alerte

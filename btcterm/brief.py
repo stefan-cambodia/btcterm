@@ -327,7 +327,8 @@ def sentiment_item(history: list[dict]) -> Item:
 
 def volatility_item(dvol, rr25, gex: Optional[dict] = None,
                     flip: Optional[float] = None,
-                    move: Optional[dict] = None) -> Optional[Item]:
+                    move: Optional[dict] = None,
+                    rank: Optional[dict] = None) -> Optional[Item]:
     """DVOL et son écart, skew des ailes 25 delta — et l'exposition gamma
     des teneurs de marché avec son flip, le mouvement attendu d'ici
     l'échéance par défaut (§ options), quand la chaîne est là."""
@@ -339,6 +340,9 @@ def volatility_item(dvol, rr25, gex: Optional[dict] = None,
     if reference is not None:
         text += f" ({current - reference:+z.1f} sur {_span(span)})"
         tone = "warn" if current - reference >= 6 else ""
+    if rank is not None:
+        text += (f", rang 1 an {rank['rank']:.0f} % "
+                 f"(centile {rank['percentile']:.0f} %)")
     if rr25:
         text += f" · skew 25Δ {rr25[0]:+z.1f}"
     if gex is not None:
@@ -577,6 +581,14 @@ def _gamma(hub) -> tuple[Optional[dict], Optional[float]]:
     return gex, opt.gamma_flip(opt.gamma_profile(chain), gex["spot"])
 
 
+def _vol_rank(hub) -> Optional[dict]:
+    """Le rang du DVOL sur un an (§ options.vol_rank) ; rien sans DVOL."""
+    try:
+        return opt.vol_rank(hub.dvol())
+    except Exception:  # noqa: BLE001 — une mention en moins
+        return None
+
+
 def _move(hub) -> Optional[dict]:
     """Le mouvement attendu d'ici l'échéance par défaut (§ options.
     expected_move), de la même chaîne ; rien si elle manque."""
@@ -628,7 +640,8 @@ def build(hub, now: Optional[float] = None,
     add("Sentiment", lambda: sentiment_item(hub.fear_greed_history()))
     add("Volatilité", lambda: volatility_item(change(snapshots, "dvol", now),
                                               change(snapshots, "rr25", now),
-                                              *_gamma(hub), _move(hub)))
+                                              *_gamma(hub), _move(hub),
+                                              _vol_rank(hub)))
     add("Prime Coinbase", lambda: premium_item(snapshots, now))
     add("Prime coréenne", lambda: korea_item(snapshots, now))
     add("Dominance", lambda: dominance_item(

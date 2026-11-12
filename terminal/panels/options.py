@@ -114,8 +114,9 @@ def _muted(text: str):
 
 
 def badges(summary: dict, dvol: float | None, realized: float | None,
-           verbose: bool):
-    """DVOL, skew et put/call dans la grille ; tout le tableau en plein écran."""
+           verbose: bool, rank: dict | None = None):
+    """DVOL et son rang sur un an, skew et put/call dans la grille ; tout le
+    tableau en plein écran."""
     if dvol is None and summary.get("atm30") is None:
         return _muted("Deribit indisponible")
     children = []
@@ -123,6 +124,31 @@ def badges(summary: dict, dvol: float | None, realized: float | None,
         children += [_muted("DVOL "),
                      _number(dvol, ".1f", C["yellow"],
                              "volatilité implicite à 30 jours (Deribit)")]
+        if rank is not None:
+            tone = (C["green"] if rank["rank"] <= opt.VOL_RANK_LOW
+                    else C["orange"] if rank["rank"] >= opt.VOL_RANK_HIGH
+                    else C["text"])
+            children += [
+                _muted(" rang "),
+                _number(rank["rank"], ".0f", tone,
+                        f"rang du DVOL sur {rank['days']} jours : 0 au plus "
+                        f"bas ({rank['low']:.1f}), 100 au plus haut "
+                        f"({rank['high']:.1f}). Sous {opt.VOL_RANK_LOW:g}, "
+                        "les options sont bon marché pour l'année ; "
+                        f"au-dessus de {opt.VOL_RANK_HIGH:g}, chères. Le "
+                        f"centile — plus haut que {rank['percentile']:.0f} % "
+                        "des jours — résiste mieux à un pic isolé, qui "
+                        "écrase le rang"),
+                _muted(" %"),
+            ]
+            if verbose:
+                children += [
+                    _muted(" · centile "),
+                    _number(rank["percentile"], ".0f", C["text"],
+                            "la part des jours de l'année où le DVOL était "
+                            "plus bas qu'aujourd'hui"),
+                    _muted(" %"),
+                ]
         if verbose and realized is not None:
             spread = dvol - realized
             children += [
@@ -256,7 +282,8 @@ def register(app, hub):
         last_dvol = float(dvol["close"].iloc[-1]) if not dvol.empty else None
         last_rv = (float(realized["value"].iloc[-1])
                    if not realized.empty else None)
-        return figure, badges(summary, last_dvol, last_rv, verbose=maximized)
+        return figure, badges(summary, last_dvol, last_rv, verbose=maximized,
+                              rank=opt.vol_rank(dvol))
 
 
 def _chosen_expiry(chain: pd.DataFrame, value, front):

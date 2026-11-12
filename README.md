@@ -121,7 +121,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 | **Marchés** | le bitcoin face au S&P 500, au Nasdaq, à l'or, au dollar et au taux à 10 ans : performance comparée en base 100 ou corrélation glissante sur 30 séances, tableau des cours, variations et corrélations à 30 et 90 séances (onglet de la macro) | 5 min |
 | **Cycle** | où en est le bitcoin depuis le halving et depuis le sommet : compte à rebours du prochain halving, cycles superposés en multiple du cours du jour du halving, multiple de Mayer et son rang, repli depuis le plus haut, moyenne de 200 semaines, Pi cycle, le MVRV — capitalisation sur capitalisation réalisée, données Coin Metrics — avec le prix réalisé, le prix de revient du marché, et le multiple de Puell — l'émission du jour en dollars sur sa moyenne d'un an (onglet de la macro) | 5 min |
 | **Sources** | l'état de chaque source — carnets, fils de liquidations, API REST, tâches de fond : ok, secours, panne, muet ou coupé, âge de la dernière donnée fraîche et dernière erreur ; ouvert aussi par l'avertissement « ⚠ N sources » du bandeau (onglet de l'arbitrage) | 10 s |
-| **Options** | marché des options Deribit en cinq vues : DVOL contre volatilité réalisée ; volatilité par échéance avec ses ailes 25 delta, au-dessus de la base annualisée des futures ; open interest par strike d'une échéance, forward et max pain ; exposition gamma des teneurs de marché (GEX) par strike et son « gamma flip » ; historique du skew et de la volatilité, noté par le journal. Skew, put/call, open interest total au titre ; DVOL aussi au bandeau (onglet de la macro) | 1 min |
+| **Options** | marché des options Deribit en cinq vues : DVOL — et son rang sur un an — contre volatilité réalisée ; volatilité par échéance avec ses ailes 25 delta, au-dessus de la base annualisée des futures ; open interest par strike d'une échéance, forward et max pain ; exposition gamma des teneurs de marché (GEX) par strike et son « gamma flip » ; historique du skew et de la volatilité, noté par le journal. Skew, put/call, open interest total au titre ; DVOL aussi au bandeau (onglet de la macro) | 1 min |
 
 Les **liquidations** sont le pendant du perpétuel : quand une position à levier
 ne couvre plus sa marge, la plateforme la ferme au marché, et ces fermetures
@@ -554,6 +554,14 @@ total et la base à trois mois. Les deltas sont calculés en Black-76 depuis la
 volatilité de marque de Deribit (`btcterm/options.py`) ; les strikes restent en
 dollars, la devise des contrats. DVOL est aussi au bandeau, avec sa variation
 depuis la veille, et le clic l'y ouvre le panneau.
+
+Le titre du panneau situe le **DVOL dans son année** : son **rang** — 0 au plus
+bas de l'année, 100 au plus haut —, vert sous 20 (les options sont bon marché),
+orange au-dessus de 80 (chères) ; le plein écran ajoute le **centile**, la part
+des jours où il était plus bas. Les deux divergent quand l'année a connu un pic
+isolé : le 13 novembre 2026, un DVOL de 40,1 avait un rang de 13 %, écrasé par
+le pic à 82,6, mais un centile de 44 % — un niveau ordinaire, pas une aubaine.
+La synthèse donne les deux.
 
 **Calendrier** — les prochaines échéances qui font bouger le marché : décisions
 du FOMC (avec ou sans projections), inflation CPI et PCE, rapport sur l'emploi

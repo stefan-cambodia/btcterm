@@ -199,6 +199,53 @@ def test_le_resume():
     print("  ✓ résumé : un mois, trois mois, max pain ; vide sans Deribit")
 
 
+def test_le_rang_de_la_volatilite():
+    """Le rang situe le DVOL du jour entre le plus bas et le plus haut de
+    l'année, le centile parmi les jours ; un pic isolé les sépare. Rien
+    sous un mois ; le titre le dit, coloré aux bornes d'usage ; le plein
+    écran et la synthèse ajoutent le centile."""
+    from btcterm import brief
+    from terminal.panels import options as panneau
+    from terminal.theme import C
+
+    def dvol(closes):
+        return pd.DataFrame({"time": pd.date_range("2026-01-01",
+                                                   periods=len(closes)),
+                             "close": closes})
+
+    # Un an entre 35 et 45, un pic à 80, et 40 aujourd'hui.
+    closes = [35 + (k % 11) for k in range(300)] + [80.0] + [40.0]
+    rang = opt.vol_rank(dvol(closes))
+    assert rang["low"] == 35 and rang["high"] == 80 and rang["days"] == 302
+    assert abs(rang["rank"] - 5 / 45 * 100) < 1e-9, "le pic écrase le rang"
+    assert 40 < rang["percentile"] < 50, "le centile, lui, reste au milieu"
+    assert opt.vol_rank(dvol([40.0] * 29)) is None
+    assert opt.vol_rank(dvol([40.0] * 40))["rank"] == 50.0, "année plate"
+    assert opt.vol_rank(None) is None
+
+    def texte(composant):
+        if isinstance(composant, (list, tuple)):
+            return "".join(texte(c) for c in composant)
+        if isinstance(composant, str):
+            return composant
+        return texte(getattr(composant, "children", "") or "")
+
+    resume = {"rr25_30": -3.0, "pc_oi": 0.7}
+    grille = panneau.badges(resume, 40.0, 36.0, verbose=False, rank=rang)
+    assert "DVOL 40.0 rang 11 %" in texte(grille), texte(grille)
+    assert "centile" not in texte(grille)
+    assert C["green"] in str(grille), "rang 11 : bon marché"
+    plein = panneau.badges(resume, 40.0, 36.0, verbose=True, rank=rang)
+    assert "centile 4" in texte(plein)
+    cher = opt.vol_rank(dvol([35.0] * 40 + [80.0]))
+    assert C["orange"] in str(panneau.badges(resume, 80.0, None, False, cher))
+    assert "rang" not in texte(panneau.badges(resume, 40.0, None, False))
+
+    item = brief.volatility_item((40.0, 38.0, 24.0), None, rank=rang)
+    assert "rang 1 an 11 % (centile 4" in item.text, item.text
+    print("  ✓ rang et centile sur un an, le pic dit ; titre coloré, synthèse")
+
+
 def test_le_panneau_tient_sans_deribit():
     from terminal import charts
     from terminal.panels import options as panneau

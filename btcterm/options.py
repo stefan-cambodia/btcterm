@@ -38,7 +38,8 @@ __all__ = [
     "MIN_DAYS", "call_delta", "gamma", "gamma_exposure", "gamma_profile",
     "gamma_flip", "chart_levels", "expiry_summary", "smile", "front_expiry", "futures_curve", "max_pain",
     "option_chain", "parse_instrument", "put_call_ratio", "strike_table",
-    "summary", "term_structure", "expected_move",
+    "summary", "term_structure", "expected_move", "VOL_RANK_LOW",
+    "VOL_RANK_HIGH", "vol_rank",
 ]
 
 #: Deribit fait expirer options et futures à 08:00 UTC.
@@ -509,6 +510,40 @@ def expected_move(chain: Optional[pd.DataFrame],
     return {"expiry": expiry, "days": years * 365.0, "forward": float(forward),
             "atm": float(atm), "move": move, "pct": move / forward * 100,
             "low": forward - move, "high": forward + move}
+
+
+#: Rang au-dessous duquel les options sont dites bon marché pour l'année, et
+#: au-dessus duquel elles sont chères, en % — les bornes d'usage des
+#: vendeurs et des acheteurs de volatilité.
+VOL_RANK_LOW = 20.0
+VOL_RANK_HIGH = 80.0
+
+#: Bougies journalières exigées pour parler de rang : un mois.
+VOL_RANK_MIN_DAYS = 30
+
+
+def vol_rank(dvol: Optional[pd.DataFrame]) -> Optional[dict]:
+    """Où se tient la volatilité implicite du jour dans son année.
+
+    `dvol` : les bougies journalières du DVOL (§ sources.fetch_dvol, un an).
+    Le **rang** situe la clôture du jour entre le plus bas et le plus haut
+    de la période — 0 au plus bas, 100 au plus haut — ; le **centile** dit
+    la part des jours passés plus bas. Les deux divergent quand l'année a
+    connu un pic isolé : un DVOL de 40 après un pic à 80 a un rang bas,
+    mais un centile qui peut rester moyen. Rend `value`, `rank`,
+    `percentile`, `low`, `high`, `days` ; `None` sous un mois de bougies.
+    """
+    if dvol is None or dvol.empty or "close" not in dvol:
+        return None
+    closes = dvol["close"].astype(float).dropna()
+    if len(closes) < VOL_RANK_MIN_DAYS:
+        return None
+    value = float(closes.iloc[-1])
+    low, high = float(closes.min()), float(closes.max())
+    history = closes.iloc[:-1]
+    return {"value": value, "low": low, "high": high, "days": len(closes),
+            "rank": (value - low) / (high - low) * 100 if high > low else 50.0,
+            "percentile": float((history < value).mean() * 100)}
 
 
 def chart_levels(chain: Optional[pd.DataFrame],
