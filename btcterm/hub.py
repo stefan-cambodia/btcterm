@@ -26,6 +26,7 @@ import pandas as pd
 
 from . import brief
 from . import cycle
+from . import heatmap
 from . import markets as mkt
 from . import options as opt
 from . import sources
@@ -480,6 +481,10 @@ class MarketHub:
     #: toutes les dix minutes, dans la boucle d'observation.
     CACHE_IDLE = 3600.0
     CACHE_SWEEP_EVERY = 600.0
+    #: La purge du journal, à cadence propre : elle ne tournait qu'au
+    #: démarrage, et un serveur allumé des semaines aurait gardé toutes ses
+    #: liquidations — 1,7 million par mois depuis que Binance livre.
+    PURGE_EVERY = 6 * 3600.0
     #: Profondeur des sonneries relues au démarrage : la journée, celle
     #: que le panneau journal relit — la cloche, elle, compte l'heure.
     ALERTS_WARM_UP_SECONDS = 24 * 3600.0
@@ -746,11 +751,26 @@ class MarketHub:
         next_snapshot = time.monotonic() + self.SNAPSHOT_WARMUP
         next_sweep = time.monotonic() + self.CACHE_SWEEP_EVERY
         next_depth = time.monotonic() + self.DEPTH_SAMPLE_EVERY
+        next_purge = time.monotonic() + self.PURGE_EVERY
         while not self._observe_stop.wait(1.0):
             self._after_sleep()
             if time.monotonic() >= next_depth:
                 next_depth = time.monotonic() + self.DEPTH_SAMPLE_EVERY
                 self._sample_depth()
+                # La carte de chaleur du carnet, au même pas : une colonne
+                # toutes les dix secondes (§ heatmap). Une écriture ratée
+                # n'arrête pas d'observer.
+                try:
+                    self._sample_heatmap()
+                except Exception:
+                    pass
+            if (self.journal is not None
+                    and time.monotonic() >= next_purge):
+                next_purge = time.monotonic() + self.PURGE_EVERY
+                try:
+                    self.journal.purge()
+                except Exception:
+                    pass
             if time.monotonic() >= next_sweep:
                 next_sweep = time.monotonic() + self.CACHE_SWEEP_EVERY
                 self._cache.sweep(self.CACHE_IDLE)
@@ -1551,6 +1571,27 @@ class MarketHub:
             acc[0] += depth[0]
             acc[1] += depth[1]
             acc[2] += 1
+
+    def _sample_heatmap(self, now: Optional[float] = None) -> bool:
+        """Une colonne de la carte de chaleur du carnet : les carnets qui
+        disent le marché — connectés, frais, non croisés —, additionnés par
+        tranche de prix autour du prix de référence (§ heatmap.column).
+        Rend vrai si une colonne s'est écrite."""
+        if self.journal is None:
+            return False
+        mid = self.reference_price()
+        books = [book.snapshot() for book in self.books.values()
+                 if book.connected and book.age_ms <= self.DEPTH_MAX_AGE_MS
+                 and not book.crossed]
+        if not mid or not books:
+            return False
+        col = heatmap.column(books, mid)
+        if col is None:
+            return False
+        base, step, values = col
+        self.journal.record_heatmap(time.time() if now is None else now,
+                                    base, step, heatmap.encode(values))
+        return True
 
     def _flush_depth(self, now: Optional[float] = None) -> None:
         """Écrit la liquidité moyenne de la période, et repart de zéro.

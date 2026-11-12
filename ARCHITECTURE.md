@@ -571,8 +571,9 @@ Deux pièges justifient que ce soit du code et non un simple tableau :
 Carnets, écarts d'arbitrage et liquidations vivaient en mémoire et
 mouraient avec le processus. `Journal` persiste dans
 `~/.btcterm/journal.db` (SQLite, 30 jours de rétention, purge au
-démarrage) les deux données qui valent d'être relues, chacune selon sa
-nature :
+démarrage puis toutes les six heures — `PURGE_EVERY` : elle ne tournait
+qu'au démarrage, et un serveur allumé des semaines aurait tout gardé) les
+deux données qui valent d'être relues, chacune selon sa nature :
 
 - une **liquidation** est un événement — une ligne par événement,
   écrite au fil de l'eau par le rappel `on_event` du fil (§2.5), avec
@@ -1234,7 +1235,36 @@ basse) en tire trois vues — CYCLES, sur une échelle logarithmique où une mê
 hauteur vaut un même multiple, MAYER et REPLI — et un tableau. Tout y reste en
 dollars : ce sont des multiples et des rapports.
 
-### 2.16 Non-régression
+### 2.16 `heatmap` — le carnet dans le temps
+
+Le carnet du moment dit où sont les murs ; il ne dit pas lesquels tiennent,
+lesquels reculent devant le prix, ni lesquels disparaissent juste avant d'être
+touchés — l'ordre posé pour être vu, pas pour être exécuté. Une photographie
+régulière des carnets, mise bout à bout, le montre. Toutes les dix secondes,
+au pas de l'échantillon de liquidité, le hub prend une **colonne**
+(`_sample_heatmap`) : les cinq carnets qui disent le marché — connectés,
+frais, non croisés — additionnés par tranche de prix sur ±2 % autour du prix
+de référence, au pas rond le plus proche de 0,04 % du prix (`nice_step` :
+25 $ vers 74 000 $, 121 tranches). Acheteurs et vendeurs s'additionnent : le
+prix les sépare de lui-même. La colonne part au journal en flottants 32 bits
+compressés, environ 330 octets (table `book_heatmap`, trois jours de
+rétention, `HEATMAP_RETENTION_DAYS` : 8 640 colonnes et moins de 3 Mo par
+jour).
+
+`/api/heatmap` relit les colonnes de la plage visible et les agrège
+(`aggregate`) : moyennées par bougie (bornée entre la minute et le jour),
+ramenées à une grille de prix commune — le pas change quand le prix franchit
+un nombre rond, et une colonne au pas plus fin y verse ses tranches par leur
+prix —, puis quantifiées sur 256 niveaux d'une échelle en racine carrée
+bornée au 99e centile, pour qu'un mur isolé n'éteigne pas tout le reste. Le
+logarithme, essayé d'abord, rendait les quantités moyennes déjà claires : près
+du prix, où le carnet est dense, tout était jaune et blanc. Le quadrillage du
+graphique se retire sous la carte, dont il striait les tranches. Le
+navigateur reçoit une matrice d'octets en base64 et n'a plus qu'à la peindre
+(§3.13). Fonctions pures, testées sans réseau (`tests/test_heatmap.py`), avec
+l'échantillonnage du hub, la purge et l'endpoint.
+
+### 2.17 Non-régression
 
 `tests/test_indicators_parity.py` rejoue les implémentations telles qu'elles
 étaient avant l'extraction et vérifie que le socle produit exactement les mêmes
@@ -2145,6 +2175,21 @@ seul point, ce que le journal masquait sur le portable et qu'un serveur neuf
 aurait montré. Le volet se relit chaque minute et quand le pan remonte avant
 le début de la dernière lecture.
 
+La **carte de chaleur du carnet** (case `MURS`, `/murs`) se peint *sous*
+les chandeliers : un canvas au niveau 0, le graphique au-dessus de lui
+(niveau 1, fond transparent tant que la case est cochée), les autres couches
+au-dessus encore (niveau 7 et plus). Chaque colonne de la matrice
+(§2.16) se range dans sa bougie (`barIndexAt`) ; plusieurs dans une même
+bougie — la semaine, le mois — gardent la plus intense. L'image, une colonne
+par bougie couverte et une ligne par tranche, est construite une fois par
+réponse et agrandie sans lissage entre la demi-bougie qui précède la
+première et celle qui suit la dernière, et entre les prix qu'elle couvre :
+les bougies sont régulières en rang, une seule `drawImage` suffit. Palette
+du bleu sombre au cyan, au jaune et au blanc, transparente au vide. Elle se
+redemande quand la plage bouge et chaque minute, et se refait quand la série
+change. La carte commence avec le service : son passé se gagne à l'usage,
+trois jours au plus.
+
 Les **gros ordres** (case `ORD`, touche `O`, `/ord`) sont le pendant de la
 carte du côté de ce qui s'exécute : le ruban journalise chaque ordre de
 100 k$ et plus (§2.13), et le graphique les pose en bulles sur les
@@ -2800,7 +2845,7 @@ Le numéro de version, lui, est resté à 1.1.0.
 ### Étape 1 — Extraire le socle commun ✅ *faite*
 
 Les trois modules décrits en [§2](#2-le-socle-btcterm) sont en place et les huit
-scripts y sont ramenés, sans changement de comportement (§2.16) :
+scripts y sont ramenés, sans changement de comportement (§2.17) :
 
 - **`indicators.py`** — les deux variantes silencieuses (SMA/EMA, Connors RSI)
   sont désormais explicites, et celle de `btc-dash.py` qui ne suivait pas la
@@ -3612,6 +3657,15 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Des murs qu'on ne voyait pas tenir ou disparaître**~~ — fait le
+  12 novembre 2026 (§2.16, §3.13) : la case MURS peint sous les chandeliers
+  la carte de chaleur des cinq carnets, une colonne toutes les dix secondes,
+  trois jours de journal.
+- ~~**Un journal qui ne se purgeait qu'au démarrage**~~ — constaté le
+  12 novembre 2026 en ajoutant la carte du carnet : sur le serveur visé,
+  allumé des semaines, liquidations, ordres et instantanés se seraient
+  accumulés sans fin. Fait (§2.7) : la purge tourne aussi toutes les six
+  heures dans la boucle d'observation.
 - ~~**Un cours sans les positions qui le portent**~~ — fait le 12 novembre
   2026 (§3.13) : la case OI ouvre un volet de l'open interest au pas de
   l'intervalle, prolongé par le journal.

@@ -448,6 +448,27 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
             "window.lwcPrice.debug() && window.lwcPrice.debug().trades === null",
             timeout=15))
 
+        # MURS : la carte de chaleur du carnet, sous les chandeliers — peinte,
+        # ou la raison de son absence (elle commence avec le service).
+        browser.js("window.btcCommand('murs');")
+        chaleur = browser.wait_for(
+            "window.lwcPrice.debug() && window.lwcPrice.debug().heat !== null",
+            timeout=15)
+        lue = browser.js("return window.lwcPrice.debug().heat;")
+        check("MURS peint la carte du carnet, ou dit pourquoi elle est vide",
+              chaleur and (isinstance(lue, str) or lue.get("columns", 0) > 0),
+              str(lue)[:90])
+        check("la carte passe sous les chandeliers", browser.js("""
+            const el = document.getElementById('price-lwc');
+            const c = el.querySelector('.lwc-heat');
+            const root = el.querySelector('.tv-lightweight-charts');
+            return !!c && getComputedStyle(c).zIndex === '0'
+                && getComputedStyle(root).zIndex === '1';"""))
+        browser.js("window.btcCommand('murs');")
+        check("MURS la retire", browser.wait_for(
+            "window.lwcPrice.debug() && window.lwcPrice.debug().heat === null"
+            " && !document.querySelector('#price-lwc .lwc-heat')", timeout=15))
+
         browser.press("/")
         check("/ ouvre la ligne de commande", browser.wait_for(
             "document.activeElement === document.querySelector('.command-bar input')",

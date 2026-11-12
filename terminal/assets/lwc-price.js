@@ -158,7 +158,12 @@
         state.chart = LWC.createChart(state.el, {
             autoSize: true,
             layout: {
-                background: {type: "solid", color: theme.panel},
+                // Transparent sous la carte de chaleur du carnet, qui se
+                // peint dessous (§ Carte de chaleur) : le fond du panneau
+                // reste celui du thème.
+                background: {type: "solid",
+                             color: extras.indexOf("heat") !== -1
+                                 ? "rgba(0,0,0,0)" : theme.panel},
                 textColor: theme.muted,
                 fontFamily: state.conf.mono,
                 fontSize: 10,
@@ -166,9 +171,13 @@
                         separatorHoverColor: theme.border,
                         enableResize: true}
             },
+            // Pas de quadrillage sur la carte de chaleur du carnet : ses
+            // lignes sombres striaient les tranches.
             grid: {
-                vertLines: {color: theme.grid},
-                horzLines: {color: theme.grid}
+                vertLines: {color: theme.grid,
+                            visible: extras.indexOf("heat") === -1},
+                horzLines: {color: theme.grid,
+                            visible: extras.indexOf("heat") === -1}
             },
             crosshair: {
                 mode: LWC.CrosshairMode.Magnet,
@@ -329,6 +338,11 @@
         // quel sens.
         if (extras.indexOf("trades") !== -1) {
             buildTrades();
+        }
+        // Carte de chaleur du carnet — la case MURS : la liquidité posée,
+        // niveau par niveau, dans le temps.
+        if (extras.indexOf("heat") !== -1) {
+            buildHeat();
         }
 
         // L'historique se charge au pan, comme sur tradingview.com :
@@ -1366,6 +1380,183 @@
                    + " · vert : achats, rouge : ventes", row);
     }
 
+    // ── Carte de chaleur du carnet ──────────────────────────
+    //
+    // Les carnets des cinq plateformes, photographiés toutes les dix
+    // secondes et additionnés par tranche de prix (§ heatmap), peints sous
+    // les chandeliers : chaque colonne une bougie, chaque ligne une
+    // tranche, l'intensité la quantité posée — du bleu sombre au jaune et
+    // au blanc. Les murs qui tiennent tracent des bandes ; ceux qui
+    // disparaissent avant d'être touchés s'arrêtent net. Le serveur rend
+    // une matrice déjà quantifiée (/api/heatmap) ; on n'y fait que ranger
+    // ses colonnes dans les bougies (`barIndexAt`) et poser une image,
+    // agrandie sans lissage, entre les bougies et les prix qu'elle couvre.
+    var HEAT_EVERY = 60000;
+    var HEAT_STOPS = [[0.0, 10, 30, 80, 0], [0.12, 20, 60, 150, 70],
+                      [0.4, 0, 150, 200, 140], [0.7, 255, 205, 0, 190],
+                      [1.0, 255, 255, 255, 230]];
+    var heatLut = null;
+
+    // La palette, une fois : 256 couleurs RGBA interpolées entre les arrêts.
+    function heatPalette() {
+        if (heatLut) { return heatLut; }
+        heatLut = new Uint8ClampedArray(256 * 4);
+        for (var level = 0; level < 256; level += 1) {
+            var x = level / 255;
+            var k = 1;
+            while (k < HEAT_STOPS.length - 1 && HEAT_STOPS[k][0] < x) {
+                k += 1;
+            }
+            var a = HEAT_STOPS[k - 1];
+            var b = HEAT_STOPS[k];
+            var f = (x - a[0]) / (b[0] - a[0]);
+            for (var c = 0; c < 4; c += 1) {
+                heatLut[level * 4 + c] = Math.round(a[c + 1]
+                                                    + (b[c + 1] - a[c + 1]) * f);
+            }
+        }
+        heatLut[3] = 0;
+        return heatLut;
+    }
+
+    function buildHeat() {
+        var canvas = document.createElement("canvas");
+        canvas.className = "lwc-heat";
+        state.el.insertBefore(canvas, state.el.firstChild);
+        state.el.classList.add("lwc-heat-on");
+        state.heatCanvas = canvas;
+        state.heatData = null;
+        state.heatImage = null;
+        state.heatTimer = null;
+        state.chart.timeScale().subscribeVisibleTimeRangeChange(
+            function () {
+                drawHeat();
+                scheduleHeat();
+            });
+        state.heatPoll = setInterval(fetchHeat, HEAT_EVERY);
+    }
+
+    function scheduleHeat() {
+        if (!state.heatCanvas) { return; }
+        if (state.heatTimer) { clearTimeout(state.heatTimer); }
+        state.heatTimer = setTimeout(fetchHeat, 400);
+    }
+
+    function fetchHeat() {
+        if (!state.chart || !state.packet || !state.heatCanvas) { return; }
+        var range = state.chart.timeScale().getVisibleRange();
+        if (!range) { return; }
+        var bars = state.packet.bars;
+        var n = bars.length;
+        var step = n > 1 ? bars[n - 1].time - bars[n - 2].time : 86400;
+        var from = clock().actual(range.from);
+        var until = clock().actual(range.to);
+        var to = Math.ceil(until) + step;
+        if (n && until >= bars[n - 1].time) {
+            to = Math.max(to, Math.ceil(Date.now() / 1000));
+        }
+        var seq = state.seq;
+        fetch("/api/heatmap?from=" + Math.floor(from) + "&to=" + to
+              + "&step=" + Math.max(60, Math.min(step, 86400)))
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (seq !== state.seq || !state.heatCanvas) { return; }
+                state.heatData = data;
+                state.heatImage = data.empty ? null : heatImage(data);
+                drawHeat();
+            })
+            .catch(function () { /* le prochain mouvement retentera */ });
+    }
+
+    // La matrice en image : une colonne par bougie couverte, une ligne par
+    // tranche, le prix le plus haut en haut. Plusieurs tranches de temps
+    // dans une bougie (la semaine, le mois) : la plus intense l'emporte.
+    function heatImage(data) {
+        var bytes = atob(data.data);
+        var rows = data.rows;
+        var first = -1;
+        var last = -1;
+        var columns = data.times.map(function (t) {
+            var index = barIndexAt(t);
+            if (index >= 0) {
+                if (first < 0 || index < first) { first = index; }
+                if (index > last) { last = index; }
+            }
+            return index;
+        });
+        if (first < 0) { return null; }
+        var width = last - first + 1;
+        var canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = rows;
+        var ctx = canvas.getContext("2d");
+        var image = ctx.createImageData(width, rows);
+        var levels = new Uint8Array(width * rows);
+        columns.forEach(function (index, t) {
+            if (index < 0) { return; }
+            var x = index - first;
+            for (var r = 0; r < rows; r += 1) {
+                var level = bytes.charCodeAt(t * rows + r);
+                var at = (rows - 1 - r) * width + x;
+                if (level > levels[at]) { levels[at] = level; }
+            }
+        });
+        var lut = heatPalette();
+        for (var i = 0; i < levels.length; i += 1) {
+            var q = levels[i] * 4;
+            image.data[i * 4] = lut[q];
+            image.data[i * 4 + 1] = lut[q + 1];
+            image.data[i * 4 + 2] = lut[q + 2];
+            image.data[i * 4 + 3] = lut[q + 3];
+        }
+        ctx.putImageData(image, 0, 0);
+        return {canvas: canvas, first: first, last: last};
+    }
+
+    function drawHeat() {
+        var canvas = state.heatCanvas;
+        if (!canvas || !state.chart || !state.series || !state.packet) {
+            return;
+        }
+        var paneHeight = state.chart.panes()[0].getHeight();
+        var scaleWidth = state.chart.priceScale("right").width();
+        var paneWidth = state.el.clientWidth - scaleWidth;
+        canvas.width = paneWidth;
+        canvas.height = paneHeight;
+        var ctx = canvas.getContext("2d");
+        ctx.clearRect(0, 0, paneWidth, paneHeight);
+        var data = state.heatData;
+        var picture = state.heatImage;
+        if (!data || data.empty || !picture) { return; }
+        var ts = state.chart.timeScale();
+        var candles = state.series.candles;
+        var rate = state.cfg.currency === "EUR" ? state.packet.eur_rate : 1;
+        // Les bougies sont régulières en rang : la première et la dernière
+        // colonne bornent l'image, d'une demi-bougie de part et d'autre.
+        // Par leurs temps (`timeToCoordinate`, comme les bulles des gros
+        // ordres) : `logicalToCoordinate` rendait 0 pour un rang
+        // fractionnaire, et l'image ne se posait nulle part.
+        var bars = state.packet.bars;
+        var at = clock();
+        var half = ts.options().barSpacing / 2;
+        var firstX = ts.timeToCoordinate(at.shown(bars[picture.first].time));
+        var lastX = ts.timeToCoordinate(at.shown(bars[picture.last].time));
+        var left = firstX === null ? null : firstX - half;
+        var right = lastX === null ? null : lastX + half;
+        var top = candles.priceToCoordinate((data.low + data.rows * data.step)
+                                            * rate);
+        var bottom = candles.priceToCoordinate(data.low * rate);
+        state.heatBox = {left: left, right: right, top: top, bottom: bottom,
+                         painted: false};
+        if (left === null || right === null || top === null
+                || bottom === null || right <= left || bottom <= top) {
+            return;
+        }
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(picture.canvas, left, top, right - left, bottom - top);
+        state.heatBox.painted = true;
+    }
+
     // ── Seuils d'alerte ─────────────────────────────────────
 
     // Les seuils de cours posés depuis le panneau ALERTES, tracés sur
@@ -1511,6 +1702,18 @@
         }
         state.tradesCanvas = null;
         state.tradesData = null;
+        if (state.heatPoll) {
+            clearInterval(state.heatPoll);
+            state.heatPoll = null;
+        }
+        if (state.heatTimer) {
+            clearTimeout(state.heatTimer);
+            state.heatTimer = null;
+        }
+        state.heatCanvas = null;
+        state.heatData = null;
+        state.heatImage = null;
+        if (state.el) { state.el.classList.remove("lwc-heat-on"); }
         if (state.profileTimer) {
             clearTimeout(state.profileTimer);
             state.profileTimer = null;
@@ -1666,6 +1869,14 @@
         if (state.tradesCanvas) {
             drawTrades();
             scheduleTrades();
+        }
+        if (state.heatCanvas) {
+            // Les colonnes se rangent dans des bougies qui ont pu changer
+            // (page d'historique, autre série) : l'image se refait.
+            state.heatImage = state.heatData && !state.heatData.empty
+                ? heatImage(state.heatData) : null;
+            drawHeat();
+            scheduleHeat();
         }
         // Les lignes portent des prix en unités de série : la bascule
         // de devise les reprend au taux.
@@ -2152,6 +2363,14 @@
                     ? (state.liqData.empty ? state.liqData.reason
                        : {count: state.liqData.count,
                           exchanges: state.liqData.exchanges})
+                    : null,
+                heat: state.heatData
+                    ? (state.heatData.empty ? state.heatData.reason
+                       : {columns: state.heatData.times.length,
+                          rows: state.heatData.rows,
+                          step: state.heatData.step,
+                          box: state.heatBox || null,
+                          drawn: !!(state.heatBox && state.heatBox.painted)})
                     : null,
                 trades: state.tradesData
                     ? (state.tradesData.empty ? state.tradesData.reason

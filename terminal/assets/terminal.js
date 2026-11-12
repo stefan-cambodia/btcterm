@@ -84,7 +84,7 @@ const KEYS_HELP = [
     "Ligne de commande",
     "un panneau       etf, perp, analyse, alertes…",
     "un intervalle    1m, 5m, 4h, 1d, 1M…",
-    "eur, usd, log, cvd, oi, rsi, crsi, vol, profil, niv, carte, ord, signaux, capture",
+    "eur, usd, log, cvd, oi, rsi, crsi, vol, profil, niv, carte, ord, murs, signaux, capture",
     "ligne, effacer   tracer une ligne, retirer toutes les lignes",
     "alerte 80000     seuil de cours, en dollars",
 ].join("\n");

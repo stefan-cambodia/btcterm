@@ -417,6 +417,21 @@ body {
     pointer-events: none;
 }
 
+/* La carte de chaleur du carnet se peint sous les chandeliers : le
+   graphique passe au-dessus d'elle (niveau 1, fond transparent), les
+   autres couches restent au-dessus de lui (niveau 7 et plus). */
+.lwc-heat {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 0;
+    pointer-events: none;
+}
+.lwc-heat-on .tv-lightweight-charts {
+    position: relative;
+    z-index: 1;
+}
+
 .lwc-profile {
     position: absolute;
     top: 0;

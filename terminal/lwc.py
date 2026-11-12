@@ -22,6 +22,7 @@ from __future__ import annotations
 import pandas as pd
 from flask import Response, jsonify, request
 
+from btcterm import heatmap
 from btcterm import indicators as ind
 from btcterm.analysis import key_levels
 from btcterm import sources
@@ -478,6 +479,35 @@ def register_api(app, hub) -> None:
             "demo": demo,
             "stale": bool(daily.attrs.get("stale", False)),
         })
+
+    @app.server.get("/api/heatmap")
+    def _heatmap():
+        """La carte de chaleur du carnet sur la plage visible (§ heatmap).
+
+        `from` et `to` en secondes epoch, `step` la largeur d'une bougie,
+        bornée entre la minute et le jour : les colonnes du journal (une
+        toutes les dix secondes, trois jours) s'y moyennent, sur une grille
+        de prix commune, quantifiées sur 256 niveaux — une matrice que le
+        navigateur peint sans calcul. Une plage sans colonne, ou un
+        terminal sans journal, rend une réponse vide qui dit pourquoi.
+        """
+        t_from = request.args.get("from", type=int)
+        t_to = request.args.get("to", type=int)
+        step = request.args.get("step", type=int)
+        if t_from is None or t_to is None or t_to <= t_from or not step:
+            return jsonify({"error": "bornes from/to et step requis"}), 400
+        step = min(max(step, 60), 86_400)
+        if hub.journal is None:
+            return jsonify({"empty": True, "reason": "journal désactivé"})
+        matrice = heatmap.aggregate(hub.journal.heatmap_between(t_from, t_to),
+                                    step)
+        if matrice is None:
+            return jsonify({"empty": True,
+                            "reason": "aucune photographie des carnets sur "
+                                      "cette plage — elles commencent avec "
+                                      "le service, trois jours au plus"})
+        matrice["bucket"] = step
+        return jsonify(matrice)
 
     @app.server.get("/api/oi")
     def _oi():

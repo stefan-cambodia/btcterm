@@ -80,6 +80,11 @@ RETENTION_DAYS = 30
 #: Quatre cents jours couvrent une année de tendance avec de la marge.
 SNAPSHOT_RETENTION_DAYS = 400
 
+#: Rétention de la carte de chaleur du carnet (§ heatmap) : une colonne
+#: toutes les dix secondes, 8 640 par jour — trois jours suffisent à la
+#: lecture des murs, et tiennent en une dizaine de mégaoctets.
+HEATMAP_RETENTION_DAYS = 3
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS liquidations (
     ts       REAL NOT NULL,      -- epoch de l'événement
@@ -150,6 +155,14 @@ CREATE TABLE IF NOT EXISTS book_depth (
     ask_btc  REAL NOT NULL       -- volume moyen à la vente
 );
 CREATE INDEX IF NOT EXISTS idx_book_depth_ts ON book_depth (ts);
+
+CREATE TABLE IF NOT EXISTS book_heatmap (
+    ts    REAL NOT NULL,      -- epoch de la photographie des carnets
+    base  INTEGER NOT NULL,   -- indice de la première tranche (prix / pas)
+    step  REAL NOT NULL,      -- pas des tranches, en dollars
+    data  BLOB NOT NULL       -- quantités par tranche, float32 compressés
+);
+CREATE INDEX IF NOT EXISTS idx_book_heatmap_ts ON book_heatmap (ts);
 """
 
 #: Colonnes de `market_snapshots` hors horodatage — l'ordre du schéma.
@@ -429,6 +442,27 @@ class Journal:
                 "VALUES (?, ?, ?, ?)", rows)
             self._db.commit()
 
+    def record_heatmap(self, ts: float, base: int, step: float,
+                       data: bytes) -> None:
+        """Une colonne de la carte de chaleur du carnet (§ heatmap.column,
+        encodée par `heatmap.encode`)."""
+        with self._lock:
+            self._connection().execute(
+                "INSERT INTO book_heatmap (ts, base, step, data) "
+                "VALUES (?, ?, ?, ?)", (ts, int(base), float(step), data))
+            self._db.commit()
+
+    def heatmap_between(self, start: float, end: float) -> list[tuple]:
+        """Les colonnes d'une plage, décodées : `(ts, base, pas, quantités)`."""
+        if not self.path.exists():
+            return []
+        from .heatmap import decode
+        with self._lock:
+            rows = self._connection().execute(
+                "SELECT ts, base, step, data FROM book_heatmap "
+                "WHERE ts BETWEEN ? AND ? ORDER BY ts", (start, end)).fetchall()
+        return [(ts, base, step, decode(data)) for ts, base, step, data in rows]
+
     def observe(self, opportunities, now: Optional[float] = None) -> None:
         """Un balayage du moteur : fait vivre les épisodes.
 
@@ -506,6 +540,8 @@ class Journal:
             # historique que personne ne sert, bâti par accumulation.
             db.execute("DELETE FROM book_depth WHERE ts < ?",
                        (time.time() - SNAPSHOT_RETENTION_DAYS * 86_400,))
+            db.execute("DELETE FROM book_heatmap WHERE ts < ?",
+                       (time.time() - HEATMAP_RETENTION_DAYS * 86_400,))
             db.commit()
 
     # ── Lectures ────────────────────────────────────────────

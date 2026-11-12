@@ -87,7 +87,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
-| **Prix** | chandeliers de 1 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), gros ordres en bulles, signaux, bascule `$`/`€`, échelle log, heure locale ou UTC, sous-graphiques optionnels dont le CVD et l'open interest, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
+| **Prix** | chandeliers de 1 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), gros ordres en bulles, carte de chaleur du carnet, signaux, bascule `$`/`€`, échelle log, heure locale ou UTC, sous-graphiques optionnels dont le CVD et l'open interest, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
 | **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ ; dessous, le solde horaire des gros ordres et la prime Coinbase journalisés (onglet du carnet) | 2 s · 5 min |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian et cadrées sur l'étendue médiane des carnets ; dessous, l'historique journalisé de la liquidité à ±0,1 % du prix (onglet du carnet) | 250 ms · 5 min |
@@ -196,6 +196,13 @@ le mois), prolongé au-delà des trente jours de Binance par le journal. Ce que
 le cours seul ne dit pas : une hausse portée par des positions neuves ou par
 des shorts qui rachètent, une baisse qui purge le levier ou qui en ajoute.
 
+**Murs** — la case `MURS` (commande `/murs`) peint sous les chandeliers la
+carte de chaleur des carnets dans le temps : toutes les dix secondes, les cinq
+carnets additionnés par tranche de 25 $ sur ±2 % autour du cours, du bleu sombre
+(peu de liquidité) au jaune et au blanc (les murs). Les murs qui tiennent
+tracent des bandes ; ceux qui disparaissent avant d'être touchés s'arrêtent
+net. Elle commence avec le service et garde trois jours.
+
 **Gros ordres** — la case `ORD` (touche `O`, commande `/ord`) pose sur les
 chandeliers les ordres de 100 k$ et plus que le ruban a journalisés : une
 bulle par bougie et par côté, à leur prix moyen pondéré, d'une surface
@@ -292,8 +299,9 @@ CRYPTOPANIC_API_KEY=… python -m terminal.app     # ajouter CryptoPanic aux RSS
 ```
 
 **Journal** — les données qui mouraient avec le processus sont désormais
-journalisées dans `~/.btcterm/journal.db` (30 jours de rétention, de l'ordre
-de 150 Mo une fois plein, les trois plateformes livrant) : chaque
+journalisées dans `~/.btcterm/journal.db` (30 jours de rétention, purgée toutes
+les six heures, de l'ordre de 150 Mo une fois plein, les trois plateformes
+livrant) : chaque
 liquidation, et chaque épisode d'arbitrage rentable — ouvert quand une paire
 devient rentable, clos quand elle a cessé de l'être, une ligne par épisode
 avec le meilleur profit observé. S'y ajoutent, toutes les cinq minutes, les
