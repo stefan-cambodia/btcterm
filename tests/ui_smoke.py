@@ -22,6 +22,7 @@ Ignoré si Firefox est absent.
 
 import argparse
 import os
+import re
 import shutil
 import sys
 import time
@@ -274,6 +275,17 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         time.sleep(1)
 
         print("\nLecture et gestes du panneau prix")
+        # Le compte à rebours de la bougie, à côté du dernier prix : il
+        # descend d'une seconde à l'autre — sauf sur la démonstration.
+        rebours = browser.js("return window.lwcPrice.debug();")
+        time.sleep(2.2)
+        ensuite = browser.js("return window.lwcPrice.debug().countdown;")
+        check("le rebours de la bougie descend à côté du dernier prix, rien sur la démo",
+              (rebours["demo"] and not ensuite)
+              or (bool(re.fullmatch(r"(\d+:)?\d\d:\d\d|\d+j \d\dh", ensuite))
+                  and ensuite != rebours["countdown"]
+                  or ensuite.endswith("h")),
+              f"{rebours['interval']} : {rebours['countdown']} → {ensuite}")
         lecture = browser.js("return window.lwcPrice.debug().readout;")
         check("la dernière bougie se lit sans survol",
               "O " in (lecture or "") and "%" in lecture,

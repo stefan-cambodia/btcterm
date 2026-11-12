@@ -19,6 +19,10 @@
 // fuseaux qui changent d'heure, les bougies de l'heure répétée se tassent
 // donc sous une même étiquette ; ailleurs — le Cambodge, l'UTC — rien ne
 // bouge.
+//
+// L'horloge dit aussi le temps qui reste avant la clôture de la bougie en
+// cours (`countdown`), posé par lwc-price.js à côté du dernier prix : la
+// clôture d'une bougie de quatre heures ou d'un jour est un rendez-vous.
 (function () {
     "use strict";
 
@@ -107,9 +111,50 @@
         return offset === 0 ? "UTC" : text;
     }
 
+    // La durée d'une bougie, en secondes ; le mois n'en a pas de fixe.
+    var STEPS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600,
+                 "4h": 14400, "6h": 21600, "12h": 43200, "1d": 86400,
+                 "1w": 604800};
+
+    // La clôture de la bougie ouverte à `open` (secondes UTC) : une durée
+    // plus tard — la semaine de Binance, ouverte le lundi 0 h UTC, se clôt
+    // le lundi suivant —, le 1er du mois suivant pour le mois.
+    function closeOf(open, interval) {
+        if (interval === "1M") {
+            var date = new Date(open * 1000);
+            return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + 1, 1)
+                / 1000;
+        }
+        return STEPS[interval] ? open + STEPS[interval] : null;
+    }
+
+    function two(n) { return String(n).padStart(2, "0"); }
+
+    // Le temps qui reste avant la clôture de la bougie ouverte à `open`,
+    // tel qu'il s'affiche à côté du dernier prix : « 04:59 » sous l'heure,
+    // « 13:22:10 » sous le jour, « 3j 04h » au-delà. Vide hors de la
+    // bougie — close, la suivante pas encore arrivée, ou l'horloge du
+    // navigateur qui dérive : rien plutôt qu'un chiffre faux.
+    function countdown(open, interval, now) {
+        var close = closeOf(open, interval);
+        if (close === null) { return ""; }
+        var left = Math.floor(close - now);
+        if (left < 0 || left > close - open) { return ""; }
+        var hours = Math.floor(left / 3600);
+        var minutes = Math.floor(left % 3600 / 60);
+        var seconds = left % 60;
+        if (left < 3600) { return two(minutes) + ":" + two(seconds); }
+        if (left < 86400) {
+            return hours + ":" + two(minutes) + ":" + two(seconds);
+        }
+        return Math.floor(left / 86400) + "j " + two(hours % 24) + "h";
+    }
+
     window.btcClock = {
         create: function (shift) { return new Clock(shift); },
         offsetAt: offsetAt,
-        zone: zone
+        zone: zone,
+        closeOf: closeOf,
+        countdown: countdown
     };
 }());

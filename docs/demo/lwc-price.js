@@ -349,6 +349,9 @@
         buildBanner();
         buildBoxZoom();
         updateAlertLines();
+        // Le temps qui reste avant la clôture de la bougie, à côté du
+        // dernier prix — à la seconde, comme l'horloge du bandeau.
+        state.countdownTimer = setInterval(updateCountdown, 1000);
 
         // Profil de volume : un canvas en surimpression à droite du
         // pane du cours, recalculé sur la plage visible (le VPVR de
@@ -419,6 +422,29 @@
                 toggleAlertAt(param.point.y);
             }
         });
+    }
+
+    // Le compte à rebours de la bougie en cours (btcClock.countdown, testé
+    // sous Node), en titre de la série : la bibliothèque le pose sur
+    // l'étiquette du dernier prix, là où l'œil le cherche. Rien sur la
+    // démonstration — ses bougies ne clôturent jamais —, ni quand la série
+    // affichée n'est pas encore celle de l'intervalle choisi.
+    function updateCountdown() {
+        if (!state.series || !state.packet) { return; }
+        var bars = state.packet.bars;
+        var text = "";
+        if (window.btcClock && window.btcClock.countdown && bars.length
+                && !state.packet.demo
+                && (state.packet.interval || state.cfg.interval)
+                    === state.cfg.interval) {
+            text = window.btcClock.countdown(bars[bars.length - 1].time,
+                                             state.cfg.interval,
+                                             Date.now() / 1000);
+        }
+        if (text !== state.countdownText) {
+            state.countdownText = text;
+            state.series.candles.applyOptions({title: text});
+        }
     }
 
     // Une légende statique : la bibliothèque n'en fournit pas, et sans
@@ -1897,6 +1923,11 @@
 
     function teardown() {
         zoomStop();
+        if (state.countdownTimer) {
+            clearInterval(state.countdownTimer);
+            state.countdownTimer = null;
+        }
+        state.countdownText = null;
         if (state.el) {
             state.el.removeEventListener("mousedown", zoomStart, true);
         }
@@ -2171,6 +2202,8 @@
         state.hover = null;
         updateReadout();
         updateBanner();
+        // Un autre intervalle, un autre rebours : sans attendre la seconde.
+        updateCountdown();
         applyLog();
 
         if (state.profileCanvas) {
@@ -2709,6 +2742,7 @@
                     return line.points;
                 }),
                 drawMode: state.drawMode,
+                countdown: state.countdownText || "",
                 anchorMode: state.anchorMode,
                 anchors: state.anchors,
                 anchorLines: (state.anchorLines || []).map(function (line) {

@@ -187,7 +187,10 @@ progression de 4 000 à 80 000 dollars écrase tout le début du graphique.
 du navigateur, comme le reste du terminal ; la case `UTC`, à côté de `LOG`,
 les passe en UTC, et la lecture de la bougie le précise. Les bougies d'un jour
 et plus restent le jour UTC de Binance, qui ouvre à minuit UTC — 7 h à Phnom
-Penh.
+Penh. L'étiquette du dernier prix porte le **temps qui reste avant la clôture
+de la bougie** (`13:33` en 15m, `1:16:03` en 4h, `3j 12h` en semaine), à la
+seconde — la semaine de Binance se clôt le lundi 0 h UTC, le mois au 1er ;
+rien sur la série de démonstration, dont les bougies ne clôturent jamais.
 
 **Sous-graphiques optionnels** — les cases `RSI` · `CRSI` · `VOL` · `PROFIL` de
 la barre de titre du panneau prix décident de ce qui accompagne les chandeliers.

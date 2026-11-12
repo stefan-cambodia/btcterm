@@ -75,6 +75,21 @@ out.poussee = suite.add(debut + 7 * H) - suite.shown(debut + 6 * H);
 suite.add(debut - 10 * H);
 out.ancienne_non_inscrite = !suite.toShown.has(debut - 10 * H);
 
+// Le compte à rebours : en UTC, quel que soit le fuseau.
+const h4 = Date.UTC(2026, 10, 12, 12) / 1000;   // 4h ouverte à 12 h UTC
+out.rebours = {
+    debut: C.countdown(h4, "4h", h4),
+    milieu: C.countdown(h4, "4h", h4 + 4 * H - 3725),
+    fin: C.countdown(h4, "4h", h4 + 4 * H - 1),
+    close: C.countdown(h4, "4h", h4 + 4 * H + 1),
+    avant: C.countdown(h4, "4h", h4 - 5),
+    minute: C.countdown(h4, "5m", h4 + 1),
+    jour: C.countdown(Date.UTC(2026, 10, 12) / 1000, "1d", h4 + 0.5),
+    semaine: C.countdown(Date.UTC(2026, 10, 9) / 1000, "1w", h4),
+    mois: C.closeOf(Date.UTC(2026, 11, 1) / 1000, "1M"),
+    moisTexte: C.countdown(Date.UTC(2026, 10, 1) / 1000, "1M", h4),
+    inconnu: C.countdown(h4, "2h", h4)
+};
 out.zone_decembre = C.zone(decembre);
 out.zone_aout = C.zone(aout);
 console.log(JSON.stringify(out));
@@ -127,6 +142,21 @@ def test_paris_l_heure_qui_se_repete():
     assert r["recale_inconnu"] == 1_796_904_000
     assert r["zone_decembre"] == "UTC+1" and r["zone_aout"] == "UTC+2"
     print("  ✓ Paris : l'heure répétée tassée sans désordre, été et hiver tenus")
+
+
+def test_le_compte_a_rebours_de_la_bougie():
+    for fuseau in ("Asia/Phnom_Penh", "Europe/Paris"):
+        r = lancer(fuseau)["rebours"]
+        assert r["debut"] == "4:00:00" and r["milieu"] == "1:02:05"
+        assert r["fin"] == "00:01", "la dernière seconde"
+        assert r["close"] == "" and r["avant"] == "", "hors de la bougie : rien"
+        assert r["minute"] == "04:59"
+        assert r["jour"] == "11:59:59", "minuit UTC, pas minuit local"
+        assert r["semaine"] == "3j 12h", "du jeudi midi au lundi 16 novembre, 0 h UTC"
+        assert r["mois"] == 1_798_761_600, "décembre se clôt au 1er janvier 2027"
+        assert r["moisTexte"] == "18j 12h"
+        assert r["inconnu"] == "", "intervalle inconnu : rien"
+    print("  ✓ rebours : mm:ss, h:mm:ss, jours ; UTC partout ; rien hors bougie")
 
 
 def test_calcutta_la_demi_heure():

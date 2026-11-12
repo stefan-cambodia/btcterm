@@ -1606,6 +1606,16 @@ elles sont le jour UTC de Binance, et un fuseau à l'ouest de Greenwich
 les daterait de la veille. `tests/test_lwc_clock.py` exécute l'horloge
 sous Node à Phnom Penh, à Paris le 25 octobre 2026 et à Calcutta.
 
+L'horloge dit aussi le **temps qui reste avant la clôture** de la bougie en
+cours (`btcClock.countdown`) : une durée après son ouverture, la semaine de
+Binance close le lundi suivant à 0 h UTC, le mois au 1er du suivant, en UTC
+quel que soit le fuseau. `lwc-price.js` le pose chaque seconde en titre de la
+série des bougies, que la bibliothèque écrit sur l'étiquette du dernier prix
+— là où l'œil le cherche, comme sur TradingView. Hors de la bougie — close,
+la suivante pas encore poussée, ou une horloge de navigateur qui dérive —,
+rien plutôt qu'un chiffre faux ; rien non plus sur la démonstration, dont les
+bougies ne clôturent jamais. `ui_smoke` vérifie qu'il descend.
+
 L'heure locale du graphique est celle du **navigateur** ; celle des autres
 panneaux, celle de la **machine** qui sert le terminal — et c'est elle aussi
 qui fixe l'heure d'envoi de la synthèse du matin (`BTCTERM_BRIEF`). Les deux
@@ -3880,6 +3890,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
   (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
   synthèse hors de ses bornes.
+- ~~**Une bougie sans heure de clôture**~~ — fait le 12 novembre 2026
+  (§3.2) : le temps qui reste avant la clôture, à la seconde, sur
+  l'étiquette du dernier prix.
 - ~~**Pas de VWAP depuis un point choisi**~~ — fait le 12 novembre 2026
   (§3.13) : la touche A ancre un VWAP sur la bougie cliquée, trois ancres
   au plus, gardées à travers devise, intervalle et rechargement.
