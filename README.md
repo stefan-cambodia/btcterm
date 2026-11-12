@@ -272,7 +272,8 @@ CRYPTOPANIC_API_KEY=… python -m terminal.app     # ajouter CryptoPanic aux RSS
 ```
 
 **Journal** — les données qui mouraient avec le processus sont désormais
-journalisées dans `~/.btcterm/journal.db` (30 jours de rétention) : chaque
+journalisées dans `~/.btcterm/journal.db` (30 jours de rétention, de l'ordre
+de 150 Mo une fois plein, les trois plateformes livrant) : chaque
 liquidation, et chaque épisode d'arbitrage rentable — ouvert quand une paire
 devient rentable, clos quand elle a cessé de l'être, une ligne par épisode
 avec le meilleur profit observé. S'y ajoutent, toutes les cinq minutes, les

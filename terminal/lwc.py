@@ -24,7 +24,6 @@ from flask import Response, jsonify, request
 
 from btcterm import indicators as ind
 from btcterm.analysis import key_levels
-from btcterm.liquidations import price_map
 from btcterm import sources
 
 from .charts import VOL_BINS, prepare_price_frame
@@ -482,7 +481,7 @@ def register_api(app, hub) -> None:
 
     @app.server.get("/api/liqmap")
     def _liqmap():
-        """Carte des liquidations de la plage visible (`liquidations.price_map`).
+        """Carte des liquidations de la plage visible (`Journal.liquidation_map`).
 
         `from` et `to` en secondes epoch. Lue dans le journal, qui garde
         trente jours de liquidations : une plage plus ancienne, ou un
@@ -495,7 +494,7 @@ def register_api(app, hub) -> None:
             return jsonify({"error": "bornes from/to requises"}), 400
         if hub.journal is None:
             return jsonify({"empty": True, "reason": "journal désactivé"})
-        carte = price_map(hub.journal.liquidations_between(t_from, t_to))
+        carte = hub.journal.liquidation_map(t_from, t_to)
         if carte is None:
             return jsonify({"empty": True,
                             "reason": "aucune liquidation journalisée sur "

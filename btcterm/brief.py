@@ -242,14 +242,18 @@ def perp_item(funding_rate: Optional[float], open_interest) -> Item:
     return Item("Perpétuel", " · ".join(parts), tone, " ; ".join(detail))
 
 
-def liquidations_item(rows) -> Item:
-    """Le bilan des liquidations journalisées : côtés, part du bitcoin."""
-    if not rows:
+def liquidations_item(bilan: Optional[dict]) -> Item:
+    """Le bilan des liquidations journalisées : côtés, part du bitcoin.
+
+    `bilan` est celui du journal (`Journal.liquidation_summary`). La part
+    du bitcoin y suit `is_bitcoin` ; elle se comptait ici sur « commence
+    par BTC », qui range dans le bitcoin le contrat de Binance sur l'indice
+    de dominance (`BTCDOMUSDT`) — sans effet tant que le fil de Binance
+    restait muet."""
+    if not bilan:
         return Item("Liquidations", "aucune journalisée", "muted")
-    longs = sum(r["notional"] for r in rows if r["side"] == "long")
-    shorts = sum(r["notional"] for r in rows if r["side"] == "short")
-    btc = sum(r["notional"] for r in rows if r["symbol"].startswith("BTC"))
-    biggest = max(rows, key=lambda r: r["notional"])
+    longs, shorts, btc = bilan["long"], bilan["short"], bilan["btc"]
+    biggest = bilan["biggest"]
     # Des longs liquidés ont été vendus de force : la journée a baissé.
     tone = ("down" if longs > 1.5 * shorts else
             "up" if shorts > 1.5 * longs else "")
@@ -257,7 +261,7 @@ def liquidations_item(rows) -> Item:
         "Liquidations",
         f"longs {_usd(longs)} · shorts {_usd(shorts)} · dont BTC {_usd(btc)}",
         tone,
-        f"{len(rows)} événements ; la plus grosse : {biggest['symbol']} "
+        f"{bilan['count']} événements ; la plus grosse : {biggest['symbol']} "
         f"{biggest['side']} {_usd(biggest['notional'])} à "
         f"{_hhmm(biggest['ts'])}")
 
@@ -518,7 +522,7 @@ def build(hub, now: Optional[float] = None,
         _funding(hub, snapshots, now), change(snapshots, "oi_usd", now)))
     if journal is not None:
         add("Liquidations",
-            lambda: liquidations_item(journal.liquidations_between(start, now)))
+            lambda: liquidations_item(journal.liquidation_summary(start, now)))
         add("Gros ordres",
             lambda: trades_item(journal.trades_between(start, now)))
         add("Liquidité", lambda: liquidity_item(

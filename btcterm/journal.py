@@ -55,6 +55,8 @@ import time
 from pathlib import Path
 from typing import Optional
 
+from .liquidations import BITCOIN_SQL, MAP_BINS
+
 __all__ = ["DB_DIR", "DB_PATH", "GRACE", "RETENTION_DAYS",
            "SNAPSHOT_RETENTION_DAYS", "Journal", "rebase_universe",
            "liquidity_totals"]
@@ -89,6 +91,7 @@ CREATE TABLE IF NOT EXISTS liquidations (
     exchange TEXT                -- la plateforme : Binance | Bybit
 );
 CREATE INDEX IF NOT EXISTS idx_liquidations_ts ON liquidations (ts);
+-- idx_liquidations_btc, partiel, est posé après les migrations (§ Journal).
 
 CREATE TABLE IF NOT EXISTS arbitrage_episodes (
     first_seen    REAL NOT NULL, -- première observation rentable
@@ -299,6 +302,22 @@ def find_gaps(timestamps: list[float], gap: float) -> list[tuple[float, float]]:
     return [(a, b) for a, b in zip(timestamps, timestamps[1:]) if b - a > gap]
 
 
+#: L'index des seuls contrats bitcoin, couvrant : la carte des
+#: liquidations (`liquidation_map`) le lit sans toucher la table. Depuis
+#: que Binance livre toutes ses paires, le journal reçoit de l'ordre de
+#: 55 000 liquidations par jour, dont un dixième sur le bitcoin — trente
+#: jours en font 1,7 million. Partiel, l'index ne pèse que ce dixième.
+#: Il porte `symbol`, que la requête doit répéter pour que SQLite le
+#: choisisse : sans lui, chaque ligne retournait à la table, dont les
+#: pages mêlent bitcoin et altcoins — à froid, presque toute la table. Il
+#: porte aussi `exchange`, ajoutée par migration : il est donc posé après
+#: elle, et reposé si la règle `BITCOIN_SQL` change.
+_BTC_INDEX = "idx_liquidations_btc"
+_BTC_INDEX_SQL = (f"CREATE INDEX {_BTC_INDEX} ON liquidations "
+                  f"(ts, symbol, price, notional, side, exchange) "
+                  f"WHERE {BITCOIN_SQL}")
+
+
 class Journal:
     """Écritures au fil de l'eau, lectures par fenêtre de temps."""
 
@@ -329,6 +348,13 @@ class Journal:
                     if declaration.split()[0] not in present:
                         self._db.execute(
                             f"ALTER TABLE {table} ADD COLUMN {declaration}")
+            pose = self._db.execute(
+                "SELECT sql FROM sqlite_master WHERE type = 'index' "
+                "AND name = ?", (_BTC_INDEX,)).fetchone()
+            if pose is None or pose[0] != _BTC_INDEX_SQL:
+                if pose is not None:
+                    self._db.execute(f"DROP INDEX {_BTC_INDEX}")
+                self._db.execute(_BTC_INDEX_SQL)
             self._db.commit()
         return self._db
 
@@ -492,6 +518,85 @@ class Journal:
                 "SELECT * FROM liquidations WHERE ts BETWEEN ? AND ?"
                 " ORDER BY ts", (start, end)).fetchall()
 
+    def liquidation_summary(self, start: float,
+                            end: float) -> Optional[dict]:
+        """Le bilan des liquidations d'une fenêtre, calculé par la base.
+
+        `count`, `long`, `short`, `btc` (notionnels en dollars, `btc` selon
+        `is_bitcoin`) et `biggest`, la plus grosse (`symbol`, `side`,
+        `notional`, `ts`, `exchange`) ; `None` sans événement. Le panneau
+        JOURNAL, la synthèse et le bilan de séance lisaient chaque ligne de
+        la journée pour n'en garder que ces chiffres : 56 000 lignes à
+        Binance livrant, deux secondes sous le verrou du journal — que
+        l'écriture des liquidations attend, depuis la boucle des flux.
+        """
+        if not self.path.exists():
+            return None
+        with self._lock:
+            db = self._connection()
+            count, longs, shorts, btc = db.execute(
+                "SELECT COUNT(*), "
+                "TOTAL(CASE WHEN side = 'long' THEN notional END), "
+                "TOTAL(CASE WHEN side = 'short' THEN notional END), "
+                f"TOTAL(CASE WHEN {BITCOIN_SQL} THEN notional END) "
+                "FROM liquidations WHERE ts BETWEEN ? AND ?",
+                (start, end)).fetchone()
+            if not count:
+                return None
+            biggest = db.execute(
+                "SELECT * FROM liquidations WHERE ts BETWEEN ? AND ? "
+                "ORDER BY notional DESC LIMIT 1", (start, end)).fetchone()
+        return {"count": count, "long": longs, "short": shorts, "btc": btc,
+                "biggest": dict(biggest)}
+
+    def liquidation_map(self, start: float, end: float,
+                        bins: int = MAP_BINS) -> Optional[dict]:
+        """La carte des liquidations du bitcoin, calculée par la base.
+
+        Même contrat que `liquidations.price_map`, la règle de référence :
+        les tranches de prix, longs et shorts à part, la couverture. La
+        carte lisait chaque liquidation de la plage, toutes paires, pour
+        n'en garder que le bitcoin : sur la plage d'un graphique journalier
+        — tout le journal —, 1,7 million de lignes, des secondes et des
+        centaines de mégaoctets chaque minute. Elle ne lit plus que l'index
+        partiel des contrats bitcoin (`_BTC_INDEX`), et n'en rapporte que
+        des sommes.
+        """
+        if not self.path.exists():
+            return None
+        where = f"ts BETWEEN ? AND ? AND {BITCOIN_SQL}"
+        with self._lock:
+            db = self._connection()
+            count, low, high, total, first, last, places = db.execute(
+                "SELECT COUNT(*), MIN(price), MAX(price), TOTAL(notional), "
+                "MIN(ts), MAX(ts), "
+                "group_concat(DISTINCT COALESCE(exchange, 'Binance')) "
+                f"FROM liquidations WHERE {where}", (start, end)).fetchone()
+            if not count:
+                return None
+            if high <= low:
+                high = low * 1.001 or 1.0
+            width = (high - low) / bins
+            longs = [0.0] * bins
+            shorts = [0.0] * bins
+            for index, side, notional in db.execute(
+                    "SELECT MIN(?, CAST((price - ?) / ? AS INTEGER)) AS bin, "
+                    "side, TOTAL(notional) "
+                    f"FROM liquidations WHERE {where} GROUP BY bin, side",
+                    (bins - 1, low, width, start, end)):
+                (longs if side == "long" else shorts)[index] += notional
+        return {
+            "centers": [low + (i + 0.5) * width for i in range(bins)],
+            "width": width,
+            "longs": longs,
+            "shorts": shorts,
+            "count": count,
+            "notional": total,
+            "exchanges": sorted(places.split(",")),
+            "first": first,
+            "last": last,
+        }
+
     def trades_between(self, start: float, end: float) -> list[sqlite3.Row]:
         if not self.path.exists():
             return []
@@ -601,17 +706,14 @@ def resume(journal: "Journal", hours: float = 24,
     else:
         lines.append("Couverture : complète.")
 
-    events = journal.liquidations_between(start, end)
-    if not events:
+    bilan = journal.liquidation_summary(start, end)
+    if not bilan:
         lines.append("Liquidations : aucune enregistrée.")
     else:
-        par_cote: dict[str, float] = {"long": 0.0, "short": 0.0}
-        for row in events:
-            par_cote[row["side"]] += row["notional"]
-        lines.append(f"Liquidations : {len(events)} événements — "
-                     f"longs {par_cote['long']:,.0f} $ · "
-                     f"shorts {par_cote['short']:,.0f} $")
-        gros = max(events, key=lambda r: r["notional"])
+        lines.append(f"Liquidations : {bilan['count']} événements — "
+                     f"longs {bilan['long']:,.0f} $ · "
+                     f"shorts {bilan['short']:,.0f} $")
+        gros = bilan["biggest"]
         lines.append(f"  la plus grosse : {gros['symbol']} {gros['side']} "
                      f"{gros['notional']:,.0f} $ à {quand(gros['ts'])}"
                      f"{' (' + gros['exchange'] + ')' if gros['exchange'] else ''}")

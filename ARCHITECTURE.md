@@ -567,6 +567,32 @@ nature :
   rythme des carnets), écrit en une seule ligne à sa clôture — bornes,
   meilleur profit net, prix à ce meilleur, nombre d'observations.
 
+**Les liquidations se somment dans la base.** Depuis que Binance livre son
+fil (§2.5), toutes paires, le journal en reçoit de l'ordre de 55 000 par jour
+— Binance 1 170 à l'heure, OKX 900, Bybit 260 —, dont un dixième sur le
+bitcoin : trente jours en font 1,7 million, 150 Mo de base. La carte des
+liquidations lisait chaque ligne de sa plage pour n'en garder que le
+bitcoin ; sur la plage d'un graphique journalier, tout le journal : 18 s et
+685 Mo, mesurés sur un journal synthétique de trente jours à ce débit, chaque
+minute. Le panneau JOURNAL, la synthèse et le bilan de séance lisaient la
+journée entière pour n'en tirer que quatre chiffres : 56 000 lignes, deux
+secondes. Et toutes ces lectures tiennent le verrou du journal, que
+l'écriture d'une liquidation attend depuis la boucle des flux : les carnets
+auraient calé avec elles. Le journal calcule donc lui-même ce qu'on lui
+demande : `liquidation_summary` (nombre, longs, shorts, part du bitcoin, la
+plus grosse) et `liquidation_map` (les tranches de la carte, même contrat
+que `liquidations.price_map`, la référence en mémoire). La règle du bitcoin
+existe en SQL (`BITCOIN_SQL`, à côté d'`is_bitcoin`, un test vérifiant
+qu'elles s'accordent), et sert de condition à un index **partiel et
+couvrant** (`idx_liquidations_btc` : `ts`, `symbol`, prix, notionnel, côté,
+plateforme, sur les seuls contrats bitcoin), que la carte lit sans toucher
+la table. Mesuré sur les trente jours synthétiques : la carte en 206 ms, le
+bilan du jour en 29, sans mémoire notable ; l'index se pose en une seconde,
+une fois, à l'ouverture d'un journal déjà rempli, et se repose si la règle
+change. La synthèse comptait la part du bitcoin sur « commence par BTC »,
+qui range l'indice de dominance de Binance (`BTCDOMUSDT`) dans le bitcoin :
+elle suit désormais la règle commune.
+
 C'est le hub qui fait vivre les épisodes, dans une boucle d'observation
 propre à cadence lente (1 s) : aucun callback d'interface ne pouvait
 s'en charger — il n'en tourne aucun sans navigateur ouvert, et le
@@ -2035,9 +2061,10 @@ l'écart entre libellés de 4 à 3 px.
 
 La **carte des liquidations** (case `LIQ`, touche `M`, `/carte`) est un
 canvas à gauche du pane du cours, le profil de volume tenant la droite :
-`liquidations.price_map` répartit le notionnel liquidé de la plage visible en
-soixante tranches de prix, longs et shorts à part, et `/api/liqmap` le lit
-dans le journal, qui garde trente jours. Redemandée quand la plage bouge et
+le notionnel liquidé de la plage visible se répartit en soixante tranches de
+prix, longs et shorts à part (`liquidations.price_map`, la règle), et
+`/api/liqmap` le fait calculer par le journal, qui garde trente jours
+(`Journal.liquidation_map`, sur un index des seuls contrats bitcoin, §2.7). Redemandée quand la plage bouge et
 chaque minute. Sa légende, posée sous celle des moyennes — en bas du pane, le
 volume la recouvrait —, dit le total et les plateformes présentes — Bybit et
 OKX seuls tant que l'adresse de Binance manquait de sa route (§2.5) —, et rien
@@ -3472,6 +3499,16 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   perpétuel affichent l'heure locale du navigateur, la case UTC rend
   l'UTC. Reste ouvert : sur un serveur distant, les autres panneaux
   dateront dans le fuseau du serveur, pas dans celui du navigateur.
+- ~~**Un journal de liquidations trop gros pour être relu ligne à ligne**~~ —
+  constaté le 12 novembre 2026, sitôt Binance rendu à son fil (§2.5) : le
+  débit du journal passait de 1 200 à 2 300 liquidations par heure, toutes
+  paires. Mesuré sur trente jours synthétiques à ce débit : la carte des
+  liquidations lisait 1,7 million de lignes chaque minute (18 s, 685 Mo), le
+  panneau JOURNAL et la synthèse 56 000 (2 s), toutes sous le verrou que
+  l'écriture des flux attend. Fait (§2.7) : le journal somme lui-même —
+  `liquidation_summary`, `liquidation_map` —, sur un index partiel et
+  couvrant des contrats bitcoin ; 206 ms et 29 ms. La part du bitcoin de la
+  synthèse ne compte plus `BTCDOMUSDT`.
 - ~~**« 100.00 » coupé en deux au bord du RSI**~~ — fait le 12 novembre
   2026 (§3.2) : les panes RSI et CRSI, figés sur 0-100 sans marge pour ne
   pas afficher de rangs négatifs, posaient la graduation 100 sur le bord

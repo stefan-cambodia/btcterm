@@ -649,6 +649,93 @@ def test_les_flux_futures_de_binance_ont_leur_route():
     print("  ✓ /market pour les liquidations, aucune adresse sans route ;"
           " le message réel se lit")
 
+
+def test_le_journal_calcule_la_carte_et_le_bilan_lui_meme():
+    """Depuis que Binance livre toutes ses paires, trente jours de journal
+    font 1,7 million de liquidations : la carte et les bilans ne lisent
+    plus les lignes, la base les somme. Ce qui se vérifie ici :
+
+    - la règle SQL du bitcoin dit la même chose que `is_bitcoin` ;
+    - la carte du journal est celle de `price_map`, la référence ;
+    - la carte passe par l'index partiel des contrats bitcoin, et cet
+      index se repose si la règle change ;
+    - le bilan compte côtés, bitcoin et plus grosse comme on les compterait
+      ligne à ligne.
+    """
+    import random
+    import sqlite3
+    import tempfile
+
+    from btcterm.journal import _BTC_INDEX, Journal
+    from btcterm.liquidations import BITCOIN_SQL, is_bitcoin, price_map
+
+    symboles = ["BTCUSDT", "BTCUSDC", "BTCUSD", "BTCUSDT_261225",
+                "BTCUSD_270326", "BTCDOMUSDT", "ETHUSDT", "BTC", "_BTCUSDT",
+                "BTCUSDTX", "XBTUSD", "BTCUSDC_", ""]
+    base = sqlite3.connect(":memory:")
+    base.execute("CREATE TABLE t (symbol TEXT)")
+    base.executemany("INSERT INTO t VALUES (?)", [(s,) for s in symboles])
+    retenus = {r[0] for r in base.execute(f"SELECT symbol FROM t WHERE {BITCOIN_SQL}")}
+    assert retenus == {s for s in symboles if is_bitcoin(s)}, retenus
+
+    hasard = random.Random(7)
+    maintenant = time.time()
+    with tempfile.TemporaryDirectory() as dossier:
+        journal = Journal(Path(dossier) / "journal.db")
+        assert journal.liquidation_map(0, maintenant) is None
+        assert journal.liquidation_summary(0, maintenant) is None
+        for i in range(400):
+            symbole = hasard.choice(["BTCUSDT", "BTCUSD", "BTCUSDT_261225",
+                                     "BTCDOMUSDT", "ETHUSDT", "SOLUSDT"])
+            prix = (hasard.uniform(60_000, 90_000) if is_bitcoin(symbole)
+                    else hasard.uniform(1, 5_000))
+            journal.record_liquidation(Liquidation(
+                time=maintenant - 3_600 + i, symbol=symbole,
+                side=hasard.choice(["long", "short"]), price=prix,
+                quantity=hasard.uniform(0.001, 3),
+                exchange=hasard.choice(["Binance", "Bybit", "OKX"])))
+        lignes = journal.liquidations_between(0, maintenant + 1)
+
+        reference = price_map(lignes)
+        carte = journal.liquidation_map(0, maintenant + 1)
+        assert carte.keys() == reference.keys()
+        for cle in ("count", "exchanges", "first", "last"):
+            assert carte[cle] == reference[cle], cle
+        for cle in ("width", "notional"):
+            assert abs(carte[cle] - reference[cle]) <= 1e-9 * abs(reference[cle])
+        for cle in ("centers", "longs", "shorts"):
+            assert all(abs(a - b) <= 1e-6 for a, b in zip(carte[cle], reference[cle])), cle
+        assert journal.liquidation_map(maintenant + 10, maintenant + 20) is None
+
+        bilan = journal.liquidation_summary(0, maintenant + 1)
+        assert bilan["count"] == len(lignes)
+        for cote in ("long", "short"):
+            attendu = sum(r["notional"] for r in lignes if r["side"] == cote)
+            assert abs(bilan[cote] - attendu) < 1e-6
+        attendu = sum(r["notional"] for r in lignes if is_bitcoin(r["symbol"]))
+        assert abs(bilan["btc"] - attendu) < 1e-6, "BTCDOMUSDT n'est pas du bitcoin"
+        assert bilan["biggest"]["notional"] == max(r["notional"] for r in lignes)
+
+        db = journal._connection()
+        plan = " ".join(r[3] for r in db.execute(
+            "EXPLAIN QUERY PLAN SELECT TOTAL(notional) FROM liquidations "
+            f"WHERE ts BETWEEN ? AND ? AND {BITCOIN_SQL}", (0, 1)))
+        assert _BTC_INDEX in plan and "COVERING" in plan, plan
+
+        # Un index d'une règle antérieure est reposé à l'ouverture suivante.
+        db.execute(f"DROP INDEX {_BTC_INDEX}")
+        db.execute(f"CREATE INDEX {_BTC_INDEX} ON liquidations (ts) "
+                   "WHERE symbol LIKE 'BTC%'")
+        db.commit()
+        journal.close()
+        journal = Journal(Path(dossier) / "journal.db")
+        pose = journal._connection().execute(
+            "SELECT sql FROM sqlite_master WHERE name = ?", (_BTC_INDEX,)).fetchone()[0]
+        assert BITCOIN_SQL in pose and "exchange" in pose, pose
+        journal.close()
+    print("  ✓ règle SQL = is_bitcoin, carte du journal = price_map,"
+          " index partiel couvrant emprunté et reposé, bilan juste")
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     print(f"\nFil des liquidations — {len(tests)} vérifications\n" + "─" * 60)

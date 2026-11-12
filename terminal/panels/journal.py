@@ -113,21 +113,24 @@ def _section_episodes(rows, limit):
     return [html.Table([html.Tbody(lignes)], style=TABLE_STYLE)]
 
 
-def _section_liquidations(rows):
+def _nombre(bilan) -> int:
+    """Le nombre de liquidations d'un bilan du journal, zéro sans bilan."""
+    return bilan["count"] if bilan else 0
+
+
+def _section_liquidations(bilan):
     """Un bilan, pas un fil : le panneau LIQUIDATIONS montre déjà les
-    événements un à un — ici, ce que la fenêtre pèse et son extrême."""
-    if not rows:
+    événements un à un — ici, ce que la fenêtre pèse et son extrême, que
+    le journal calcule lui-même (`liquidation_summary`)."""
+    if not bilan:
         return [html.Div("aucune liquidation journalisée", style=_EMPTY)]
-    par_cote = {"long": 0.0, "short": 0.0}
-    for row in rows:
-        par_cote[row["side"]] += row["notional"]
-    gros = max(rows, key=lambda r: r["notional"])
+    gros = bilan["biggest"]
     return [html.Div([
-        html.Span(f"{len(rows)} événements · ", style={"color": C["text"]}),
-        html.Span(f"longs {_montant(par_cote['long'])}",
+        html.Span(f"{bilan['count']} événements · ", style={"color": C["text"]}),
+        html.Span(f"longs {_montant(bilan['long'])}",
                   style={"color": C["red"]}),
         html.Span(" · ", style={"color": C["muted"]}),
-        html.Span(f"shorts {_montant(par_cote['short'])}",
+        html.Span(f"shorts {_montant(bilan['short'])}",
                   style={"color": C["green"]}),
         html.Span(
             f" · la plus grosse : {gros['symbol']} {gros['side']} "
@@ -167,11 +170,11 @@ def _section_gros_ordres(rows):
     ], style={**_EMPTY, "color": C["text"]})]
 
 
-def _badges_compact(journal, hub, alerts, episodes, liquidations, start, end):
+def _badges_compact(journal, hub, alerts, episodes, bilan, start, end):
     """Le titre de la grille : alertes et liquidations du jour ; épisodes,
     profondeur des instantanés et interruptions au survol."""
     resume = [f"{HOURS} h : {len(alerts)} alertes, {len(episodes)} épisodes "
-              f"d'arbitrage, {len(liquidations)} liquidations"]
+              f"d'arbitrage, {_nombre(bilan)} liquidations"]
     snapshots = journal.snapshots_between(0, end)
     if snapshots:
         resume.append("instantanés depuis le " + time.strftime(
@@ -183,7 +186,7 @@ def _badges_compact(journal, hub, alerts, episodes, liquidations, start, end):
                       f" ({_duree(sum(b - a for a, b in trous))})")
     return html.Span([
         html.Span(f"{HOURS} h · ", style={"color": C["muted"]}),
-        html.Span(f"{len(alerts)} alertes · {len(liquidations)} liq.",
+        html.Span(f"{len(alerts)} alertes · {_nombre(bilan)} liq.",
                   style={"color": C["text"]}),
     ], style={"fontFamily": MONO}, title=" · ".join(resume))
 
@@ -199,7 +202,7 @@ def render(hub, expanded: bool):
     start = end - HOURS * 3600
     alerts = journal.alerts_between(start, end)
     episodes = journal.episodes_between(start, end)
-    liquidations = journal.liquidations_between(start, end)
+    liquidations = journal.liquidation_summary(start, end)
     limit = ROWS_MAX if expanded else ROWS
 
     view = html.Div(
@@ -225,7 +228,7 @@ def render(hub, expanded: bool):
     #: donnée qui se construit à l'usage, sa croissance mérite d'être vue.
     badges = [html.Span(f"{HOURS} h · ", style={"color": C["muted"]}),
               html.Span(f"{len(alerts)} alertes · {len(episodes)} épisodes"
-                        f" · {len(liquidations)} liq.",
+                        f" · {_nombre(liquidations)} liq.",
                         style={"color": C["text"]})]
     snapshots = journal.snapshots_between(0, end)
     if snapshots:

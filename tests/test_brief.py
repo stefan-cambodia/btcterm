@@ -93,11 +93,26 @@ def test_les_sections_lisent_leurs_donnees():
     assert cours.tone == "down" and "76,030 $" in cours.text, cours
     assert brief.price_item({}).tone == "muted"
 
-    liq = [{"ts": NOW, "symbol": "BTCUSDT", "side": "long", "notional": 3e6},
-           {"ts": NOW, "symbol": "ETHUSDT", "side": "long", "notional": 1e6},
-           {"ts": NOW, "symbol": "BTCUSDT", "side": "short", "notional": 5e5}]
-    ligne = brief.liquidations_item(liq)
-    assert ligne.text == "longs 4.0 M$ · shorts 500 k$ · dont BTC 3.5 M$", ligne
+    # Le bilan vient du journal, calculé par la base ; le contrat de
+    # Binance sur l'indice de dominance n'est pas du bitcoin.
+    import tempfile
+    from btcterm.journal import Journal
+    from btcterm.liquidations import Liquidation
+    with tempfile.TemporaryDirectory() as dossier:
+        journal = Journal(Path(dossier) / "journal.db")
+        for symbole, cote, prix in (("BTCUSDT", "long", 3e6),
+                                    ("ETHUSDT", "long", 1e6),
+                                    ("BTCDOMUSDT", "long", 2e5),
+                                    ("BTCUSDT", "short", 5e5)):
+            journal.record_liquidation(Liquidation(
+                time=NOW, symbol=symbole, side=cote, price=prix,
+                quantity=1.0, exchange="Binance"))
+        bilan = journal.liquidation_summary(NOW - 1, NOW + 1)
+        journal.close()
+    ligne = brief.liquidations_item(bilan)
+    assert ligne.text == "longs 4.2 M$ · shorts 500 k$ · dont BTC 3.5 M$", ligne
+    assert "4 événements" in ligne.detail and "BTCUSDT long" in ligne.detail
+    assert brief.liquidations_item(None).tone == "muted"
     assert ligne.tone == "down", "des longs liquidés : la journée a baissé"
 
     ordres = [{"ts": NOW, "exchange": "Coinbase", "side": "sell",

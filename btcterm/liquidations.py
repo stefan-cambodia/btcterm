@@ -41,7 +41,7 @@ from .exchanges import ExchangeConnector
 
 __all__ = ["Liquidation", "LiquidationFeed", "BybitLiquidationConnector",
            "OKXLiquidationConnector", "BYBIT_SYMBOLS", "MAP_BINS", "price_map",
-           "is_bitcoin"]
+           "is_bitcoin", "BITCOIN_SQL"]
 
 #: La route `/market` est obligatoire : depuis la scission des flux futures
 #: de Binance (annoncée le 6 mars 2026, ancienne adresse retirée le
@@ -64,6 +64,16 @@ BITCOIN_SYMBOLS = frozenset({"BTCUSDT", "BTCUSDC", "BTCUSD"})
 def is_bitcoin(symbol: str) -> bool:
     """Vrai pour un contrat sur le bitcoin coté en dollars."""
     return (symbol or "").split("_", 1)[0] in BITCOIN_SYMBOLS
+
+
+_LISTE = "(" + ", ".join(f"'{s}'" for s in sorted(BITCOIN_SYMBOLS)) + ")"
+
+#: La même règle, en SQL, pour les lectures du journal (§ journal) : le
+#: nom du contrat, échéance retirée, est l'un des trois. Le texte sert
+#: aussi de condition à l'index partiel des contrats bitcoin — SQLite ne
+#: prend cet index que si la requête répète la condition mot pour mot.
+BITCOIN_SQL = (f"(symbol IN {_LISTE} OR (instr(symbol, '_') > 0 AND "
+               f"substr(symbol, 1, instr(symbol, '_') - 1) IN {_LISTE}))")
 
 #: Paires suivies chez Bybit — le canal `allLiquidation` se souscrit par
 #: paire. Les plus grosses capitalisations : c'est là que les cascades
@@ -583,6 +593,10 @@ def price_map(events: Iterable, bins: int = MAP_BINS) -> Optional[dict]:
 
     Seuls comptent les contrats sur le bitcoin (`is_bitcoin`), de toutes
     les plateformes : leurs prix sont ceux de l'axe du graphique.
+
+    C'est la règle de référence, sur des événements en mémoire ; le
+    journal la calcule lui-même, en SQL (`Journal.liquidation_map`), et un
+    test vérifie que les deux disent la même chose.
 
     Rend `None` sans aucun événement de la paire ; sinon `centers`, `width`
     (largeur d'une tranche), `longs`, `shorts` (notionnel en dollars),
