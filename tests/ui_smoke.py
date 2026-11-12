@@ -573,9 +573,22 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         print("\nBascule plein écran")
         if capture_dir:
             browser.screenshot(str(capture_dir / "grille.png"))
+        # La fenêtre regardée, comptée depuis la fin de la série : le
+        # plein écran l'élargit, il ne la change pas. Il recadrait sur
+        # tout le passé remonté au pan, et chaque bascule en demandait
+        # une page de plus.
+        FENETRE = """
+            const d = window.lwcPrice.debug();
+            return {de: d.range.from - d.bars, a: d.range.to - d.bars};"""
+        regardee = browser.js(FENETRE)
         browser.js("document.getElementById('zoom-price').click();")
         time.sleep(2)
         browser.wait_for(PRIX_PRET)
+        agrandie = browser.js(FENETRE)
+        check("le plein écran garde les bougies regardées",
+              abs(agrandie["de"] - regardee["de"]) <= 5
+              and abs(agrandie["a"] - regardee["a"]) <= 1,
+              f"{regardee} → {agrandie}")
         geometry = browser.js("""
             const el = document.getElementById('cell-price');
             const r = el.getBoundingClientRect();
@@ -599,6 +612,7 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         # tout décocher n'en laisse qu'un seul — celui du cours.
         check("le RSI vit dans son pane",
               browser.js("return window.lwcPrice.debug().panes;") == 2)
+        avant_cases = browser.js(FENETRE)
         for value in ("rsi", "volume", "profile"):
             browser.js(
                 "document.querySelectorAll('#price-extras input')"
@@ -607,6 +621,14 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         browser.wait_for(PRIX_PRET)
         check("tout décoché : le cours occupe tout",
               browser.js("return window.lwcPrice.debug().panes;") == 1)
+        # Chaque case reconstruit le graphique : sur les mêmes données, la
+        # même fenêtre. Elle recadrait sur toute la série, et trois cases
+        # valaient trois dézooms.
+        apres_cases = browser.js(FENETRE)
+        check("décocher des cases ne déplace pas la fenêtre",
+              abs(apres_cases["de"] - avant_cases["de"]) <= 1
+              and abs(apres_cases["a"] - avant_cases["a"]) <= 1,
+              f"{avant_cases} → {apres_cases}")
         if capture_dir:
             browser.screenshot(str(capture_dir / "cours-seul.png"))
 

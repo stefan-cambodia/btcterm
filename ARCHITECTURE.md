@@ -1587,7 +1587,18 @@ la fenêtre après la bascule. Plotly ne redimensionne ses figures qu'à cet
 événement — sans lui, le graphique agrandi garderait la taille de sa vignette.
 Le panneau prix, lui, suit tout seul (`autoSize` de Lightweight Charts), mais
 lwc-price.js recadre sa plage visible au changement d'agrandissement : la
-série resterait sinon tassée contre le bord droit du panneau élargi.
+série resterait sinon tassée contre le bord droit du panneau élargi. Il
+recadre sur **les bougies regardées**, élargies à la nouvelle taille — pas
+sur toute la série. Il recadrait sur tout ce que le pan avait remonté
+(`fitContent`), et chaque case cochée, qui reconstruit le graphique, en
+faisait autant : 350 bougies d'une heure à l'écran, puis 700, 1 050,
+1 350 et 2 100 au plein écran, en quatre gestes qui n'étaient pas des
+dézooms, le bord gauche atteint demandant chaque fois la page d'avant.
+`trackView` retient la fenêtre regardée, comptée depuis la dernière bougie
+— une page posée devant décale tous les rangs, pas cette distance — et
+écarte les changements qui arrivent avec une nouvelle largeur d'axe : ceux
+du redimensionnement, que l'utilisateur n'a pas faits. Le double-clic,
+lui, garde son sens documenté : la vue entière, tout le chargé.
 
 Le même piège se referme sur un graphique qui n'existe *que* pendant le plein
 écran. Le panneau news montre l'historique de l'indice Fear & Greed sur
@@ -3515,6 +3526,12 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   synthèse du matin suivent le fuseau du serveur : l'unité systemd le
   règle (`TZ`), et le bandeau signale l'écart tant qu'il existe
   (« ⚠ heure serveur UTC », entrée suivante).
+- ~~**Une case cochée qui dézoomait**~~ — vu le 12 novembre 2026 en
+  cochant CVD, NIV et LIQ en 1h : chaque case reconstruit le graphique, qui
+  recadrait sur toute la série chargée, et le plein écran de même — 350
+  bougies visibles, puis 2 100 en quatre gestes. Fait (§3.4) : la fenêtre
+  regardée se rend à l'identique, et le plein écran l'élargit ;
+  `ui_smoke.py` le vérifie aux deux gestes.
 - ~~**Une barre de titre qui ne débordait que dans une vue**~~ — vu le
   12 novembre 2026 en relisant chaque vue des options en plein écran : dans
   STRIKES, le sélecteur d'échéances faisait déborder la barre de 141 px dans

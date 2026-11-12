@@ -54,7 +54,9 @@
         clock: null,   // temps réels ↔ temps affichés (assets/lwc-clock.js)
         signalsHidden: localStorage.getItem(SIGNALS_KEY) === "off",
         zoomBox: null,  // le cadre du zoom rectangulaire, caché au repos
-        drag: null      // la sélection en cours : {x0, y0, x1, y1, area}
+        drag: null,     // la sélection en cours : {x0, y0, x1, y1, area}
+        view: null,     // la fenêtre regardée, depuis la fin (§ trackView)
+        viewWidth: 0    // la largeur de l'axe du temps qui l'a vue
     };
 
     var INTRADAY = {"1m": 1, "5m": 1, "15m": 1, "30m": 1, "1h": 1, "4h": 1,
@@ -317,6 +319,10 @@
         // Le cadre d'une mesure vaut pour la vue où il a été tracé.
         state.chart.timeScale()
             .subscribeVisibleLogicalRangeChange(clearMeasure);
+        // La fenêtre regardée, que reconstruction et plein écran rendent.
+        state.viewWidth = 0;
+        state.chart.timeScale()
+            .subscribeVisibleLogicalRangeChange(trackView);
 
         state.chart.subscribeCrosshairMove(function (param) {
             state.hover = param.time === undefined ? null : param;
@@ -840,6 +846,53 @@
         scale.setVisibleRange({from: low, to: high});
         if (log) {
             scale.applyOptions({mode: LWC.PriceScaleMode.Logarithmic});
+        }
+    }
+
+    // La fenêtre regardée, en rangs de bougie, mise de côté pour qu'une
+    // reconstruction (une case cochée) ou le plein écran la rendent.
+    // Les deux recadraient sur toute la série (fitContent) : sur une série
+    // que le pan avait allongée, chaque case cochée montrait tout le passé
+    // remonté, dont le bord gauche, atteint, demandait la page d'avant —
+    // 350 bougies d'une heure à l'écran, puis 700, 1 050, 1 350, et 2 100
+    // au plein écran, en quatre gestes qui n'étaient pas des dézooms.
+    //
+    // Un redimensionnement déplace aussi la fenêtre — la bibliothèque
+    // garde l'espacement des barres et le bord droit, et découvre le
+    // passé à gauche — sans que l'utilisateur ait rien regardé de neuf :
+    // un changement qui arrive avec une nouvelle largeur d'axe n'est donc
+    // pas retenu.
+    //
+    // Les rangs se comptent depuis la fin de la série : le plein écran
+    // découvre le bord gauche, qui demande la page d'avant, et une page
+    // posée devant décale tous les rangs — rendue en rangs absolus, la
+    // fenêtre retombait 350 bougies trop tôt. La distance à la dernière
+    // bougie, elle, ne bouge pas quand le passé s'allonge.
+    function barCount() {
+        return state.packet ? state.packet.bars.length : 0;
+    }
+
+    function trackView(range) {
+        if (!state.chart || !range) { return; }
+        var width = state.chart.timeScale().width();
+        if (state.viewWidth && width !== state.viewWidth) {
+            state.viewWidth = width;
+            return;
+        }
+        state.viewWidth = width;
+        var n = barCount();
+        state.view = {from: range.from - n, to: range.to - n};
+    }
+
+    // Rend la fenêtre mise de côté ; sans elle, toute la série.
+    function restoreView(view) {
+        if (!state.chart) { return; }
+        if (view) {
+            var n = barCount();
+            state.chart.timeScale().setVisibleLogicalRange(
+                {from: view.from + n, to: view.to + n});
+        } else {
+            state.chart.timeScale().fitContent();
         }
     }
 
@@ -1585,6 +1638,8 @@
 
             var previous = state.cfg;
             var rebuilt = false;
+            // Mise de côté avant que teardown n'emporte le graphique.
+            var view = state.chart ? state.view : null;
 
             // Un div neuf — premier rendu ou panneau re-rendu par un
             // déménagement de cellule — repart de zéro.
@@ -1621,7 +1676,9 @@
             if (rebuilt || previous.currency !== cfg.currency
                     || !previous.utc !== !cfg.utc) {
                 fillSeries();
-                if (rebuilt) { state.chart.timeScale().fitContent(); }
+                // Les mêmes données, rangées pareil : la fenêtre se rend
+                // telle quelle (§ trackView).
+                if (rebuilt) { restoreView(view); }
                 return;
             }
             if (previous.log !== cfg.log) {
@@ -1630,13 +1687,13 @@
             }
             // Le plein écran double la largeur mais l'espacement des
             // barres survit au redimensionnement : sans recadrage, la
-            // série resterait tassée contre le bord droit. autoSize a
-            // besoin d'un tour de boucle pour mesurer le div agrandi —
-            // d'où le différé.
+            // série resterait tassée contre le bord droit. Les bougies
+            // regardées s'élargissent donc à la nouvelle taille — et
+            // celles-là seulement, pas tout le passé remonté au pan
+            // (§ trackView). autoSize a besoin d'un tour de boucle pour
+            // mesurer le div agrandi — d'où le différé.
             if (previous.maximized !== cfg.maximized) {
-                setTimeout(function () {
-                    if (state.chart) { state.chart.timeScale().fitContent(); }
-                }, 120);
+                setTimeout(function () { restoreView(view); }, 120);
             }
         },
 
