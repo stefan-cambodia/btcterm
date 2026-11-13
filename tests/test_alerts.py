@@ -30,6 +30,7 @@ from types import SimpleNamespace
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 
 from btcterm.alerts import (AlertEngine, COOLDOWN, DEFAULT_CONFIG,  # noqa: E402
@@ -329,6 +330,76 @@ def test_l_etat_se_sauve_depuis_plusieurs_fils():
         assert donnees["config"]["move_pct"] == 3.0
         assert not e._state_failed
     print("  ✓ quatre fils sauvent l'état ensemble, sans rien perdre")
+
+
+def test_open_interest_qui_bouge_vite():
+    """2,5 % d'open interest en une heure, en bitcoins : une sonnerie qui
+    dit les chiffres, le cours de la même heure et la lecture usuelle du
+    couple ; réarmée sous les trois quarts du seuil, muette sur une série
+    trouée."""
+    from btcterm.alerts import OI_POINTS
+
+    debut = pd.Timestamp("2026-11-13 04:00")
+
+    def serie(fin, depart=90_000.0, pas="5min"):
+        temps = pd.date_range(debut, periods=OI_POINTS, freq=pas)
+        valeurs = list(np.linspace(depart, fin, OI_POINTS))
+        return pd.DataFrame({"time": temps, "oi": valeurs,
+                             "oi_usd": [v * 70_000 for v in valeurs]})
+
+    def bougies(fin_cours, depart=70_000.0):
+        temps = pd.date_range(debut - pd.Timedelta("55min"), periods=24,
+                              freq="5min")
+        closes = [depart] * 12 + list(np.linspace(depart, fin_cours, 12))
+        return pd.DataFrame({"time": temps, "close": closes})
+
+    hub = FakeHub()
+    etat = {"oi": serie(92_700.0), "bars": bougies(70_700.0)}
+    hub.open_interest = lambda period="4h", limit=180: etat["oi"]
+    hub.klines = lambda interval="1h", limit=0: etat["bars"]
+    hub.price = None                      # le cours vient des bougies
+    e = engine()
+
+    def tour(t):
+        avant = len(e.alerts)
+        e._check_open_interest(hub, None, e.config, T0 + t)
+        return [a.message for a in list(e.alerts)[avant:]]
+
+    (hausse,) = tour(0)
+    assert hausse == ("open interest +3.0 % en 1 h (90,000 → 92,700 BTC, "
+                      "cours +1.0 %) : positions ouvertes à la hausse"), hausse
+    assert e.alerts[-1].kind == "oi"
+    assert tour(60) == [], "le même mouvement ne resonne pas"
+    etat["oi"] = serie(91_800.0)                      # +2,0 % : pas réarmé
+    assert tour(700) == []
+    etat["oi"] = serie(91_350.0)                      # +1,5 % : réarmé
+    assert tour(760) == []
+    etat["oi"] = serie(87_480.0)                      # −2,8 %
+    etat["bars"] = bougies(68_950.0)                  # −1,5 %
+    (baisse,) = tour(1400)
+    assert baisse.endswith("cours -1.5 %) : les longs sortent"), baisse
+
+    # Le cours immobile, et sans bougies du tout.
+    autre = engine()
+    etat["oi"] = serie(92_700.0)
+    etat["bars"] = bougies(70_100.0)                  # +0,14 %
+    autre._check_open_interest(hub, None, autre.config, T0)
+    assert autre.alerts[-1].message.endswith(
+        ": le levier s'empile, cours stable"), autre.alerts[-1].message
+    sans = engine()
+    etat["bars"] = pd.DataFrame(columns=["time", "close"])
+    sans._check_open_interest(hub, None, sans.config, T0)
+    assert sans.alerts[-1].message == (
+        "open interest +3.0 % en 1 h (90,000 → 92,700 BTC) : "
+        "le levier s'empile"), sans.alerts[-1].message
+
+    # Une série trouée — le portable a dormi — ou trop courte : silence.
+    for trouee in (serie(95_000.0, pas="10min"), serie(95_000.0).iloc[2:]):
+        muet = engine()
+        etat["oi"] = trouee
+        muet._check_open_interest(hub, None, muet.config, T0)
+        assert not muet.alerts
+    print("  ✓ open interest : chiffres, cours, lecture, hystérésis, trous")
 
 
 def test_l_hysteresis_du_front():

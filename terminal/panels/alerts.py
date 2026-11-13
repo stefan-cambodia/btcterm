@@ -47,7 +47,7 @@ KIND_COLORS = {"price": C["yellow"], "move": C["yellow"], "liq": C["red"],
                "rsi": C["cyan"], "signal": C["green"],
                "dominance": C["yellow"], "etf": C["green"],
                "chain": C["purple"], "vol": C["yellow"],
-               "skew": C["yellow"], "depth": C["cyan"],
+               "skew": C["yellow"], "depth": C["cyan"], "oi": C["orange"],
                "source": C["red"]}
 
 _INPUT = {
@@ -152,6 +152,10 @@ def layout(title=None):
                 _field("DVOL J/J-1 (pts)", dcc.Input(
                     id="alert-dvol", type="number", min=0.5, debounce=True,
                     value=config["dvol_jump_pts"], style=_INPUT)),
+                _field("OI 1 h (%)", dcc.Input(
+                    id="alert-oi", type="number", min=0.1, step="any",
+                    debounce=True, value=config["oi_change_pct"],
+                    style=_INPUT)),
                 _field("skew 24 h (pts)", dcc.Input(
                     id="alert-skew", type="number", min=0.1, step="any",
                     debounce=True, value=config["skew_shift_pts"],
@@ -317,6 +321,7 @@ def register(app, hub):
         Input("alert-mempool", "value"),
         Input("alert-block", "value"),
         Input("alert-dvol", "value"),
+        Input("alert-oi", "value"),
         Input("alert-skew", "value"),
         Input("alert-depth", "value"),
         Input("alert-signal", "value"),
@@ -332,7 +337,7 @@ def register(app, hub):
     )
     def _edit(_add, _dels, move, liq, funding, news_score, arb,
               ma200, rsi_hi, rsi_lo, dominance, etf, mempool, block,
-              dvol, skew, depth, signal, trend, gamma, cycle_shift, event,
+              dvol, oi, skew, depth, signal, trend, gamma, cycle_shift, event,
               sources_down, sound,
               level, stored):
         trigger = dash.ctx.triggered_id
@@ -375,6 +380,7 @@ def register(app, hub):
                       "dominance_shift_pts": dominance,
                       "etf_flow_musd": etf, "mempool_mb": mempool,
                       "block_minutes": block, "dvol_jump_pts": dvol,
+                      "oi_change_pct": oi,
                       "skew_shift_pts": skew,
                       "liquidity_drop_pct": depth,
                       "signal_strong": bool(signal),

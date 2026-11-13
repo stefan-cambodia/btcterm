@@ -59,7 +59,7 @@ KIND_TAGS = {
     "flip": "chart_with_upwards_trend", "event": "calendar",
     "rsi": "thermometer", "signal": "triangular_flag_on_post",
     "dominance": "pie", "etf": "bank", "chain": "link", "vol": "zap",
-    "skew": "shield",
+    "skew": "shield", "oi": "bar_chart",
     "brief": "sunrise",
 }
 
@@ -72,7 +72,7 @@ KIND_TITLES = {
     "flip": "tendance journalière", "event": "échéance macro",
     "rsi": "RSI", "signal": "signal", "dominance": "dominance",
     "etf": "flux ETF", "chain": "réseau", "vol": "volatilité implicite",
-    "skew": "skew des options",
+    "skew": "skew des options", "oi": "open interest",
     "brief": "synthèse du matin",
 }
 

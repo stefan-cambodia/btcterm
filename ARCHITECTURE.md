@@ -871,7 +871,7 @@ de l'open interest compris.
 
 Douze panneaux qu'il faut balayer des yeux couvraient la surveillance
 active ; la passive demande l'inverse — que le terminal prévienne.
-`AlertEngine` évalue vingt règles dans la boucle d'observation du hub
+`AlertEngine` évalue vingt et une règles dans la boucle d'observation du hub
 (1 s), toutes nourries par ce que le hub tient déjà, sans aucune
 connexion nouvelle :
 
@@ -896,6 +896,19 @@ connexion nouvelle :
   argument `clear`, qui dit quand une règle se réarme ; sans lui, rien ne
   change pour les autres. Elle n'existait pas avant le 13 novembre 2026 :
   la rafale de liquidations en tenait lieu, de loin ;
+- **open interest** — celui du perpétuel Binance varie de plus de 2,5 %
+  (`oi_change_pct`) en une heure, compté en bitcoins : en dollars, il
+  suivrait le cours. La règle lit l'historique à cinq minutes de Binance
+  (`OI_POINTS`, treize points), se tait sur une série trouée — plus de
+  70 minutes entre les deux bouts —, et se réarme comme le mouvement
+  brusque, sous les trois quarts du seuil. Sur les trente jours que Binance
+  garde (13 octobre – 13 novembre 2026), 2,5 % font cinq épisodes, 2 % douze,
+  3 % deux. Le message dit les chiffres, le cours de la même heure, puis la
+  lecture usuelle du couple : « open interest +3.0 % en 1 h (90,000 → 92,700
+  BTC, cours +1.0 %) : positions ouvertes à la hausse » ; à la baisse si le
+  cours baisse, « les longs sortent » ou « les shorts sortent » quand
+  l'open interest fond, « cours stable » sous 0,3 %. Une lecture, pas un
+  constat — chaque contrat a ses deux côtés —, d'où les chiffres d'abord ;
 - **rafale de liquidations** — notionnel liquidé sur 5 minutes au-delà
   du seuil, lu dans les totaux du fil par pas de dix secondes (§2.5) — la
   fenêtre de 500 événements dont il se contentait jusqu'au 13 novembre 2026

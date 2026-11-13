@@ -19,6 +19,8 @@ connexion nouvelle :
 - **mouvement brusque** : le cours s'écarte de plus de 2 % de son plus
   haut ou de son plus bas du dernier quart d'heure — cinq fois par mois
   sur l'année écoulée ; réarmé sous les trois quarts du seuil ;
+- **open interest** : celui du perpétuel Binance varie de plus de 2,5 %
+  en une heure, compté en bitcoins — du levier qui s'empile ou qui sort ;
 - **rafale de liquidations** : le notionnel liquidé sur 5 minutes,
   toutes paires, dépasse le seuil configuré ;
 - **financement extrême** : |taux par 8 h| au-delà du seuil ;
@@ -162,6 +164,9 @@ DEFAULT_CONFIG: dict = {
     "block_minutes": 12.0,
     #: DVOL au-dessus de sa clôture de la veille, en points de volatilité.
     "dvol_jump_pts": 6.0,
+    #: open interest du perpétuel Binance, variation en % sur une heure,
+    #: compté en bitcoins (§ `_check_open_interest`).
+    "oi_change_pct": 2.5,
     #: déplacement du skew 25 delta à un mois sur 24 h, en points.
     "skew_shift_pts": 2.0,
     #: carnets creux : liquidité à tant de % sous sa moyenne de 24 h.
@@ -185,6 +190,17 @@ COOLDOWN = 600.0
 #: 1 % soixante-quatre.
 MOVE_WINDOW = 900.0
 MOVE_REARM = 0.75
+
+#: L'open interest se lit sur une heure de points à cinq minutes — treize
+#: points, le premier et le dernier compris —, et ne se réarme, comme le
+#: mouvement brusque, que retombé sous les trois quarts du seuil. Sur les
+#: trente jours que Binance garde (13 octobre – 13 novembre 2026), 2,5 % en
+#: une heure font cinq épisodes ; 2 % en feraient douze, 3 % deux. Un trou
+#: dans la série — plus de 70 minutes entre les deux bouts — la fait taire.
+OI_POINTS = 13
+OI_SPAN_MAX = 70 * 60
+#: Variation du cours en deçà de laquelle il est dit stable, en %.
+OI_FLAT_PRICE_PCT = 0.3
 
 #: Réarmement d'un seuil de prix : le cours doit s'écarter d'autant de
 #: l'autre côté du seuil avant que celui-ci puisse resonner.
@@ -260,7 +276,8 @@ def normalize_config(data) -> dict:
                 "arb_net_pct",
                 "ma200_gap_pct", "rsi_overbought", "rsi_oversold",
                 "dominance_shift_pts", "etf_flow_musd", "mempool_mb",
-                "block_minutes", "dvol_jump_pts", "skew_shift_pts",
+                "block_minutes", "dvol_jump_pts", "oi_change_pct",
+                "skew_shift_pts",
                 "liquidity_drop_pct"):
         value = data.get(key)
         if isinstance(value, (int, float)) and value > 0:
@@ -499,8 +516,9 @@ class AlertEngine:
                      self._check_gamma, self._check_cycle,
                      self._check_event, self._check_dominance,
                      self._check_etf, self._check_chain,
-                     self._check_volatility, self._check_skew,
-                     self._check_liquidity, self._check_sources):
+                     self._check_volatility, self._check_open_interest,
+                     self._check_skew, self._check_liquidity,
+                     self._check_sources):
             try:
                 rule(hub, opportunities, config, now)
             except Exception:
@@ -956,6 +974,70 @@ class AlertEngine:
             self._fire("vol",
                        f"volatilité implicite en hausse : DVOL {last:.1f}, "
                        f"{jump:+z.1f} points depuis la clôture d'hier", now)
+
+    def _check_open_interest(self, hub, _opps, config, now) -> None:
+        """L'open interest qui bouge vite : du levier qui s'empile, ou qui
+        sort.
+
+        Compté en bitcoins — en dollars, il suivrait le cours —, sur la
+        dernière heure de l'historique à cinq minutes de Binance. Le message
+        dit les chiffres, puis la lecture usuelle du couple qu'ils forment
+        avec le cours : un open interest qui monte quand le cours monte, ce
+        sont plutôt des positions ouvertes à la hausse ; quand il baisse, à
+        la baisse ; un open interest qui fond, des positions qui sortent —
+        les longs si le cours baisse, les shorts s'il monte. Une lecture, pas
+        un constat : chaque contrat a ses deux côtés, et le cours dit
+        seulement lequel s'est montré le plus pressé.
+        """
+        oi = hub.open_interest(period="5m", limit=OI_POINTS)
+        if oi is None or len(oi) < OI_POINTS or "oi" not in oi:
+            return
+        first, last = oi.iloc[-OI_POINTS], oi.iloc[-1]
+        span = (pd.Timestamp(last["time"])
+                - pd.Timestamp(first["time"])).total_seconds()
+        if not 0 < span <= OI_SPAN_MAX or not first["oi"] > 0:
+            return
+        change = last["oi"] / first["oi"] - 1
+        threshold = config["oi_change_pct"] / 100
+        if not self._edge("oi", abs(change) >= threshold, now,
+                          clear=abs(change) < threshold * MOVE_REARM):
+            return
+        price = self._price_change(hub, first["time"])
+        if price is None:
+            cours, lecture = "", ("le levier s'empile" if change > 0
+                                  else "le levier sort")
+        else:
+            cours = f", cours {price * 100:+z.1f} %"
+            if abs(price) * 100 < OI_FLAT_PRICE_PCT:
+                lecture = ("le levier s'empile, cours stable" if change > 0
+                           else "le levier sort, cours stable")
+            elif change > 0:
+                lecture = ("positions ouvertes à la hausse" if price > 0
+                           else "positions ouvertes à la baisse")
+            else:
+                lecture = ("les shorts sortent" if price > 0
+                           else "les longs sortent")
+        self._fire("oi",
+                   f"open interest {change * 100:+z.1f} % en 1 h "
+                   f"({first['oi']:,.0f} → {last['oi']:,.0f} BTC{cours}) "
+                   f": {lecture}", now)
+
+    @staticmethod
+    def _price_change(hub, since) -> Optional[float]:
+        """La variation du cours depuis `since`, sur les bougies de cinq
+        minutes ; `None` si elles manquent."""
+        try:
+            bars = hub.klines("5m", limit=24)
+        except Exception:
+            return None
+        if bars is None or bars.empty or bars.attrs.get("demo", False):
+            return None
+        times = pd.to_datetime(bars["time"])
+        before = bars.loc[times <= pd.Timestamp(since), "close"]
+        price = hub.reference_price() or float(bars["close"].iloc[-1])
+        if before.empty or not price:
+            return None
+        return price / float(before.iloc[-1]) - 1
 
     def _check_skew(self, hub, _opps, config, now) -> None:
         """Déplacement du skew 25 delta sur vingt-quatre heures.
