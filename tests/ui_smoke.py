@@ -287,8 +287,9 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                   or ensuite.endswith("h")),
               f"{rebours['interval']} : {rebours['countdown']} → {ensuite}")
         lecture = browser.js("return window.lwcPrice.debug().readout;")
-        check("la dernière bougie se lit sans survol",
-              "O " in (lecture or "") and "%" in lecture,
+        check("la dernière bougie se lit sans survol, sans les sonneries",
+              "O " in (lecture or "") and "%" in lecture
+              and "⚑" not in lecture,
               (lecture or "")[:60])
         cadre = browser.js("""
             const r = document.querySelector('#price-lwc canvas')

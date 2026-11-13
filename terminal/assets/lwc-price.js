@@ -586,12 +586,13 @@
         if (oi !== undefined) {
             parts.push(["OI " + billions(oi) + unit, theme.orange]);
         }
-        // Les sonneries de la bougie lue, en dernier : la ligne passe à la
-        // suivante s'il le faut.
-        var index = state.hover && state.hover.logical !== undefined
-            ? Math.round(state.hover.logical)
-            : (state.packet ? state.packet.bars.length - 1 : -1);
-        parts = parts.concat(eventParts(index));
+        // Les sonneries de la bougie survolée, en dernier : la ligne passe
+        // à la suivante s'il le faut. Au survol seulement — sans lui, la
+        // lecture est celle de la dernière bougie, et en journalier toutes
+        // les sonneries du jour y restaient affichées, sur deux lignes.
+        if (state.hover && state.hover.logical !== undefined) {
+            parts = parts.concat(eventParts(Math.round(state.hover.logical)));
+        }
         parts.forEach(function (part) {
             var item = document.createElement("span");
             item.textContent = part[0];
@@ -2333,13 +2334,22 @@
             clock().shown(state.packet.bars[last].time));
     }
 
-    // L'heure d'une sonnerie dans le fuseau de l'axe ; le jour aussi
-    // au-delà de l'intraday, où une bougie couvre plusieurs journées.
+    // L'heure d'une sonnerie dans le fuseau du terminal — l'heure locale,
+    // ou l'UTC si la case est cochée —, pas dans celui de l'axe : les
+    // bougies journalières restent en UTC, et la rafale de 12:00 s'y lisait
+    // « 05:00 ». Le jour aussi au-delà de l'intraday, où une bougie couvre
+    // plusieurs journées.
     function eventTime(time) {
-        var iso = new Date(clock().shown(time) * 1000).toISOString();
-        var hour = iso.slice(11, 16);
-        return INTRADAY[state.cfg.interval] ? hour
-            : iso.slice(8, 10) + "/" + iso.slice(5, 7) + " " + hour;
+        var date = new Date(time * 1000);
+        var utc = !!state.cfg.utc;
+        function two(n) { return (n < 10 ? "0" : "") + n; }
+        var hour = two(utc ? date.getUTCHours() : date.getHours()) + ":"
+            + two(utc ? date.getUTCMinutes() : date.getMinutes())
+            + (utc ? " UTC" : "");
+        if (INTRADAY[state.cfg.interval]) { return hour; }
+        return two(utc ? date.getUTCDate() : date.getDate()) + "/"
+            + two((utc ? date.getUTCMonth() : date.getMonth()) + 1) + " "
+            + hour;
     }
 
     function eventParts(index) {

@@ -2464,7 +2464,12 @@ un rond au-dessus de la bougie où une alerte a sonné, de la couleur de sa
 règle au panneau ALERTES (`KIND_COLORS`, que `/api/alert-events` joint à
 chaque sonnerie — une seule source pour la liste et le graphique), et au
 survol la sonnerie en clair au bout de la ligne de lecture, deux au plus
-par bougie et le compte des autres. Relire une séance demandait de croiser
+par bougie et le compte des autres. Au survol seulement : la lecture sans
+survol est celle de la dernière bougie, et en journalier toutes les
+sonneries du jour y restaient affichées, sur deux lignes de la grille.
+L'heure s'écrit dans le fuseau du terminal, pas dans celui de l'axe — les
+bougies journalières restent en UTC, et la rafale de 12:00 s'y lisait
+d'abord « 05:00 ». Relire une séance demandait de croiser
 la liste horodatée du panneau et le graphique. Les sonneries viennent du
 journal pour toute la plage chargée — une page d'historique ajoutée au pan
 les redemande — et se relisent quand le Store `alerts-feed` change, donc
