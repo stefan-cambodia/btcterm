@@ -402,6 +402,66 @@ def test_open_interest_qui_bouge_vite():
     print("  ✓ open interest : chiffres, cours, lecture, hystérésis, trous")
 
 
+def test_les_niveaux_de_la_semaine_et_du_mois():
+    """Le plus haut ou le plus bas de la semaine passée ou du mois passé,
+    franchi : une sonnerie par niveau et par période, la première lecture
+    muette — un service relancé ne rejoue rien —, débrayable."""
+    from btcterm.alerts import _level_words
+
+    jours = pd.date_range("2026-09-01", "2026-11-13", freq="D")
+    daily = pd.DataFrame({"time": jours, "open": 100_000.0,
+                          "high": 101_000.0, "low": 99_000.0,
+                          "close": 100_000.0})
+    daily.loc[jours == "2026-11-04", ["high", "low"]] = [110_000.0, 90_000.0]
+    daily.loc[jours == "2026-10-14", "high"] = 120_000.0
+    daily.loc[jours == "2026-10-20", "low"] = 80_000.0
+    maintenant = pd.Timestamp("2026-11-13 12:00", tz="UTC").timestamp()
+
+    hub = FakeHub()
+    hub.klines = lambda interval="1h", limit=0: daily
+    e = engine()
+
+    def tour(prix, dt=0.0, moteur=None):
+        moteur = moteur or e
+        hub.price = prix
+        avant = len(moteur.alerts)
+        moteur._check_levels(hub, None, moteur.config, maintenant + dt)
+        return [a.message for a in list(moteur.alerts)[avant:]]
+
+    assert tour(100_000) == [], "la première lecture arme sans sonner"
+    assert tour(111_000, 60) == [
+        "cours au-dessus du plus haut de la semaine passée "
+        "(H S-1 110,000 $) : 111,000 $"]
+    assert e.alerts[-1].kind == "level"
+    assert tour(112_000, 120) == [] and tour(100_000, 180) == []
+    assert tour(111_000, 240) == [], "une fois par période, pas davantage"
+    deux = tour(79_000, 300)
+    assert deux == [
+        "cours sous le plus bas de la semaine passée (B S-1 90,000 $) : 79,000 $",
+        "cours sous le plus bas du mois passé (B M-1 80,000 $) : 79,000 $"], deux
+
+    # Relancé au-delà d'un niveau : la première lecture le tient pour vu.
+    relance = engine()
+    assert tour(121_000, 0, relance) == []
+    assert tour(122_000, 60, relance) == []
+    # Débrayée, ou sur la démonstration : rien.
+    eteint = engine(level_break=False)
+    tour(100_000, 0, eteint)
+    assert tour(111_000, 60, eteint) == []
+    daily.attrs["demo"] = True
+    demo = engine()
+    tour(100_000, 0, demo)
+    assert tour(111_000, 60, demo) == []
+    daily.attrs.pop("demo")
+
+    assert _level_words({"label": "B J-1/S-1", "kind": "low"}) \
+        == "plus bas de la semaine passée", "un niveau fusionné reste suivi"
+    assert _level_words({"label": "H S-1/M-1", "kind": "high"}) \
+        == "plus haut de la semaine et du mois passés"
+    print("  ✓ niveaux de la semaine et du mois : une sonnerie par niveau, "
+          "relance muette")
+
+
 def test_l_hysteresis_du_front():
     """`_edge` sans `clear` : réarmé dès que la condition retombe ; avec,
     réarmé seulement quand `clear` le dit."""

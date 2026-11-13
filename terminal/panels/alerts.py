@@ -40,7 +40,8 @@ from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 ROWS = 30
 
 #: Couleur d'étiquette par règle — celles des panneaux correspondants.
-KIND_COLORS = {"price": C["yellow"], "move": C["yellow"], "liq": C["red"],
+KIND_COLORS = {"price": C["yellow"], "move": C["yellow"], "level": C["yellow"],
+               "liq": C["red"],
                "funding": C["orange"], "news": C["blue"], "arb": C["green"],
                "trend": C["purple"], "flip": C["purple"], "event": C["orange"],
                "gamma": C["yellow"], "cycle": C["purple"],
@@ -174,6 +175,12 @@ def layout(title=None):
                     id="alert-trend",
                     options=[{"label": "tendance J", "value": "on"}],
                     value=["on"] if config["trend_flip"] else [],
+                    inline=True, className="tf-check",
+                    style={"fontSize": "9px", "display": "inline-block"}),
+                dcc.Checklist(
+                    id="alert-levels",
+                    options=[{"label": "niveaux S/M", "value": "on"}],
+                    value=["on"] if config["level_break"] else [],
                     inline=True, className="tf-check",
                     style={"fontSize": "9px", "display": "inline-block"}),
                 dcc.Checklist(
@@ -326,6 +333,7 @@ def register(app, hub):
         Input("alert-depth", "value"),
         Input("alert-signal", "value"),
         Input("alert-trend", "value"),
+        Input("alert-levels", "value"),
         Input("alert-gamma", "value"),
         Input("alert-cycle", "value"),
         Input("alert-event", "value"),
@@ -337,7 +345,7 @@ def register(app, hub):
     )
     def _edit(_add, _dels, move, liq, funding, news_score, arb,
               ma200, rsi_hi, rsi_lo, dominance, etf, mempool, block,
-              dvol, oi, skew, depth, signal, trend, gamma, cycle_shift, event,
+              dvol, oi, skew, depth, signal, trend, levels, gamma, cycle_shift, event,
               sources_down, sound,
               level, stored):
         trigger = dash.ctx.triggered_id
@@ -385,6 +393,7 @@ def register(app, hub):
                       "liquidity_drop_pct": depth,
                       "signal_strong": bool(signal),
                       "trend_flip": bool(trend),
+                      "level_break": bool(levels),
                       "gamma_flip": bool(gamma),
                       "cycle_shift": bool(cycle_shift),
                       "event_soon": bool(event),

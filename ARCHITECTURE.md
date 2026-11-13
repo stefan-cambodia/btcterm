@@ -871,7 +871,7 @@ de l'open interest compris.
 
 Douze panneaux qu'il faut balayer des yeux couvraient la surveillance
 active ; la passive demande l'inverse — que le terminal prévienne.
-`AlertEngine` évalue vingt et une règles dans la boucle d'observation du hub
+`AlertEngine` évalue vingt-deux règles dans la boucle d'observation du hub
 (1 s), toutes nourries par ce que le hub tient déjà, sans aucune
 connexion nouvelle :
 
@@ -998,7 +998,7 @@ chaud à la minute — c'est sur lui que le bandeau lit DVOL sans réseau :
   un réseau qui filtre une plateforme sonnerait pour rien ; à cocher sur le
   serveur.
 
-Les quatre suivantes sont des événements datés, comme le signal gradué,
+Les cinq suivantes sont des événements datés, comme le signal gradué,
 mais tirés de ce que le bilan du panneau ANALYSE (§3.14) et le
 calendrier (§2.6) ont appris au terminal :
 
@@ -1006,6 +1006,20 @@ calendrier (§2.6) ont appris au terminal :
   côté de sa MA 200, la seule lecture que le bilan n'ait pas démentie.
   Elle est lue sur la dernière bougie journalière *close*, et se tait
   sur la démonstration comme sur un historique périmé ;
+- **niveaux clés** — le cours dépasse le plus haut, ou passe sous le plus
+  bas, de la semaine passée ou du mois passé (`_check_levels`), les niveaux
+  que le graphique trace (§3.13, `analysis.key_levels`). Ceux de la veille
+  restent au graphique : depuis novembre 2023, ils sont franchis vingt-huit
+  fois par mois, ceux de la semaine quatre, ceux du mois une. Un événement
+  par niveau et par période : la première lecture d'un niveau fixe son état
+  sans sonner — un service relancé ne rejoue pas un franchissement déjà
+  fait —, puis la règle sonne au premier passage et plus jamais pour cette
+  période ; au lundi ou au 1er, les niveaux changent de prix et repartent
+  neufs. Les niveaux fusionnés par `key_levels` se lisent à leur étiquette :
+  « B J-1/S-1 », le plus bas de la veille qui est aussi celui de la
+  semaine, porte la période du jour et reste suivi. « cours sous le plus bas
+  du mois passé (B M-1 76,326 $) : 76,100 $ » ; case « niveaux S/M »,
+  cochée par défaut ;
 - **gamma flip** — le cours passe de l'autre côté du gamma flip des
   options (§3.16) : les teneurs de marché changent de régime, du marché
   qu'ils tassent au marché qu'ils étirent, ou l'inverse. Le cours doit
@@ -1034,7 +1048,7 @@ calendrier (§2.6) ont appris au terminal :
 
 La tendance journalière et l'échéance proche portent leur date dans leur
 message : relues du journal au redémarrage (voir plus bas), elles ne sont
-pas rejouées. Chacune des quatre se débraye d'une case, comme le signal
+pas rejouées. Chacune des cinq se débraye d'une case, comme le signal
 gradué — qui reste armé par défaut malgré ce que le bilan en dit : c'est
 un réglage de l'utilisateur, pas un défaut du terminal.
 

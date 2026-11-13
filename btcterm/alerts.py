@@ -21,6 +21,8 @@ connexion nouvelle :
   sur l'année écoulée ; réarmé sous les trois quarts du seuil ;
 - **open interest** : celui du perpétuel Binance varie de plus de 2,5 %
   en une heure, compté en bitcoins — du levier qui s'empile ou qui sort ;
+- **niveaux clés** : le cours dépasse le plus haut ou passe sous le plus
+  bas de la semaine passée ou du mois passé, une fois par niveau ;
 - **rafale de liquidations** : le notionnel liquidé sur 5 minutes,
   toutes paires, dépasse le seuil configuré ;
 - **financement extrême** : |taux par 8 h| au-delà du seuil ;
@@ -104,6 +106,7 @@ import datetime as dt
 import json
 import logging
 import os
+import re
 import threading
 import time
 from collections import deque
@@ -117,6 +120,7 @@ from . import indicators as ind
 from . import macrocal, newsdb, sources
 from . import cycle
 from . import options as opt
+from .analysis import key_levels
 from .journal import liquidity_totals
 
 __all__ = ["Alert", "AlertEngine", "DEFAULT_CONFIG",
@@ -148,6 +152,9 @@ DEFAULT_CONFIG: dict = {
     #: sonner quand la clôture journalière franchit sa MA 200 : la seule
     #: lecture que le bilan du panneau ANALYSE n'ait pas démentie.
     "trend_flip": True,
+    #: sonner quand le cours dépasse le plus haut ou passe le plus bas de la
+    #: semaine passée ou du mois passé (§ `_check_levels`).
+    "level_break": True,
     #: prévenir avant les échéances macro du calendrier (§ macrocal).
     "event_soon": True,
     #: sonner quand le cours franchit le gamma flip des options (§ options).
@@ -289,7 +296,8 @@ def normalize_config(data) -> dict:
             < config["rsi_overbought"] <= 100):
         config["rsi_overbought"] = DEFAULT_CONFIG["rsi_overbought"]
         config["rsi_oversold"] = DEFAULT_CONFIG["rsi_oversold"]
-    for key in ("sound", "signal_strong", "trend_flip", "event_soon",
+    for key in ("sound", "signal_strong", "trend_flip", "level_break",
+                "event_soon",
                 "gamma_flip", "cycle_shift", "sources_down"):
         if isinstance(data.get(key), bool):
             config[key] = data[key]
@@ -312,6 +320,28 @@ log = logging.getLogger(__name__)
 #: arrêté six heures retrouve des conditions qui ont pu retomber et revenir,
 #: et une condition toujours vraie mérite alors d'être redite.
 STATE_MAX_AGE = 6 * 3600
+
+
+_PERIODS = {"S-1": "de la semaine passée", "M-1": "du mois passé"}
+
+
+def _level_periods(level: dict) -> list[str]:
+    """Les périodes suivies qu'un niveau porte, lues dans son étiquette :
+    `key_levels` fusionne deux niveaux de même prix sous l'étiquette et la
+    période du premier — « B J-1/S-1 », le plus bas de la veille qui est
+    aussi celui de la semaine, a la période du jour, et reste suivi."""
+    return [tag for tag in re.split(r"[ /·]+", level["label"])
+            if tag in _PERIODS]
+
+
+def _level_words(level: dict) -> str:
+    """« plus haut de la semaine passée », « plus bas de la semaine et du
+    mois passés » pour un niveau double (« B S-1/M-1 », § key_levels)."""
+    extreme = "plus haut" if level["kind"] == "high" else "plus bas"
+    periods = _level_periods(level)
+    if len(periods) == 1:
+        return f"{extreme} {_PERIODS[periods[0]]}"
+    return f"{extreme} de la semaine et du mois passés"
 
 
 class AlertEngine:
@@ -338,6 +368,9 @@ class AlertEngine:
         self._down: dict[str, dict] = {}
         #: Armement des seuils de prix : (level, dir) → bool.
         self._armed: dict[tuple[float, str], bool] = {}
+        #: Niveaux de la semaine et du mois passés déjà vus : (étiquette,
+        #: prix) → vrai si le cours les a déjà passés (§ `_check_levels`).
+        self._levels: dict[tuple[str, float], bool] = {}
         #: Relevés du cours du dernier quart d'heure, (instant, prix) —
         #: un par tour d'observation (§ `_check_move`).
         self._moves: deque[tuple[float, float]] = deque()
@@ -513,6 +546,7 @@ class AlertEngine:
         """Les règles qui coûtent, à la minute (§ `evaluate`)."""
         for rule in (self._check_funding, self._check_news,
                      self._check_technical, self._check_trend,
+                     self._check_levels,
                      self._check_gamma, self._check_cycle,
                      self._check_event, self._check_dominance,
                      self._check_etf, self._check_chain,
@@ -738,6 +772,46 @@ class AlertEngine:
             self._fire("flip", f"clôture du {day} {sens} la MA 200 "
                                 f"journalière ({df['close'].iloc[-2]:,.0f} $)",
                        now)
+
+    def _check_levels(self, hub, _opps, config, now) -> None:
+        """Le cours dépasse le plus haut, ou passe sous le plus bas, de la
+        semaine passée ou du mois passé — les niveaux clés du graphique.
+
+        Ceux de la veille sont laissés au graphique : franchis vingt-huit
+        fois par mois depuis novembre 2023, ils feraient une sonnerie par
+        jour ; ceux de la semaine passée le sont quatre fois, ceux du mois
+        passé une fois. Un événement par niveau et par période : la
+        première lecture d'un niveau fixe son état sans sonner, comme celle
+        du gamma flip — un service relancé ne rejoue pas un franchissement
+        déjà fait —, puis il sonne la première fois qu'il est passé, et plus
+        jamais pour cette période. Au lundi ou au 1er, les niveaux changent
+        de prix, et repartent neufs.
+        """
+        if not config["level_break"]:
+            return
+        price = hub.reference_price()
+        daily = hub.klines("1d", limit=TREND_LIMIT)
+        if (not price or daily.attrs.get("demo", False)
+                or daily.attrs.get("stale", False) or daily.empty):
+            return
+        levels = [level for level in key_levels(
+                      daily, pd.Timestamp(now, unit="s", tz="UTC"))
+                  if level["kind"] in ("high", "low")
+                  and _level_periods(level)]
+        seen = {}
+        for level in levels:
+            key = (level["label"], level["price"])
+            beyond = (price > level["price"] if level["kind"] == "high"
+                      else price < level["price"])
+            known = self._levels.get(key)
+            seen[key] = bool(known) or beyond
+            if known is False and beyond:
+                sens = "au-dessus du" if level["kind"] == "high" else "sous le"
+                self._fire("level",
+                           f"cours {sens} {_level_words(level)} "
+                           f"({level['label']} {level['price']:,.0f} $) : "
+                           f"{price:,.0f} $", now)
+        self._levels = seen
 
     def _check_gamma(self, hub, _opps, config, now) -> None:
         """Le cours franchit le gamma flip : les teneurs de marché changent
