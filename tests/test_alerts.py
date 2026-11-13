@@ -185,6 +185,82 @@ def test_rafale_sous_delai_de_garde():
     print("  ✓ front montant, délai de garde, re-sonnerie après")
 
 
+def test_mouvement_brusque():
+    """2 % en un quart d'heure, depuis le plus haut ou le plus bas : une
+    sonnerie par mouvement, réarmée sous les trois quarts du seuil — un
+    cours qui hésite autour de 2 % ne sonne pas à chaque relevé."""
+    from btcterm.alerts import MOVE_WINDOW
+
+    hub = FakeHub()
+    e = engine()
+
+    def tour(prix, t):
+        hub.price = prix
+        avant = len(e.alerts)
+        e._check_move(hub, None, e.config, T0 + t)
+        return [a.message for a in list(e.alerts)[avant:]]
+
+    assert tour(100_000, 0) == []
+    assert tour(98_500, 30) == [], "1,5 % : sous le seuil"
+    (chute,) = tour(97_900, 60)
+    assert chute == "chute brusque : -2.1 % en 1 min (100,000 → 97,900 $)", \
+        chute
+    assert e.alerts[-1].kind == "move"
+    assert tour(97_800, 120) == [], "le même mouvement ne resonne pas"
+    # Retombé à −1,6 % : sous le seuil, mais pas sous ses trois quarts —
+    # la règle reste armée sur ce mouvement. Repassé à −2,05 % après la
+    # garde de dix minutes, il ne sonne pas : sans hystérésis, il l'aurait.
+    assert tour(98_400, 300) == []
+    assert tour(97_950, 700) == [], "hésitation autour de 2 % : silence"
+    # Revenu à −1,3 % du plus haut : réarmé.
+    assert tour(98_700, 850) == []
+    # Le plus haut de 100 000 sort de la fenêtre ; un nouveau décrochage
+    # se lit depuis le plus haut qui reste.
+    assert 1000 - 0 > MOVE_WINDOW
+    (rechute,) = tour(96_000, 1000)
+    assert rechute.startswith("chute brusque : -2.7 % en 3 min (98,700 → "), \
+        rechute
+    # Le rebond passe par le calme — −1,4 % du plus haut, +1,4 % du plus
+    # bas —, puis s'étire : une hausse, qui sonne à son tour.
+    assert tour(97_350, 1300) == []
+    (hausse,) = tour(98_000, 1700)
+    assert hausse.startswith("hausse brusque : +2.1 % en 12 min (96,000 → "), \
+        hausse
+
+    # Pas de cours : rien, et pas de relevé fantôme.
+    hub.price = None
+    vide = engine()
+    vide._check_move(hub, None, vide.config, T0)
+    assert not vide._moves and not vide.alerts
+
+    # Un moteur neuf — un redémarrage — n'invente aucun mouvement : son
+    # premier relevé est sa référence.
+    neuf = engine()
+    hub.price = 90_000
+    neuf._check_move(hub, None, neuf.config, T0)
+    assert not neuf.alerts
+
+    # Le seuil se règle, et se refuse négatif.
+    assert engine(move_pct=1.0).config["move_pct"] == 1.0
+    assert engine(move_pct=-1).config["move_pct"] == DEFAULT_CONFIG["move_pct"]
+    print("  ✓ mouvement brusque : une sonnerie, réarmée sous 1,5 %")
+
+
+def test_l_hysteresis_du_front():
+    """`_edge` sans `clear` : réarmé dès que la condition retombe ; avec,
+    réarmé seulement quand `clear` le dit."""
+    e = engine()
+    assert e._edge("a", True, T0)
+    assert not e._edge("a", False, T0 + 1)
+    assert e._edge("a", True, T0 + 700), "réarmé, garde passée : sonne"
+    assert e._edge("b", True, T0, clear=False)
+    assert not e._edge("b", False, T0 + 700, clear=False)
+    assert not e._edge("b", True, T0 + 1400, clear=False), "pas réarmé"
+    assert not e._edge("b", False, T0 + 1500, clear=True)
+    assert e._edge("b", True, T0 + 2200, clear=False)
+    print("  ✓ un front se réarme sur la condition, ou sur `clear`")
+
+
 def test_financement_et_cadence_lente():
     hub = FakeHub()
     appels = []

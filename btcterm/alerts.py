@@ -8,7 +8,7 @@ d'observation du hub, 1 s) et publie des alertes — affichées par le
 panneau ALERTES, comptées dans le bandeau, notifiées par le navigateur,
 et journalisées (§ journal) pour être relues avec la séance.
 
-Douze règles, toutes nourries par ce que le hub tient déjà — aucune
+Des règles toutes nourries par ce que le hub tient déjà — aucune
 connexion nouvelle :
 
 - **seuils de prix**, posés par l'utilisateur : le sens (au-dessus,
@@ -16,6 +16,9 @@ connexion nouvelle :
   seuil se désarme quand il sonne et se réarme quand le cours s'en
   écarte de 0,2 % de l'autre côté — sans cette hystérésis, un cours qui
   oscille sur le seuil sonnerait en rafale ;
+- **mouvement brusque** : le cours s'écarte de plus de 2 % de son plus
+  haut ou de son plus bas du dernier quart d'heure — cinq fois par mois
+  sur l'année écoulée ; réarmé sous les trois quarts du seuil ;
 - **rafale de liquidations** : le notionnel liquidé sur 5 minutes,
   toutes paires, dépasse le seuil configuré ;
 - **financement extrême** : |taux par 8 h| au-delà du seuil ;
@@ -124,6 +127,9 @@ DEFAULT_CONFIG: dict = {
     "price_levels": [],
     #: rafale : notionnel liquidé sur 5 min, toutes paires, en M$.
     "liq_burst_musd": 10.0,
+    #: mouvement brusque : le cours s'écarte d'autant, en %, de son plus
+    #: haut ou de son plus bas des 15 dernières minutes (§ `_check_move`).
+    "move_pct": 2.0,
     #: financement : |taux par 8 h| en %.
     "funding_pct": 0.05,
     #: news : score minimal (0-100).
@@ -170,6 +176,15 @@ DEFAULT_CONFIG: dict = {
 
 #: Délai de garde entre deux sonneries d'une même règle d'état.
 COOLDOWN = 600.0
+
+#: Le mouvement brusque se mesure sur un quart d'heure glissant, et ne
+#: se réarme qu'une fois retombé sous les trois quarts de son seuil : un
+#: cours qui oscille autour de 2 % ne sonne pas à chaque relevé. Sur un an
+#: de bougies d'une minute (novembre 2025 – novembre 2026), 2 % en quinze
+#: minutes font 66 épisodes — cinq par mois ; 1,5 % en ferait dix-huit, et
+#: 1 % soixante-quatre.
+MOVE_WINDOW = 900.0
+MOVE_REARM = 0.75
 
 #: Réarmement d'un seuil de prix : le cours doit s'écarter d'autant de
 #: l'autre côté du seuil avant que celui-ci puisse resonner.
@@ -241,7 +256,8 @@ def normalize_config(data) -> dict:
     config["price_levels"] = []
     if not isinstance(data, dict):
         return config
-    for key in ("liq_burst_musd", "funding_pct", "news_score", "arb_net_pct",
+    for key in ("liq_burst_musd", "move_pct", "funding_pct", "news_score",
+                "arb_net_pct",
                 "ma200_gap_pct", "rsi_overbought", "rsi_oversold",
                 "dominance_shift_pts", "etf_flow_musd", "mempool_mb",
                 "block_minutes", "dvol_jump_pts", "skew_shift_pts",
@@ -297,6 +313,9 @@ class AlertEngine:
         self._down: dict[str, dict] = {}
         #: Armement des seuils de prix : (level, dir) → bool.
         self._armed: dict[tuple[float, str], bool] = {}
+        #: Relevés du cours du dernier quart d'heure, (instant, prix) —
+        #: un par tour d'observation (§ `_check_move`).
+        self._moves: deque[tuple[float, float]] = deque()
         #: Titres déjà vus ; la première lecture arme sans sonner.
         self._seen_titles: set[str] = set()
         self._news_primed = False
@@ -432,8 +451,8 @@ class AlertEngine:
         now = time.time() if now is None else now
         with self._lock:
             config = self.config
-        for rule in (self._check_price, self._check_liquidations,
-                     self._check_arbitrage):
+        for rule in (self._check_price, self._check_move,
+                     self._check_liquidations, self._check_arbitrage):
             try:
                 rule(hub, opportunities, config, now)
             except Exception:
@@ -466,21 +485,27 @@ class AlertEngine:
             except Exception:
                 pass
 
-    def _edge(self, key: str, condition: bool, now: float) -> bool:
+    def _edge(self, key: str, condition: bool, now: float,
+              clear: Optional[bool] = None) -> bool:
         """Front montant sous délai de garde.
 
         Vrai une seule fois quand `condition` passe à vrai, et jamais
         deux fois en moins de `COOLDOWN` — une condition qui clignote
-        au ras du seuil ne sonne pas en rafale.
+        au ras du seuil ne sonne pas en rafale. `clear`, s'il est donné,
+        dit quand la règle se réarme — une hystérésis : tant qu'il est
+        faux, la condition retombée ne rouvre pas de front. Sans lui, la
+        règle se réarme dès que la condition retombe.
         """
         # Une condition calculée par pandas est un booléen numpy : json ne
         # l'écrit pas, et la première sauvegarde de l'état a échoué ainsi.
         condition = bool(condition)
+        clear = (not condition) if clear is None else bool(clear)
         state = self._rules.setdefault(key, {"active": False, "last": 0.0})
         fire = (condition and not state["active"]
                 and now - state["last"] >= COOLDOWN)
-        changed = state["active"] != condition or fire
-        state["active"] = condition
+        active = condition or (state["active"] and not clear)
+        changed = state["active"] != active or fire
+        state["active"] = active
         if fire:
             state["last"] = now
         if changed:
@@ -515,6 +540,39 @@ class AlertEngine:
                 if cleared:
                     self._armed[key] = True
                     self._save_state()
+
+    def _check_move(self, hub, _opps, config, now) -> None:
+        """Mouvement brusque : le cours s'écarte de `move_pct` % de son plus
+        haut ou de son plus bas du dernier quart d'heure.
+
+        Les relevés viennent de la boucle d'observation, une fois par
+        seconde : ni bougie qui attend sa clôture, ni appel réseau. Le
+        plus fort des deux écarts compte — une chute de 2 % se lit depuis
+        le plus haut, même si le cours a d'abord monté. Un service qui
+        redémarre repart sans relevés : il ne voit le mouvement qu'à partir
+        de là, il n'en invente aucun.
+        """
+        price = hub.reference_price()
+        samples = self._moves
+        while samples and now - samples[0][0] > MOVE_WINDOW:
+            samples.popleft()
+        if not price:
+            return
+        samples.append((now, float(price)))
+        high = max(samples, key=lambda s: s[1])
+        low = min(samples, key=lambda s: s[1])
+        rise, fall = price / low[1] - 1, price / high[1] - 1
+        move, since = (rise, low) if rise >= -fall else (fall, high)
+        threshold = config["move_pct"] / 100
+        if self._edge("move", abs(move) >= threshold, now,
+                      clear=abs(move) < threshold * MOVE_REARM):
+            # Arrondi au plus proche, la moitié vers le haut : `round`
+            # arrondit au pair, et 150 s s'écrivaient « 2 min ».
+            minutes = max(1, int((now - since[0]) / 60 + 0.5))
+            sens = "hausse" if move > 0 else "chute"
+            self._fire("move",
+                       f"{sens} brusque : {move * 100:+z.1f} % en {minutes} min "
+                       f"({since[1]:,.0f} → {price:,.0f} $)", now)
 
     def _check_liquidations(self, hub, _opps, config, now) -> None:
         totals = hub.liquidations.totals(window=300)

@@ -879,8 +879,25 @@ connexion nouvelle :
   du clic. Un seuil qui sonne se désarme, et ne se réarme que quand le
   cours s'en écarte de 0,2 % de l'autre côté — sans cette hystérésis,
   un cours qui oscille sur le seuil sonnerait en rafale ;
+- **mouvement brusque** — le cours s'écarte de plus de 2 % (`move_pct`)
+  de son plus haut ou de son plus bas du dernier quart d'heure
+  (`MOVE_WINDOW`) : « chute brusque : -2.1 % en 7 min (100,000 → 97,900 $) ».
+  Les relevés viennent de la boucle d'observation, un par seconde, sans
+  bougie à attendre ni appel réseau ; un service relancé repart sans relevés
+  et n'invente aucun mouvement. Le seuil a été choisi sur un an de bougies
+  d'une minute (novembre 2025 – novembre 2026), chaque épisode compté une
+  fois : 2 % en quinze minutes en font 66, cinq par mois ; 1,5 % en ferait
+  dix-huit, 1 % soixante-quatre — trop pour un téléphone. C'est la première
+  règle d'état à **hystérésis** : réarmée seulement quand le mouvement
+  retombe sous les trois quarts du seuil (`MOVE_REARM`), elle ne resonne pas
+  pour un cours qui hésite entre −1,6 et −2,1 %. `_edge` en a gagné un
+  argument `clear`, qui dit quand une règle se réarme ; sans lui, rien ne
+  change pour les autres. Elle n'existait pas avant le 13 novembre 2026 :
+  la rafale de liquidations en tenait lieu, de loin ;
 - **rafale de liquidations** — notionnel liquidé sur 5 minutes au-delà
-  du seuil ;
+  du seuil, lu dans les totaux du fil par pas de dix secondes (§2.5) — la
+  fenêtre de 500 événements dont il se contentait jusqu'au 13 novembre 2026
+  ne tenait pas cinq minutes de cascade ;
 - **financement extrême** — |taux par 8 h| au-delà du seuil ;
 - **news à fort score** — un article jamais vu atteint le seuil ; la
   première lecture arme sans sonner, sans quoi chaque démarrage
@@ -1056,7 +1073,8 @@ le regarde. Chaque sonnerie part aussi, si un sujet est configuré
 notification push : un POST JSON à la racine du serveur, le sujet dans le
 corps — un en-tête HTTP ne porte pas proprement l'UTF-8 d'un titre accentué —,
 avec un titre lisible, une priorité relevée pour ce qui demande d'agir (seuil
-de cours, rafale de liquidations, bond de la volatilité, bascule de tendance)
+de cours, mouvement brusque, rafale de liquidations, bond de la volatilité,
+bascule de tendance)
 et une étiquette par règle. L'envoi part d'un thread à lui, par une file
 bornée : la boucle d'observation n'attend jamais ntfy, et une panne d'envoi se
 dit une fois au journal, comme une source. Les sonneries relues du journal au

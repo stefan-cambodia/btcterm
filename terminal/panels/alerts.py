@@ -40,7 +40,7 @@ from ..theme import C, MONO, PANEL_STYLE, TITLE_STYLE
 ROWS = 30
 
 #: Couleur d'étiquette par règle — celles des panneaux correspondants.
-KIND_COLORS = {"price": C["yellow"], "liq": C["red"],
+KIND_COLORS = {"price": C["yellow"], "move": C["yellow"], "liq": C["red"],
                "funding": C["orange"], "news": C["blue"], "arb": C["green"],
                "trend": C["purple"], "flip": C["purple"], "event": C["orange"],
                "gamma": C["yellow"], "cycle": C["purple"],
@@ -110,6 +110,9 @@ def layout(title=None):
             ], style={"display": "flex", "gap": "6px", "alignItems": "center",
                       "flexWrap": "wrap", "marginBottom": "4px"}),
             html.Div([
+                _field("mouv. 15 min (%)", dcc.Input(
+                    id="alert-move", type="number", min=0.1, step="any",
+                    debounce=True, value=config["move_pct"], style=_INPUT)),
                 _field("liq. 5 min (M$)", dcc.Input(
                     id="alert-liq", type="number", min=0.1, debounce=True,
                     value=config["liq_burst_musd"], style=_INPUT)),
@@ -301,6 +304,7 @@ def register(app, hub):
         Output("alert-config", "data"),
         Input("alert-price-add", "n_clicks"),
         Input({"type": "alert-del", "index": ALL}, "n_clicks"),
+        Input("alert-move", "value"),
         Input("alert-liq", "value"),
         Input("alert-funding", "value"),
         Input("alert-news", "value"),
@@ -326,7 +330,7 @@ def register(app, hub):
         State("alert-config", "data"),
         prevent_initial_call=True,
     )
-    def _edit(_add, _dels, liq, funding, news_score, arb,
+    def _edit(_add, _dels, move, liq, funding, news_score, arb,
               ma200, rsi_hi, rsi_lo, dominance, etf, mempool, block,
               dvol, skew, depth, signal, trend, gamma, cycle_shift, event,
               sources_down, sound,
@@ -363,7 +367,7 @@ def register(app, hub):
             if 0 <= index < len(config["price_levels"]):
                 config["price_levels"].pop(index)
         else:
-            merged = {**config,
+            merged = {**config, "move_pct": move,
                       "liq_burst_musd": liq, "funding_pct": funding,
                       "news_score": news_score, "arb_net_pct": arb,
                       "ma200_gap_pct": ma200, "rsi_overbought": rsi_hi,

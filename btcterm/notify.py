@@ -47,13 +47,14 @@ log = logging.getLogger("btcterm.notify")
 #: demande d'agir — un seuil posé, une cascade, la volatilité qui bondit,
 #: la tendance qui bascule — monte d'un cran.
 #: La synthèse du matin, sous le défaut : un résumé, pas une sonnerie.
-KIND_PRIORITY = {"price": 4, "liq": 4, "vol": 4, "trend": 4, "flip": 4,
-                 "brief": 2}
+KIND_PRIORITY = {"price": 4, "move": 4, "liq": 4, "vol": 4, "trend": 4,
+                 "flip": 4, "brief": 2}
 DEFAULT_PRIORITY = 3
 
 #: Une étiquette par règle : ntfy l'affiche en émoji devant le titre.
 KIND_TAGS = {
-    "price": "dart", "liq": "boom", "funding": "money_with_wings",
+    "price": "dart", "move": "rocket", "liq": "boom",
+    "funding": "money_with_wings",
     "news": "newspaper", "arb": "scales", "trend": "chart_with_upwards_trend",
     "flip": "chart_with_upwards_trend", "event": "calendar",
     "rsi": "thermometer", "signal": "triangular_flag_on_post",
@@ -65,7 +66,8 @@ KIND_TAGS = {
 #: Le titre de la notification, par règle : le nom que lui donne le
 #: panneau ALERTES, pas son code interne.
 KIND_TITLES = {
-    "price": "seuil de cours", "liq": "liquidations", "funding": "financement",
+    "price": "seuil de cours", "move": "mouvement brusque",
+    "liq": "liquidations", "funding": "financement",
     "news": "news", "arb": "arbitrage", "trend": "tendance journalière",
     "flip": "tendance journalière", "event": "échéance macro",
     "rsi": "RSI", "signal": "signal", "dominance": "dominance",

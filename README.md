@@ -113,7 +113,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
 | **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF (et en bitcoins, face à l'émission), Fear & Greed, DVOL, skew et mouvement attendu, prime Coinbase, prime coréenne, dominance, cycle (halving, sommet, Mayer, MVRV), prochaines échéances macro, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE —, grosses échéances d'options Deribit (montant, max pain, put/call) et publications américaines de la semaine selon Forex Factory (PPI, ventes au détail, inscriptions au chômage, discours de la Fed ; prévision et précédent), avec compte à rebours (onglet des news) | 5 min |
-| **Alertes** | sonneries et réglages : seuils de cours, rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, franchissement du gamma flip des options, bascules du cycle (MVRV en zone extrême, capitulation des mineurs), échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite, déplacement du skew (onglet des news) | 2 s |
+| **Alertes** | sonneries et réglages : seuils de cours, mouvement brusque (2 % en 15 min), rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, franchissement du gamma flip des options, bascules du cycle (MVRV en zone extrême, capitulation des mineurs), échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite, déplacement du skew (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US) ou contre l'offre de stablecoins (`STB`), décalage réglable et corrélations | 5 min |
 | **Analyse** | tendance, écart à la MA 200, RSI, ATR et dernier signal de 15m à 1w ; au choix, bilan des signaux contre une référence, règles simples face à la détention, frais compris, carte des rendements mensuels, ou carte des heures — l'amplitude moyenne par jour et par heure sur un an, quand le bitcoin bouge ; export CSV (onglet de la macro) | 30 s |
 | **Dominance** | parts de capitalisation et leur tendance journalisée — hors actifs que la source compte par intermittence —, cap totale et volume 24 h (onglet de la macro) | 5 min |
@@ -383,8 +383,10 @@ python -m terminal.app --no-journal              # s'en passer
 
 **Alertes** — le terminal sait attirer l'attention quand on ne le regarde
 pas : seuils de cours posés depuis le panneau ALERTES (le sens — au-dessus,
-au-dessous — est figé à la pose, avec hystérésis de réarmement), rafale de
-liquidations, financement extrême, news à fort score, écart d'arbitrage —
+au-dessous — est figé à la pose, avec hystérésis de réarmement), mouvement
+brusque (2 % depuis le plus haut ou le plus bas du dernier quart d'heure —
+cinq fois par mois sur l'année écoulée), rafale de liquidations, financement
+extrême, news à fort score, écart d'arbitrage —
 plus trois règles relatives lues sur la bougie horaire close : écart du
 cours à sa MA 200, RSI hors bornes, signal gradué fort (±2), muettes sur la
 série de démonstration hors ligne — une neuvième assise sur l'historique
