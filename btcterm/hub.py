@@ -679,6 +679,12 @@ class MarketHub:
         #: Moteur d'alertes : évalué par la boucle d'observation, réglé
         #: par le panneau ALERTES, journalisé quand le journal est tenu.
         self.alerts = AlertEngine(journal=self.journal)
+        # Réglages et état des règles d'avant le redémarrage, à côté du
+        # journal : un service relancé ne resonne pas ce qui sonnait déjà,
+        # et surveille les seuils sans attendre un navigateur.
+        if self.journal is not None:
+            self.alerts.state_path = self.journal.path.parent / "alert-state.json"
+            self.alerts.load_state()
 
         self._observe_stop = threading.Event()
         #: Échantillons de liquidité de la période en cours, par

@@ -986,6 +986,29 @@ lecture technique des chandeliers) ne tournent qu'à la minute. Chaque
 sonnerie part au journal (§2.7) — la relecture d'une séance inclut ce
 qui a sonné.
 
+**L'état des règles survit au redémarrage.** Les fronts (`_rules`), l'armement
+des seuils de cours (`_armed`) et les réglages vivaient en mémoire. Le
+12 novembre 2026, le RSI horaire en survente et les blocs lents ont sonné deux
+secondes après chacun des huit redémarrages de la soirée : une condition
+encore vraie, vue par un moteur neuf, était un front. Et après un
+redémarrage, le moteur tournait avec les réglages par défaut jusqu'à ce
+qu'un navigateur lui renvoie les siens — sur un serveur sans navigateur
+ouvert, les seuils de cours n'étaient plus surveillés. Le moteur garde
+désormais les trois dans `~/.btcterm/alert-state.json` (`load_state`, à la
+construction du hub, quand le journal est tenu ; `_save_state` à chaque
+front, réarmement ou réglage — des événements rares —, par un temporaire
+renommé). Les réglages valent quel que soit l'âge du fichier ; l'état des
+règles, six heures (`STATE_MAX_AGE`) : une condition toujours vraie après
+une longue coupure mérite d'être redite. Un navigateur au Store vide — un
+autre appareil, une navigation privée — envoyait `None`, que `configure`
+remettait aux valeurs par défaut ; `panels.alerts.apply_config` l'ignore
+désormais. Les règles à première lecture muette (flux ETF, cycle, gamma)
+et à message daté (échéances) n'en avaient pas besoin. Le premier passage en
+réel a échoué en silence — une ligne au journal du service : « Object of type
+bool is not JSON serializable » —, les conditions calculées par pandas étant
+des booléens numpy ; `_edge` les convertit, `_save_state` aussi, et le test
+passe désormais par un booléen numpy.
+
 **Les sonneries survivent au redémarrage.** La mémoire du moteur — les
 deux cents dernières sonneries, d'où le panneau tire sa liste et la
 cloche son compte de l'heure — ne vivait qu'en mémoire : un service
@@ -1027,7 +1050,8 @@ envoie un essai.
 
 Côté interface, le panneau ALERTES (onglet de la cellule news) affiche
 les sonneries et les réglages, qui vivent dans un Store persisté et
-réarment le moteur au chargement ; la cloche du bandeau compte la
+réarment le moteur au chargement — le moteur les garde aussi sur disque,
+voir plus haut — ; la cloche du bandeau compte la
 dernière heure et **ouvre le panneau d'un clic** — elle demande à la
 grille (`reveal`) dans quelle cellule le panneau a été rangé, et quitte
 au passage un éventuel plein écran qui le masquerait — DVOL, au bandeau, fait
@@ -4034,6 +4058,9 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
   (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
   synthèse hors de ses bornes.
+- ~~**Des alertes qui resonnaient à chaque redémarrage**~~ — constaté le
+  13 novembre 2026 en relisant les alertes de la veille (§2.8) : l'état des
+  règles et les réglages du moteur gardés sur disque.
 - ~~**La paie des mineurs invisible**~~ — fait le 13 novembre 2026 (§2.15) :
   le hashprice en plein écran d'ON-CHAIN, chiffre et courbe.
 - ~~**Des liquidations coin-margined comptées en contrats**~~ — constaté le

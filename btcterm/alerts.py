@@ -96,10 +96,14 @@ hub factice.
 from __future__ import annotations
 
 import datetime as dt
+import json
+import logging
+import os
 import threading
 import time
 from collections import deque
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Callable, Optional
 
 import pandas as pd
@@ -269,6 +273,14 @@ def normalize_config(data) -> dict:
     return config
 
 
+log = logging.getLogger(__name__)
+
+#: L'état des règles gardé sur disque ne vaut plus au-delà : un service
+#: arrêté six heures retrouve des conditions qui ont pu retomber et revenir,
+#: et une condition toujours vraie mérite alors d'être redite.
+STATE_MAX_AGE = 6 * 3600
+
+
 class AlertEngine:
     """Évalue les règles, garde les sonneries récentes, journalise."""
 
@@ -304,6 +316,69 @@ class AlertEngine:
         #: Où envoyer chaque sonnerie hors du navigateur (§ notify) ;
         #: `None` tant qu'aucun sujet ntfy n'est configuré.
         self.notifier = None
+        #: Le fichier où le moteur garde ses réglages, l'état de ses règles
+        #: et l'armement des seuils (§ load_state) ; `None` : rien sur
+        #: disque — les tests, ou le service sans journal.
+        self.state_path: Optional[Path] = None
+        self._state_failed = False
+
+    # ── Mémoire entre deux démarrages ───────────────────────
+
+    def load_state(self) -> bool:
+        """Reprend réglages et état des règles d'avant le redémarrage.
+
+        Tout vivait en mémoire. Relancé, le moteur repartait des réglages
+        par défaut jusqu'à ce qu'un navigateur lui renvoie les siens — sur
+        un serveur sans navigateur ouvert, les seuils de cours n'étaient
+        plus surveillés —, et ses règles à front repartaient éteintes :
+        toute condition encore vraie resonnait. Le 12 novembre 2026, le
+        RSI en survente et les blocs lents ont sonné deux secondes après
+        chacun des huit redémarrages de la soirée. Les réglages valent
+        quel que soit l'âge du fichier ; l'état des règles, `STATE_MAX_AGE`.
+        Rend vrai si un fichier a été lu.
+        """
+        if self.state_path is None:
+            return False
+        try:
+            data = json.loads(Path(self.state_path).read_text())
+        except (OSError, ValueError):
+            return False
+        with self._lock:
+            if data.get("config") is not None:
+                self.config = normalize_config(data["config"])
+            if time.time() - float(data.get("saved", 0)) <= STATE_MAX_AGE:
+                self._rules = {
+                    key: {"active": bool(rule.get("active")),
+                          "last": float(rule.get("last", 0.0))}
+                    for key, rule in (data.get("rules") or {}).items()}
+                self._armed = {(float(level), str(direction)): bool(armed)
+                               for level, direction, armed
+                               in data.get("armed") or ()}
+        return True
+
+    def _save_state(self) -> None:
+        """Écrit réglages et état des règles, par un temporaire renommé. Un
+        disque qui refuse se dit une fois ; le moteur continue en mémoire."""
+        if self.state_path is None:
+            return
+        path = Path(self.state_path)
+        with self._lock:
+            data = {"saved": time.time(), "config": self.config,
+                    "rules": {key: {"active": bool(rule["active"]),
+                                    "last": float(rule["last"])}
+                              for key, rule in self._rules.items()},
+                    "armed": [[float(level), str(direction), bool(armed)]
+                              for (level, direction), armed
+                              in self._armed.items()]}
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(data))
+            os.replace(temporary, path)
+        except (OSError, TypeError, ValueError) as exc:
+            if not self._state_failed:
+                self._state_failed = True
+                log.warning("état des alertes non sauvegardé : %s", exc)
 
     # ── Réglages et lecture ─────────────────────────────────
 
@@ -316,6 +391,7 @@ class AlertEngine:
             # Un seuil retiré puis reposé repart armé.
             self._armed = {key: armed for key, armed in self._armed.items()
                            if key in kept}
+        self._save_state()
 
     def recent(self, limit: int = 20) -> list[Alert]:
         """Les dernières sonneries, la plus récente d'abord."""
@@ -397,12 +473,19 @@ class AlertEngine:
         deux fois en moins de `COOLDOWN` — une condition qui clignote
         au ras du seuil ne sonne pas en rafale.
         """
+        # Une condition calculée par pandas est un booléen numpy : json ne
+        # l'écrit pas, et la première sauvegarde de l'état a échoué ainsi.
+        condition = bool(condition)
         state = self._rules.setdefault(key, {"active": False, "last": 0.0})
         fire = (condition and not state["active"]
                 and now - state["last"] >= COOLDOWN)
+        changed = state["active"] != condition or fire
         state["active"] = condition
         if fire:
             state["last"] = now
+        if changed:
+            # Rare — un front, une condition qui retombe : le disque suit.
+            self._save_state()
         return fire
 
     # ── Les règles ──────────────────────────────────────────
@@ -424,12 +507,14 @@ class AlertEngine:
                            f"cours {sens} {level:,.0f} $ ({price:,.0f} $)",
                            now)
                 self._armed[key] = False
+                self._save_state()
             elif not armed:
                 cleared = (price <= level * (1 - margin)
                            if direction == "above"
                            else price >= level * (1 + margin))
                 if cleared:
                     self._armed[key] = True
+                    self._save_state()
 
     def _check_liquidations(self, hub, _opps, config, now) -> None:
         totals = hub.liquidations.totals(window=300)

@@ -5,9 +5,11 @@ Le moteur (btcterm/alerts.py) tourne dans le hub, navigateur ouvert ou
 non ; ce panneau n'est que sa fenêtre — la liste des sonneries — et son
 tableau de réglages. Les réglages vivent dans le Store `alert-config`
 (localStorage) : ils survivent au rechargement, et un callback les
-pousse au moteur à chaque changement comme au chargement — après un
-redémarrage du serveur, le premier navigateur venu réarme donc les
-seuils.
+pousse au moteur à chaque changement comme au chargement. Le moteur les
+garde aussi sur disque (§ AlertEngine.load_state) : un serveur relancé
+surveille ses seuils sans attendre un navigateur, et un navigateur au
+Store vide — un autre appareil, une navigation privée — ne les remet
+pas à leurs valeurs par défaut (`apply_config`).
 
 Les réglages affichés à l'ouverture du panneau viennent du **moteur**,
 pas du Store : le layout est construit au montage, côté serveur, et le
@@ -243,6 +245,17 @@ def _rows(feed):
     return rows
 
 
+def apply_config(engine, config) -> bool:
+    """Pousse au moteur les réglages du Store, sauf un Store vide : un
+    navigateur neuf n'a rien à dire, et `configure(None)` remettait aux
+    valeurs par défaut les seuils que le serveur gardait. Rend vrai si le
+    moteur a été réglé."""
+    if config is None:
+        return False
+    engine.configure(config)
+    return True
+
+
 def register(app, hub):
     global _hub
     _hub = hub
@@ -269,7 +282,7 @@ def register(app, hub):
         Input("alert-config", "data"),
     )
     def _apply(config):
-        hub.alerts.configure(config)
+        apply_config(hub.alerts, config)
         return dash.no_update
 
     # ── Les puces suivent le Store (pose et retrait des seuils) ──

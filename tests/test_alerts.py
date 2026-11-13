@@ -857,6 +857,80 @@ def test_echeance_macro_annoncee():
           "la semaine US à fort impact aussi")
 
 
+def test_un_redemarrage_ne_resonne_pas():
+    """Le 12 novembre 2026, le RSI en survente et les blocs lents ont sonné
+    deux secondes après chacun des redémarrages du service : l'état des
+    règles vivait en mémoire. Gardé sur disque, il survit au redémarrage —
+    une condition déjà active ne resonne pas, un seuil de cours franchi
+    reste désarmé —, les réglages aussi, sans navigateur ; six heures
+    d'arrêt l'effacent, et un Store vide n'écrase plus les réglages."""
+    import json
+    import tempfile
+    import time
+    from pathlib import Path
+    from btcterm import alerts as module
+    from terminal.panels import alerts as panneau
+
+    class Hub:
+        prix = 81_000.0
+        def reference_price(self):
+            return self.prix
+
+    reglages = {**DEFAULT_CONFIG,
+                "price_levels": [{"level": 80_000, "dir": "above"}]}
+    with tempfile.TemporaryDirectory() as dossier:
+        chemin = Path(dossier) / "alert-state.json"
+        avant = AlertEngine()
+        avant.state_path = chemin
+        avant.configure(reglages)
+        maintenant = 1_800_000_000.0
+        import numpy as np
+        # Un booléen numpy, comme en donne pandas : json ne l'écrivait pas.
+        assert avant._edge("blocks", np.bool_(True), maintenant), \
+            "premier front : sonne"
+        avant._check_price(Hub(), None, avant.config, maintenant)
+        assert [a.kind for a in avant.alerts] == ["price"]
+        lu = json.loads(chemin.read_text())
+        assert lu["rules"]["blocks"]["active"] is True
+        assert lu["armed"] == [[80_000.0, "above", False]]
+
+        # Relancé : les réglages reviennent sans navigateur, la condition
+        # toujours vraie se tait, le seuil franchi reste désarmé.
+        apres = AlertEngine()
+        apres.state_path = chemin
+        assert apres.load_state()
+        assert apres.config["price_levels"] == [{"level": 80_000.0, "dir": "above"}]
+        heure = time.time()
+        assert not apres._edge("blocks", True, heure), "déjà actif : silence"
+        apres._check_price(Hub(), None, apres.config, heure)
+        assert not apres.alerts, "seuil déjà franchi : silence"
+
+        # Un Store vide — un autre appareil — ne remet rien à défaut.
+        assert not panneau.apply_config(apres, None)
+        assert apres.config["price_levels"], "les seuils du serveur restent"
+        assert panneau.apply_config(apres, DEFAULT_CONFIG)
+
+        # Six heures d'arrêt : l'état des règles est oublié, les réglages non.
+        donnees = json.loads(chemin.read_text())
+        donnees["saved"] -= module.STATE_MAX_AGE + 60
+        donnees["config"] = reglages
+        chemin.write_text(json.dumps(donnees))
+        tard = AlertEngine()
+        tard.state_path = chemin
+        tard.load_state()
+        assert tard.config["price_levels"] and not tard._rules
+        assert tard._edge("blocks", True, time.time()), "redite après l'arrêt"
+
+        # Fichier abîmé, ou pas de chemin : on repart à vide, sans erreur.
+        chemin.write_text("{abîmé")
+        assert not AlertEngine().load_state()
+        abime = AlertEngine()
+        abime.state_path = chemin
+        assert not abime.load_state()
+    print("  ✓ état et réglages survivent au redémarrage ; six heures l'effacent ; "
+          "un Store vide n'écrase rien")
+
+
 def test_carnets_creux():
     """La liquidité loin sous sa moyenne sonne une fois ; ni une journée
     trop courte, ni un relevé isolé, ni une plateforme qui se tait ne

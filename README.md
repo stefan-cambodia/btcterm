@@ -407,7 +407,12 @@ qui dure ou qui clignote ne sonne pas en rafale. La cloche du bandeau compte
 la dernière heure et ouvre le panneau d'un clic, où qu'il soit rangé ; le bip et les notifications navigateur (permission
 demandée d'un clic) retentissent même panneau replié ; chaque sonnerie part
 au journal et se relit avec la séance. Les seuils survivent au rechargement
-et réarment le moteur au chargement de la page.
+et réarment le moteur au chargement de la page ; le moteur les garde aussi
+sur disque (`~/.btcterm/alert-state.json`), avec l'état de ses règles : un
+service relancé surveille vos seuils sans attendre qu'un navigateur s'ouvre,
+et ne resonne pas ce qui sonnait déjà — le RSI en survente et les blocs lents
+sonnaient à chaque redémarrage. Un navigateur neuf, au réglage vide, ne remet
+rien à défaut.
 
 **Sur le téléphone** — un terminal qui tourne sur un serveur sonne pour
 personne : chaque alerte peut aussi partir vers [ntfy](https://ntfy.sh), qui
