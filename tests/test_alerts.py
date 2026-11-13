@@ -246,6 +246,91 @@ def test_mouvement_brusque():
     print("  ✓ mouvement brusque : une sonnerie, réarmée sous 1,5 %")
 
 
+def test_les_regles_lentes_ne_retiennent_pas_les_rapides():
+    """La passe lente va au réseau — 16 s pour le perpétuel quand Binance
+    ne répond pas. Lancée à part, elle ne retient ni les seuils de cours ni
+    le mouvement brusque ; une seule tourne à la fois, et celle qui tombait
+    pendant la précédente part au tour suivant."""
+    import threading
+    import time as horloge
+
+    hub = FakeHub()
+    porte = threading.Event()
+    lectures = []
+
+    def perp_lent():
+        lectures.append(1)
+        porte.wait(5)
+        return {"funding_rate": 0.002}                   # 0,2 % : sonne
+
+    hub.perp_snapshot = perp_lent
+    e = engine(price_levels=[{"level": 101_000.0, "dir": "above"}])
+    verrou = threading.Lock()
+
+    def lanceur(job):
+        if not verrou.acquire(blocking=False):
+            return False
+
+        def tourne():
+            try:
+                job()
+            finally:
+                verrou.release()
+        threading.Thread(target=tourne, daemon=True).start()
+        return True
+
+    e.slow_runner = lanceur
+    debut = horloge.perf_counter()
+    e.evaluate(hub, now=T0)
+    assert horloge.perf_counter() - debut < 0.5, "la passe lente a retenu le tour"
+    # Pendant qu'elle attend, le cours franchit son seuil : la règle rapide
+    # sonne, et l'échéance de la passe suivante n'en lance pas une seconde.
+    hub.price = 101_500.0
+    e.evaluate(hub, now=T0 + SLOW_EVERY + 1)
+    assert [a.kind for a in e.alerts] == ["price"], list(e.alerts)
+    assert len(lectures) == 1, "une seconde passe lancée"
+    porte.set()
+    limite = horloge.time() + 5
+    while verrou.locked() and horloge.time() < limite:
+        horloge.sleep(0.01)
+    assert [a.kind for a in e.alerts] == ["price", "funding"], list(e.alerts)
+    # La passe décalée part au tour d'après.
+    e.evaluate(hub, now=T0 + SLOW_EVERY + 2)
+    limite = horloge.time() + 5
+    while verrou.locked() and horloge.time() < limite:
+        horloge.sleep(0.01)
+    assert len(lectures) == 2
+    print("  ✓ la passe lente à part : seuils de cours à l'heure, une passe à la fois")
+
+
+def test_l_etat_se_sauve_depuis_plusieurs_fils():
+    """Règles rapides, passe lente et réglages sauvent l'état chacun de son
+    fil : rien ne se perd, le fichier reste lisible."""
+    import json
+    import threading
+
+    with tempfile.TemporaryDirectory() as dossier:
+        e = engine()
+        e.state_path = Path(dossier) / "alert-state.json"
+
+        def regles(prefixe):
+            for i in range(150):
+                e._edge(f"{prefixe}{i}", True, T0 + i)
+
+        fils = [threading.Thread(target=regles, args=(p,)) for p in "abcd"]
+        for fil in fils:
+            fil.start()
+        e.configure({**DEFAULT_CONFIG, "move_pct": 3.0})
+        for fil in fils:
+            fil.join()
+        e._save_state()
+        donnees = json.loads(e.state_path.read_text())
+        assert len(donnees["rules"]) == 600, len(donnees["rules"])
+        assert donnees["config"]["move_pct"] == 3.0
+        assert not e._state_failed
+    print("  ✓ quatre fils sauvent l'état ensemble, sans rien perdre")
+
+
 def test_l_hysteresis_du_front():
     """`_edge` sans `clear` : réarmé dès que la condition retombe ; avec,
     réarmé seulement quand `clear` le dit."""

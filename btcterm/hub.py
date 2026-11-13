@@ -685,6 +685,11 @@ class MarketHub:
         if self.journal is not None:
             self.alerts.state_path = self.journal.path.parent / "alert-state.json"
             self.alerts.load_state()
+        # Les règles lentes vont au réseau quand leurs caches expirent : la
+        # boucle d'observation ne les attend pas (§ AlertEngine.evaluate).
+        self._alerts_slow_lock = threading.Lock()
+        self.alerts.slow_runner = lambda job: self._spawn(
+            self._alerts_slow_lock, "alertes-lentes", job)
 
         self._observe_stop = threading.Event()
         #: Échantillons de liquidité de la période en cours, par
@@ -699,6 +704,8 @@ class MarketHub:
         self._korea_lock = threading.Lock()
         #: De même pour le calendrier de la semaine.
         self._calendar_lock = threading.Lock()
+        #: Un instantané de marché à la fois (§ _observe_loop).
+        self._snapshot_lock = threading.Lock()
         self._heatmap_error: Optional[str] = None
         self._observe_thread: Optional[threading.Thread] = None
         #: Levé quand le hub s'arrête — ou, en régime service, dès que
@@ -954,10 +961,11 @@ class MarketHub:
             if (self.journal is not None
                     and time.monotonic() >= next_snapshot):
                 next_snapshot = time.monotonic() + self.SNAPSHOT_EVERY
-                try:
-                    self.record_market_snapshot()
-                except Exception:
-                    pass
+                # Lui aussi lit des caches REST qui vont au réseau — douze
+                # sources, dont Binance Futures et Deribit : il part dans un
+                # fil à lui (§ _spawn), un seul à la fois.
+                self._spawn(self._snapshot_lock, "instantané",
+                            self.record_market_snapshot)
                 try:
                     self._flush_depth()
                 except Exception:

@@ -307,6 +307,14 @@ class AlertEngine:
         self.config = normalize_config(None)
         self.alerts: deque[Alert] = deque(maxlen=200)
         self._lock = threading.Lock()
+        #: Une écriture de l'état à la fois : le temporaire a un nom fixe,
+        #: et deux fils — boucle d'observation, passe lente, callback de
+        #: réglage — se le disputeraient.
+        self._save_lock = threading.Lock()
+        #: Lanceur des règles lentes, posé par le hub : il reçoit la passe
+        #: et rend vrai s'il l'a lancée, faux si la précédente tourne
+        #: encore. Sans lui, la passe tourne dans l'appel (§ `evaluate`).
+        self.slow_runner: Optional[Callable[[Callable[[], None]], bool]] = None
         #: État des règles à front montant : clé → {active, last}.
         self._rules: dict[str, dict] = {}
         #: Sources vues en défaut : nom → {since, rung} (§ `_check_sources`).
@@ -381,23 +389,27 @@ class AlertEngine:
         if self.state_path is None:
             return
         path = Path(self.state_path)
-        with self._lock:
-            data = {"saved": time.time(), "config": self.config,
-                    "rules": {key: {"active": bool(rule["active"]),
-                                    "last": float(rule["last"])}
-                              for key, rule in self._rules.items()},
-                    "armed": [[float(level), str(direction), bool(armed)]
-                              for (level, direction), armed
-                              in self._armed.items()]}
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = path.with_suffix(".tmp")
-            temporary.write_text(json.dumps(data))
-            os.replace(temporary, path)
-        except (OSError, TypeError, ValueError) as exc:
-            if not self._state_failed:
-                self._state_failed = True
-                log.warning("état des alertes non sauvegardé : %s", exc)
+        # L'état se lit sous le même verrou que l'écriture : deux fils qui
+        # sauvent ensemble écrivent dans l'ordre où ils ont lu, et le
+        # fichier ne revient jamais à un état plus ancien.
+        with self._save_lock:
+            with self._lock:
+                data = {"saved": time.time(), "config": self.config,
+                        "rules": {key: {"active": bool(rule["active"]),
+                                        "last": float(rule["last"])}
+                                  for key, rule in self._rules.items()},
+                        "armed": [[float(level), str(direction), bool(armed)]
+                                  for (level, direction), armed
+                                  in self._armed.items()]}
+            try:
+                path.parent.mkdir(parents=True, exist_ok=True)
+                temporary = path.with_suffix(".tmp")
+                temporary.write_text(json.dumps(data))
+                os.replace(temporary, path)
+            except (OSError, TypeError, ValueError) as exc:
+                if not self._state_failed:
+                    self._state_failed = True
+                    log.warning("état des alertes non sauvegardé : %s", exc)
 
     # ── Réglages et lecture ─────────────────────────────────
 
@@ -447,7 +459,20 @@ class AlertEngine:
 
     def evaluate(self, hub, opportunities=None,
                  now: Optional[float] = None) -> None:
-        """Un tour de toutes les règles. Chacune échoue seule."""
+        """Un tour de toutes les règles. Chacune échoue seule.
+
+        Les règles rapides — seuils de cours, mouvement brusque, rafale,
+        arbitrage — ne lisent que la mémoire du hub, et tournent ici à
+        chaque tour. Les lentes lisent des caches REST qui, expirés, vont
+        au réseau : 1,8 s pour les chandeliers horaires en temps normal,
+        4 s par appel quand Binance ne répond pas, 16 s pour le perpétuel
+        (mesuré le 13 novembre 2026). Dans le même fil, elles retenaient
+        d'autant les règles rapides — un seuil de cours franchi pendant
+        une panne de Binance sonnait vingt secondes en retard. Avec un
+        lanceur (`slow_runner`), elles partent dans un fil à elles, une
+        passe à la fois ; une passe qui dure encore à l'échéance de la
+        suivante la décale d'un tour, sans en lancer une seconde.
+        """
         now = time.time() if now is None else now
         with self._lock:
             config = self.config
@@ -458,18 +483,28 @@ class AlertEngine:
             except Exception:
                 pass
         if now >= self._next_slow:
-            self._next_slow = now + SLOW_EVERY
-            for rule in (self._check_funding, self._check_news,
-                         self._check_technical, self._check_trend,
-                         self._check_gamma, self._check_cycle,
-                         self._check_event, self._check_dominance,
-                         self._check_etf, self._check_chain,
-                         self._check_volatility, self._check_skew,
-                         self._check_liquidity, self._check_sources):
-                try:
-                    rule(hub, opportunities, config, now)
-                except Exception:
-                    pass
+            def slow() -> None:
+                self._slow_pass(hub, opportunities, config, now)
+            runner = self.slow_runner
+            if runner is None:
+                self._next_slow = now + SLOW_EVERY
+                slow()
+            elif runner(slow):
+                self._next_slow = now + SLOW_EVERY
+
+    def _slow_pass(self, hub, opportunities, config, now) -> None:
+        """Les règles qui coûtent, à la minute (§ `evaluate`)."""
+        for rule in (self._check_funding, self._check_news,
+                     self._check_technical, self._check_trend,
+                     self._check_gamma, self._check_cycle,
+                     self._check_event, self._check_dominance,
+                     self._check_etf, self._check_chain,
+                     self._check_volatility, self._check_skew,
+                     self._check_liquidity, self._check_sources):
+            try:
+                rule(hub, opportunities, config, now)
+            except Exception:
+                pass
 
     def _fire(self, kind: str, message: str, now: float) -> None:
         alert = Alert(time=now, kind=kind, message=message)
@@ -500,14 +535,17 @@ class AlertEngine:
         # l'écrit pas, et la première sauvegarde de l'état a échoué ainsi.
         condition = bool(condition)
         clear = (not condition) if clear is None else bool(clear)
-        state = self._rules.setdefault(key, {"active": False, "last": 0.0})
-        fire = (condition and not state["active"]
-                and now - state["last"] >= COOLDOWN)
-        active = condition or (state["active"] and not clear)
-        changed = state["active"] != active or fire
-        state["active"] = active
-        if fire:
-            state["last"] = now
+        # Sous verrou : les règles rapides et la passe lente tournent dans
+        # deux fils, et la sauvegarde parcourt ce dictionnaire.
+        with self._lock:
+            state = self._rules.setdefault(key, {"active": False, "last": 0.0})
+            fire = (condition and not state["active"]
+                    and now - state["last"] >= COOLDOWN)
+            active = condition or (state["active"] and not clear)
+            changed = state["active"] != active or fire
+            state["active"] = active
+            if fire:
+                state["last"] = now
         if changed:
             # Rare — un front, une condition qui retombe : le disque suit.
             self._save_state()

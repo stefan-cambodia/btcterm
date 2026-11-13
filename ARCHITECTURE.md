@@ -803,7 +803,9 @@ capitalisation, open interest, financement —, la seule table qui ne
 relit pas la séance mais construit un historique : CoinGecko réserve ces séries à
 son offre payante et Binance ne garde que trente jours d'open interest,
 alors la boucle d'observation en journalise un toutes les cinq minutes
-(`SNAPSHOT_EVERY`), composé de ses deux sources qui échouent
+(`SNAPSHOT_EVERY`) — dans un fil à lui depuis le 13 novembre 2026, ses
+lectures allant au réseau comme les règles lentes des alertes (§2.8) —,
+composé de ses deux sources qui échouent
 indépendamment — un instantané partiel s'écrit, colonnes manquantes à
 NULL ; hors ligne, rien ne s'écrit. Leur rétention est longue à dessein
 (`SNAPSHOT_RETENTION_DAYS`, 400 jours contre 30) : purger ces lignes au
@@ -1030,6 +1032,24 @@ qui coûtent (financement en cache REST, lecture SQLite des news,
 lecture technique des chandeliers) ne tournent qu'à la minute. Chaque
 sonnerie part au journal (§2.7) — la relecture d'une séance inclut ce
 qui a sonné.
+
+**Les règles lentes ne retiennent plus les rapides.** Leurs caches REST,
+expirés, vont au réseau : 1,8 s pour les chandeliers horaires en temps
+normal — leur cache ne vit que cinq secondes, la passe le trouve froid
+chaque minute —, et quand Binance ne répond pas, 4 s par appel de
+chandeliers et 16 s pour le perpétuel (mesuré le 13 novembre 2026). Elles
+tournaient dans la boucle d'observation, avec les règles qui ne lisent que
+la mémoire : pendant une panne de Binance, un seuil de cours franchi
+sonnait une vingtaine de secondes en retard, et le mouvement brusque
+perdait ses relevés. Le hub donne donc au moteur un lanceur
+(`slow_runner`, sur `MarketHub._spawn`) : la passe lente part dans le fil
+`alertes-lentes`, une à la fois ; une passe qui dure encore à l'échéance de
+la suivante la décale d'un tour sans en lancer une seconde. Sur le hub
+réel, caches froids, `evaluate` rend la main en une milliseconde et la passe
+lente finit six secondes plus tard dans son fil. Deux fils écrivant
+désormais l'état des règles, `_edge` le modifie sous verrou, et l'écriture
+du fichier a son verrou à elle — le temporaire a un nom fixe. Sans
+lanceur — les tests —, la passe tourne dans l'appel, comme avant.
 
 **L'état des règles survit au redémarrage.** Les fronts (`_rules`), l'armement
 des seuils de cours (`_armed`) et les réglages vivaient en mémoire. Le
