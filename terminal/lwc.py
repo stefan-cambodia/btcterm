@@ -322,6 +322,11 @@ EXPORT_MAX = 2_000_000
 #: minute (1440) comme les cinq minutes (2016) en demandent davantage.
 #: Sans historique (`--no-journal`), la source rend ses 1000.
 PAGE_MAX = 2500
+
+#: Sonneries rendues au graphique, au plus : les plus récentes de la plage.
+#: Une journée agitée en compte une quarantaine ; un an de journal tiendrait
+#: dans quelques milliers, et les ronds se chevaucheraient bien avant.
+EVENTS_MAX = 1000
 PAGE_DEFAULT = 365
 
 
@@ -587,6 +592,36 @@ def register_api(app, hub) -> None:
                             "reason": "aucun gros ordre journalisé sur "
                                       "cette plage"})
         return jsonify(tranches)
+
+    @app.server.get("/api/alert-events")
+    def _alert_events():
+        """Les sonneries de la plage chargée, à marquer sur le graphique.
+
+        `from` et `to` en secondes epoch. Lues dans le journal, qui les garde
+        toutes ; sans journal, dans la mémoire du moteur — la journée. Chaque
+        sonnerie vient avec la couleur de sa règle au panneau ALERTES : le
+        rond du graphique et l'étiquette de la liste se reconnaissent.
+        """
+        t_from = request.args.get("from", type=int)
+        t_to = request.args.get("to", type=int)
+        if t_from is None or t_to is None or t_to <= t_from:
+            return jsonify({"error": "bornes from/to requises"}), 400
+        from .panels.alerts import KIND_COLORS
+        from .theme import C
+
+        if hub.journal is not None:
+            try:
+                rows = [(row["ts"], row["kind"], row["message"])
+                        for row in hub.journal.alerts_between(t_from, t_to)]
+            except Exception:  # noqa: BLE001 — base verrouillée, schéma ancien
+                rows = []
+        else:
+            rows = [(a.time, a.kind, a.message)
+                    for a in reversed(hub.alerts.recent(200))
+                    if t_from <= a.time <= t_to]
+        return jsonify({"events": [
+            [ts, kind, message, KIND_COLORS.get(kind, C["text"])]
+            for ts, kind, message in rows[-EVENTS_MAX:]]})
 
     @app.server.get("/api/liqmap")
     def _liqmap():

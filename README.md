@@ -28,9 +28,10 @@ calendrier macro et échéances d'options, dominance.*
 ![Le panneau prix en plein écran](docs/captures/plein-ecran.png)
 
 *Un panneau en plein écran d'un clic (ou d'un double-clic), Échap pour
-revenir ; ici le prix en 4 h avec ses signaux gradués, le profil de volume
-de la plage visible et, sur l'étiquette du dernier prix, le temps qui reste
-avant la clôture de la bougie.*
+revenir ; ici le prix en 4 h avec ses signaux gradués, des ronds aux bougies
+où une alerte a sonné, le profil de volume de la plage visible et, sur
+l'étiquette du dernier prix, le temps qui reste avant la clôture de la
+bougie.*
 
 ![Le prix en quinze minutes avec ses couches : niveaux clés et VWAP, gros ordres, carte du carnet, open interest](docs/captures/plein-ecran-couches.png)
 
@@ -103,7 +104,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
-| **Prix** | chandeliers de 1 m à 1 M, temps restant avant la clôture de la bougie, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois, gamma flip, max pain, mouvement attendu ±1σ) et VWAP ancré à la période ou posé à la main (`A`), gros ordres en bulles, carte de chaleur du carnet, signaux, bascule `$`/`€`, échelle log, heure locale ou UTC, sous-graphiques optionnels dont le CVD et l'open interest, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
+| **Prix** | chandeliers de 1 m à 1 M, temps restant avant la clôture de la bougie, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois, gamma flip, max pain, mouvement attendu ±1σ) et VWAP ancré à la période ou posé à la main (`A`), gros ordres en bulles, carte de chaleur du carnet, signaux, bascule `$`/`€`, échelle log, heure locale ou UTC, sous-graphiques optionnels dont le CVD et l'open interest, lecture au crosshair, sonneries des alertes marquées sur leurs bougies et dites au survol, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
 | **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ ; dessous, le solde horaire des gros ordres et la prime Coinbase journalisés (onglet du carnet) | 2 s · 5 min |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian et cadrées sur l'étendue médiane des carnets ; dessous, l'historique journalisé de la liquidité à ±0,1 % du prix (onglet du carnet) | 250 ms · 5 min |
@@ -886,7 +887,7 @@ le déménagement survit au rechargement. Chaque onglet y passe aussi : aucun
 graphique blanc à l'ouverture, des barres de titre qui tiennent dans leur
 cellule, les gestes du graphique du prix (lecture au crosshair, zoom au cadre
 borné au pane, mesure, VWAP ancré à la main, compte à rebours de la bougie,
-heure locale ou UTC), les primes régionales, le positionnement du perpétuel,
+sonneries marquées et lues au survol, heure locale ou UTC), les primes régionales, le positionnement du perpétuel,
 le rang du DVOL, la table des liquidations à son seuil — et sans exposant
 dans ses prix. Il sait déposer des captures, suppose
 le terminal déjà lancé (`--url` pour un port d'essai), et s'ignore si Firefox
@@ -958,6 +959,7 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 | `P` | enregistrer le graphique en image |
 | `T` | tracer une ligne de tendance : armer, puis glisser d'un point à l'autre |
 | `A` | ancrer un VWAP sur une bougie : armer, puis cliquer la bougie de départ (`/ancre`) |
+| `J` | afficher ou masquer les sonneries des alertes sur le graphique (`/sonneries`) |
 | `N` | niveaux clés : veille, semaine et mois passés, ouvertures en cours, et VWAP ancré |
 | `M` | carte des liquidations sur le graphique (`/carte`) |
 | `O` | gros ordres du ruban en bulles sur le graphique (`/ord`) |
@@ -974,7 +976,7 @@ intervalle (`15m`, `4h`, `1M`), `eur`, `usd`, `log`, `signaux`, un sous-graphiqu
 (`cvd`, `rsi`, `crsi`, `vol`, `profil`), une couche du graphique (`niv` ou
 `niveaux`, `ord`, `oi`, `murs`, `carte` pour celle des liquidations),
 `capture`, `ligne`, `ancre` (ou `avwap`), `effacer` (toutes les lignes et les
-ancres), `aide`, ou un seuil de cours en dollars (`alerte 80000`). Une commande
+ancres), `sonneries`, `aide`, ou un seuil de cours en dollars (`alerte 80000`). Une commande
 inconnue reste à l'écran, en rouge.
 
 ## Notes

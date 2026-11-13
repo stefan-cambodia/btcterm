@@ -426,6 +426,45 @@ def test_l_open_interest_au_pas_du_graphique():
     print("  ✓ open interest au pas de l'intervalle, borné, trous en null")
 
 
+def test_les_sonneries_pour_le_graphique():
+    """`/api/alert-events` rend les sonneries de la plage, chacune avec la
+    couleur de sa règle au panneau ALERTES : du journal quand il est tenu,
+    de la mémoire du moteur sinon."""
+    import tempfile
+    from btcterm.alerts import Alert
+    from btcterm.journal import Journal
+    from terminal.panels.alerts import KIND_COLORS
+    from terminal.theme import C
+
+    web = client()
+    assert web.get("/api/alert-events?from=9&to=3").status_code == 400
+    assert web.get("/api/alert-events?from=9").status_code == 400
+
+    sonneries = [Alert(time=1_000.0, kind="liq", message="rafale"),
+                 Alert(time=1_500.0, kind="move", message="chute brusque"),
+                 Alert(time=1_600.0, kind="inconnue", message="autre"),
+                 Alert(time=9_000.0, kind="rsi", message="hors plage")]
+    hub = MarketHub(collect_news=False, keep_journal=False)
+    hub.alerts.restore(sonneries)
+    memoire = create_app(hub).server.test_client().get(
+        "/api/alert-events?from=500&to=2000").get_json()["events"]
+    assert memoire == [[1_000.0, "liq", "rafale", KIND_COLORS["liq"]],
+                       [1_500.0, "move", "chute brusque", KIND_COLORS["move"]],
+                       [1_600.0, "inconnue", "autre", C["text"]]], memoire
+
+    with tempfile.TemporaryDirectory() as tmp:
+        hub = MarketHub(collect_news=False, keep_journal=False)
+        hub.journal = Journal(Path(tmp) / "journal.db")
+        for alerte in sonneries:
+            hub.journal.record_alert(alerte)
+        lues = create_app(hub).server.test_client().get(
+            "/api/alert-events?from=500&to=10000").get_json()["events"]
+        assert [e[1] for e in lues] == ["liq", "move", "inconnue", "rsi"]
+        assert lues[-1][3] == KIND_COLORS["rsi"]
+        hub.journal.close()
+    print("  ✓ sonneries de la plage, couleur de leur règle, journal ou mémoire")
+
+
 def test_les_gros_ordres_en_tranches():
     """`/api/trades` somme les gros ordres du journal par tranche et par
     côté — notionnel, prix moyen pondéré, nombre, plus gros —, borne la

@@ -68,6 +68,7 @@ const KEYS_HELP = [
     "P        capture du graphique en image",
     "T        tracer une ligne de tendance",
     "A        ancrer un VWAP sur une bougie (cliquer la bougie)",
+    "J        sonneries des alertes sur le graphique",
     "N        niveaux clés : veille, semaine, mois",
     "M        carte des liquidations",
     "O        gros ordres sur le graphique",
@@ -87,6 +88,7 @@ const KEYS_HELP = [
     "un intervalle    1m, 5m, 4h, 1d, 1M…",
     "eur, usd, log, cvd, oi, rsi, crsi, vol, profil, niv, carte, ord, murs, signaux, capture",
     "ligne, ancre     tracer une ligne, ancrer un VWAP",
+    "sonneries        les alertes sonnées sur le graphique",
     "effacer          retirer toutes les lignes et les ancres",
     "alerte 80000     seuil de cours, en dollars",
 ].join("\n");
@@ -168,6 +170,11 @@ function shortcut(key) {
     case "a":
         if (window.lwcPrice) {
             window.lwcPrice.toggleAnchoring();
+        }
+        return null;
+    case "j":
+        if (window.lwcPrice) {
+            window.lwcPrice.toggleEvents();
         }
         return null;
     case "f":
@@ -287,6 +294,9 @@ function runCommand(text) {
     }
     if (word === "signaux" || word === "fleches") {
         return !!window.lwcPrice && (window.lwcPrice.toggleSignals(), true);
+    }
+    if (word === "sonneries") {
+        return !!window.lwcPrice && (window.lwcPrice.toggleEvents(), true);
     }
     if (word === "ligne") {
         return !!window.lwcPrice && (window.lwcPrice.toggleDrawing(), true);

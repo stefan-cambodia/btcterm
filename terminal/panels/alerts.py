@@ -432,6 +432,10 @@ def register(app, hub):
         """
         function (feed, config) {
             const no = window.dash_clientside.no_update;
+            // Le graphique du prix marque les sonneries : il les relit.
+            if (window.lwcPrice && window.lwcPrice.refreshEvents) {
+                window.lwcPrice.refreshEvents();
+            }
             if (!feed || !feed.length) { return no; }
             if (window._alertsLast === undefined) {
                 window._alertsLast = feed[0][0];

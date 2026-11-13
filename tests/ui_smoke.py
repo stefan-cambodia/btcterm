@@ -302,6 +302,34 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         lu = browser.js("return window.lwcPrice.debug().readout;")
         check("le crosshair lit la bougie sous la souris", survol, lu[:60])
 
+        # Les sonneries du journal, en ronds au-dessus de leurs bougies :
+        # le survol de la dernière marquée les dit en clair, et J les
+        # masque puis les rend. Un journal sans sonnerie sur la plage le dit.
+        browser.wait_for("window.lwcPrice.debug().events !== undefined", timeout=5)
+        marques = browser.js("return window.lwcPrice.debug();")
+        if marques["events"] and marques["eventX"] is not None:
+            browser.hover(cadre["left"] + marques["eventX"],
+                          cadre["top"] + cadre["height"] * 0.3)
+            dite = browser.wait_for(
+                "(window.lwcPrice.debug().readout || '').includes('⚑')",
+                timeout=4)
+            check("les sonneries se marquent, et se lisent au survol", dite,
+                  f"{marques['events']} sonnerie(s) sur {marques['eventBars']} "
+                  f"bougie(s) — " + browser.js(
+                      "return window.lwcPrice.debug().readout;")[-70:])
+            browser.press("j")
+            masquees = browser.wait_for(
+                "window.lwcPrice.debug().eventBars === 0"
+                " && !window.lwcPrice.debug().eventsShown", timeout=4)
+            browser.press("j")
+            rendues = browser.wait_for(
+                f"window.lwcPrice.debug().eventBars === {marques['eventBars']}",
+                timeout=4)
+            check("J masque les sonneries, et les rend", masquees and rendues)
+        else:
+            check("les sonneries se marquent (aucune sur la plage)",
+                  marques["eventBars"] == 0, f"{marques['events']} lue(s)")
+
         y = int(cadre["top"] + cadre["height"] * 0.25)
         x = int(cadre["left"] + cadre["width"] * 0.3)
         avant = browser.js("return window.lwcPrice.debug().alerts;")

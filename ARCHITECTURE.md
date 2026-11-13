@@ -2445,6 +2445,21 @@ connaît la série entière. Le zéro bouge donc à chaque page ; seule la forme
 lit. La série de démonstration n'a pas ce volume : son pane reste vide plutôt
 que d'en inventer un.
 
+Les **sonneries** se marquent sur le graphique depuis le 13 novembre 2026 :
+un rond au-dessus de la bougie où une alerte a sonné, de la couleur de sa
+règle au panneau ALERTES (`KIND_COLORS`, que `/api/alert-events` joint à
+chaque sonnerie — une seule source pour la liste et le graphique), et au
+survol la sonnerie en clair au bout de la ligne de lecture, deux au plus
+par bougie et le compte des autres. Relire une séance demandait de croiser
+la liste horodatée du panneau et le graphique. Les sonneries viennent du
+journal pour toute la plage chargée — une page d'historique ajoutée au pan
+les redemande — et se relisent quand le Store `alerts-feed` change, donc
+à la sonnerie suivante. Flèches des signaux et ronds partagent la couche de
+marqueurs de la série, que la bibliothèque veut rangée dans le temps
+(`applyMarkers`). `J` (ou `/sonneries`) les masque, et le choix survit au
+rechargement (`btcterm-events`). La démo statique n'a pas de journal : la
+lecture y échoue, et le graphique reste sans ronds.
+
 **Alt + clic** écrit dans le Store `alert-config`, comme le panneau ALERTES : le
 moteur, la liste et les lignes suivent sans chemin propre. Le seuil est enregistré
 en dollars quelle que soit la devise affichée, et un clic à moins de six pixels

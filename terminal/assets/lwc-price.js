@@ -21,6 +21,9 @@
     // Le choix d'afficher ou non les flèches, dans le navigateur.
     var SIGNALS_KEY = "btcterm-signals";
 
+    // De même pour les sonneries marquées sur le graphique (§ sonneries).
+    var EVENTS_KEY = "btcterm-events";
+
     // Les lignes de tendance, dans le navigateur elles aussi.
     var DRAWINGS_KEY = "btcterm-drawings";
 
@@ -63,6 +66,9 @@
         hover: null,   // dernier événement du crosshair sur une bougie
         clock: null,   // temps réels ↔ temps affichés (assets/lwc-clock.js)
         signalsHidden: localStorage.getItem(SIGNALS_KEY) === "off",
+        eventsHidden: localStorage.getItem(EVENTS_KEY) === "off",
+        events: [],       // [temps, règle, message, couleur] (/api/alert-events)
+        eventsByBar: {},  // indice de bougie → ses sonneries
         zoomBox: null,  // le cadre du zoom rectangulaire, caché au repos
         drag: null,     // la sélection en cours : {x0, y0, x1, y1, area}
         view: null,     // la fenêtre regardée, depuis la fin (§ trackView)
@@ -580,6 +586,12 @@
         if (oi !== undefined) {
             parts.push(["OI " + billions(oi) + unit, theme.orange]);
         }
+        // Les sonneries de la bougie lue, en dernier : la ligne passe à la
+        // suivante s'il le faut.
+        var index = state.hover && state.hover.logical !== undefined
+            ? Math.round(state.hover.logical)
+            : (state.packet ? state.packet.bars.length - 1 : -1);
+        parts = parts.concat(eventParts(index));
         parts.forEach(function (part) {
             var item = document.createElement("span");
             item.textContent = part[0];
@@ -2195,7 +2207,7 @@
         if (series.cvd) { series.cvd.setData(at.points(cvdPoints())); }
         if (series.oi) { fillOi(); }
         if (series.vwap) { fillVwap(); }
-        series.markers.setMarkers(markersFrom(packet.signals || []));
+        applyMarkers();
         renderDrawings();
         renderAnchors();
 
@@ -2253,6 +2265,99 @@
         });
     }
 
+    // ── Sonneries ───────────────────────────────────────────
+    //
+    // Ce que les alertes ont dit, à l'endroit du graphique où elles l'ont
+    // dit : un rond au-dessus de la bougie, de la couleur de la règle au
+    // panneau ALERTES, et au survol la sonnerie en clair dans la ligne de
+    // lecture. Relire une séance demandait de croiser la liste horodatée
+    // du panneau et le graphique ; le graphique la porte désormais. Les
+    // sonneries viennent du journal (/api/alert-events), pour la plage
+    // chargée, et se relisent à chaque sonnerie nouvelle (§ panels/alerts).
+    var EVENTS_TEXT_MAX = 90;
+
+    function fetchEvents() {
+        if (!state.chart || !state.packet || !state.packet.bars.length) {
+            return;
+        }
+        var from = Math.floor(state.packet.bars[0].time);
+        var to = Math.ceil(Date.now() / 1000) + 60;
+        var seq = state.seq;
+        fetch("/api/alert-events?from=" + from + "&to=" + to)
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (seq !== state.seq || !state.series) { return; }
+                state.events = data.events || [];
+                applyMarkers();
+                updateReadout();
+            })
+            .catch(function () { /* la prochaine sonnerie retentera */ });
+    }
+
+    // Une marque par bougie : la couleur de la dernière sonnerie, le détail
+    // au survol. Avant la première bougie chargée, rien ; après la dernière,
+    // la bougie en cours.
+    function eventMarkers() {
+        var byBar = {};
+        state.eventsByBar = byBar;
+        if (state.eventsHidden || !state.packet) { return []; }
+        var bars = state.packet.bars;
+        state.events.forEach(function (event) {
+            var i = barIndexAt(event[0]);
+            if (i < 0) { return; }
+            (byBar[i] = byBar[i] || []).push(event);
+        });
+        return Object.keys(byBar).map(function (i) {
+            var list = byBar[i];
+            return {time: clock().shown(bars[i].time), position: "aboveBar",
+                    shape: "circle", size: 1,
+                    color: list[list.length - 1][3]};
+        });
+    }
+
+    // Flèches des signaux et ronds des sonneries partagent la couche de
+    // marqueurs de la série : la bibliothèque les veut rangés dans le temps.
+    function applyMarkers() {
+        if (!state.series || !state.packet) { return; }
+        var markers = markersFrom(state.packet.signals || [])
+            .concat(eventMarkers());
+        markers.sort(function (a, b) { return a.time - b.time; });
+        state.series.markers.setMarkers(markers);
+    }
+
+    function lastEventX() {
+        var keys = Object.keys(state.eventsByBar).map(Number);
+        if (!keys.length || !state.chart) { return null; }
+        var last = Math.max.apply(null, keys);
+        return state.chart.timeScale().timeToCoordinate(
+            clock().shown(state.packet.bars[last].time));
+    }
+
+    // L'heure d'une sonnerie dans le fuseau de l'axe ; le jour aussi
+    // au-delà de l'intraday, où une bougie couvre plusieurs journées.
+    function eventTime(time) {
+        var iso = new Date(clock().shown(time) * 1000).toISOString();
+        var hour = iso.slice(11, 16);
+        return INTRADAY[state.cfg.interval] ? hour
+            : iso.slice(8, 10) + "/" + iso.slice(5, 7) + " " + hour;
+    }
+
+    function eventParts(index) {
+        var list = state.eventsByBar[index];
+        if (!list || !list.length) { return []; }
+        var parts = list.slice(-2).reverse().map(function (event) {
+            var text = event[2].length > EVENTS_TEXT_MAX
+                ? event[2].slice(0, EVENTS_TEXT_MAX - 1) + "…" : event[2];
+            return ["⚑ " + eventTime(event[0]) + " " + text, event[3]];
+        });
+        if (list.length > 2) {
+            parts.push(["+" + (list.length - 2) + " sonnerie"
+                        + (list.length > 3 ? "s" : ""),
+                        state.conf.theme.muted]);
+        }
+        return parts;
+    }
+
     function applyLog() {
         state.series.candles.priceScale().applyOptions({
             mode: state.cfg.log
@@ -2287,6 +2392,7 @@
                 }
                 fillSeries();
                 if (fit) { state.chart.timeScale().fitContent(); }
+                fetchEvents();
             })
             .catch(function () { /* le prochain réglage retentera */ });
     }
@@ -2346,6 +2452,8 @@
                 // setData du concaténé : la bibliothèque préserve la
                 // fenêtre visible, le pan continue sans à-coup.
                 fillSeries();
+                // Le passé ajouté a peut-être sonné, lui aussi.
+                fetchEvents();
             })
             .catch(function () { state.loading = false; });
     }
@@ -2625,10 +2733,10 @@
             if (lastSignal && lastSignal.time === update.bar.time) {
                 if (update.signal) { lastSignal.value = update.signal; }
                 else { signals.pop(); }
-                series.markers.setMarkers(markersFrom(signals));
+                applyMarkers();
             } else if (update.signal) {
                 signals.push({time: update.bar.time, value: update.signal});
-                series.markers.setMarkers(markersFrom(signals));
+                applyMarkers();
             }
 
             updateBanner();
@@ -2711,6 +2819,12 @@
                 panes: state.chart.panes().length,
                 signals: (state.packet.signals || []).length,
                 signalsShown: !state.signalsHidden,
+                events: state.events.length,
+                eventBars: Object.keys(state.eventsByBar).length,
+                eventsShown: !state.eventsHidden,
+                // L'abscisse de la dernière bougie marquée, pour qu'un
+                // contrôle vienne la survoler.
+                eventX: lastEventX(),
                 alerts: (state.alertLevels || []).length,
                 liqmap: state.liqData
                     ? (state.liqData.empty ? state.liqData.reason
@@ -2781,12 +2895,25 @@
             state.signalsHidden = !state.signalsHidden;
             localStorage.setItem(SIGNALS_KEY,
                                  state.signalsHidden ? "off" : "on");
-            if (state.series && state.packet) {
-                state.series.markers.setMarkers(
-                    markersFrom(state.packet.signals || []));
-            }
+            if (state.series && state.packet) { applyMarkers(); }
             return !state.signalsHidden;
         },
+
+        // J : masque les sonneries du graphique, ou les rend. Affichées par
+        // défaut ; le choix survit au rechargement. Rend le nouvel état.
+        toggleEvents: function () {
+            state.eventsHidden = !state.eventsHidden;
+            localStorage.setItem(EVENTS_KEY,
+                                 state.eventsHidden ? "off" : "on");
+            if (state.series && state.packet) {
+                applyMarkers();
+                updateReadout();
+            }
+            return !state.eventsHidden;
+        },
+
+        // Une alerte vient de sonner (Store alerts-feed) : la relire.
+        refreshEvents: function () { fetchEvents(); },
 
         // T : arme le tracé d'une ligne, ou le désarme.
         toggleDrawing: function () {
