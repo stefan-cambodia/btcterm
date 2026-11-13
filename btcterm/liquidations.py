@@ -293,6 +293,9 @@ class LiquidationFeed(ExchangeConnector):
         `minimum` écarte celles qui pèsent moins, en dollars ; `bitcoin`
         ne garde que les contrats sur le bitcoin. La lecture part de la
         fin et s'arrête à `limit` : filtrer ne coûte que ce qu'on montre.
+        Les retenues se rangent à l'heure de l'événement, pas à celle de
+        l'arrivée : trois plateformes ne livrent pas avec le même délai,
+        et la table montrait 09:17:23 au-dessus de 09:17:24.
         """
         found: list[Liquidation] = []
         with self._lock:
@@ -302,7 +305,8 @@ class LiquidationFeed(ExchangeConnector):
                     found.append(event)
                     if len(found) >= limit:
                         break
-        return found
+        # Tri stable : à heure égale, la dernière arrivée reste en tête.
+        return sorted(found, key=lambda e: e.time, reverse=True)
 
     def _tally(self, event: Liquidation) -> None:
         """Ajoute un événement aux totaux de son pas. Sous le verrou."""

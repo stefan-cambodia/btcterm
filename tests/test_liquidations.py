@@ -158,6 +158,15 @@ def test_la_table_filtre_les_poussieres():
     assert feed.latest(5, minimum=100_000, bitcoin=True) == []
     # La limite vaut pour ce qui passe le filtre, pas pour ce qui est lu.
     assert len(feed.latest(1, minimum=10_000)) == 1
+
+    # À l'heure de l'événement, pas de l'arrivée : Bybit livre une seconde
+    # après Binance une liquidation antérieure.
+    ordre = LiquidationFeed()
+    maintenant = time.time()
+    ordre._handle(message(qty="1", when=maintenant - 3))
+    ordre._handle(message(qty="2", when=maintenant - 1))
+    ordre._handle(message(qty="3", when=maintenant - 2))
+    assert [e.quantity for e in ordre.latest(3)] == [2, 3, 1]
     print("  ✓ seuil et bitcoin seul, la limite comptée après le filtre")
 
 
