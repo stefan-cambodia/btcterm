@@ -1157,6 +1157,14 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
                   (etat["series"] >= 1 or "indisponible" in etat["notes"])
                   and len(etat["badge"]) > 8,
                   etat["badge"][:44])
+            # Le titre de la grille tient dans sa barre : celui d'ON-CHAIN
+            # débordait de 123 px avec le hashprice, que l'overflow cachait.
+            exces = browser.js(f"""
+                const barre = document.getElementById('{badge}').parentElement;
+                return barre.scrollWidth - barre.clientWidth;
+            """)
+            check(f"{label} : le titre tient dans sa barre", exces <= 1,
+                  f"{exces} px de trop" if exces > 1 else "")
             if label == "DOMINANCE":
                 # Aucun actif que la source compte par intermittence.
                 check("DOMINANCE : chaque barre nommée, sans actif intermittent",

@@ -316,7 +316,8 @@ def test_le_mvrv_chez_coin_metrics():
         mvrv = sources.fetch_mvrv()
     finally:
         sources._http.get = original
-    assert demandes[0][1]["metrics"] == "CapMVRVCur,PriceUSD,IssTotUSD"
+    assert demandes[0][1]["metrics"] == ("CapMVRVCur,PriceUSD,IssTotUSD,"
+                                         "IssTotNtv,FeeTotNtv,HashRate")
     assert mvrv["issuance"].isna().all(), "émission absente : colonne vide, pas d'erreur"
     assert demandes[1] == ("https://exemple/suite", None), "la page suivante"
     assert list(mvrv["mvrv"]) == [0.69, 2.72, 1.37]
@@ -346,6 +347,66 @@ def test_le_mvrv_chez_coin_metrics():
     assert any(label == "MVRV · Coin Metrics" and "réalisé 53,869 $" in valeur
                for label, valeur, _, _ in lignes), lignes
     print("  ✓ MVRV paginé, prix réalisé et rang ; vue et ligne, Coin Metrics nommé")
+
+
+def test_le_hashprice():
+    """(émission + frais) × cours sur le hashrate en PH/s, rapport des
+    sommes sur sept jours ; la part des frais ; l'écart à trente jours et
+    le plus bas de l'année ; le titre d'ON-CHAIN et le graphique plein
+    écran, Coin Metrics nommé."""
+    from terminal.charts import build_chain_chart
+    from terminal.panels import onchain
+
+    jours = pd.date_range("2026-01-01", periods=60, freq="D")
+    cadre = pd.DataFrame({
+        "time": jours, "mvrv": 1.4, "issuance": 1.0,
+        "issued_btc": [450.0] * 59 + [400.0], "fees_btc": 4.5,
+        # Le cours baisse de moitié en deux mois.
+        "price": [80_000.0 - k * 600 for k in range(60)],
+        "hashrate": 1e9})                                   # 1 ZH/s
+    serie = cycle.hashprice(cadre)
+    assert serie["time"].iloc[0] == jours[6], "sept jours pleins d'abord"
+    fin = cadre.tail(7)
+    attendu = (((fin["issued_btc"] + fin["fees_btc"]) * fin["price"]).sum()
+               / (fin["hashrate"] / 1000).sum())
+    assert abs(serie["hashprice"].iloc[-1] - attendu) < 1e-9
+    assert abs(serie["fee_share"].iloc[-1]
+               - 4.5 * 7 / (450 * 6 + 400 + 4.5 * 7) * 100) < 1e-9
+
+    etat = cycle.hashprice_state(cadre)
+    assert etat["date"] == jours[-1] and etat["change_30d"] < -20
+    assert etat["at_low"] and etat["low_365"] == serie["hashprice"].min()
+    assert cycle.hashprice_state(cadre.drop(columns="hashrate")) is None
+    assert cycle.hashprice(cadre.head(5)).empty
+    assert cycle.hashprice(None).empty
+
+    def texte(composant):
+        if isinstance(composant, (list, tuple)):
+            return "".join(texte(c) for c in composant)
+        if isinstance(composant, str):
+            return composant
+        return texte(getattr(composant, "children", "") or "")
+
+    stats = {"hash_rate_ghs": 1e18, "difficulty": 1.5e14}
+    titre = onchain._badges(stats, None, None, None, etat, verbose=True)
+    assert f"hashprice {etat['hashprice']:.1f} $/PH/j" in texte(titre)
+    assert "Coin Metrics" in str(titre) and "s'éteignent" in str(titre)
+    assert "hashprice" not in texte(onchain._badges(stats, None, None, None,
+                                                    etat)), "grille : trop long"
+    assert "hashprice" not in texte(onchain._badges(stats, None))
+
+    hashrate = pd.DataFrame({"time": jours, "value": 1e9})
+    grille = build_chain_chart(hashrate, hashrate.assign(value=1.5e14),
+                               hashprice=serie)
+    assert "hashprice" not in [t.name for t in grille.data]
+    plein = build_chain_chart(hashrate, hashrate.assign(value=1.5e14),
+                              maximized=True, hashprice=serie)
+    noms = {t.name: t.yaxis for t in plein.data}
+    assert noms == {"hashrate": "y", "difficulté": "y2", "hashprice": "y3"}
+    assert any("Coin Metrics" in (a.text or "") for a in plein.layout.annotations)
+    assert plein.layout.yaxis3.title.text == "hashprice ($/PH/j)"
+    print("  ✓ hashprice : sommes sur sept jours, frais, plus bas ; titre, "
+          "plein écran")
 
 
 def test_le_multiple_de_puell():

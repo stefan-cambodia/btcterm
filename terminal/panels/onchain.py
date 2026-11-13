@@ -11,8 +11,13 @@ Le rythme des blocs vient de la même distance : au-dessus de dix minutes,
 le réseau a perdu des mineurs depuis le dernier ajustement ; en dessous,
 il en a gagné.
 
+Le hashprice dit la paie du mineur : ce que rapporte un PH/s de calcul par
+jour, émission et frais au cours du jour (§ cycle.hashprice). En plein
+écran, sa courbe sous le hashrate.
+
 Source : blockchain.info, sans clé. mempool.space aurait été plus riche,
 mais ne répond pas de façon fiable ici (voir `sources.BLOCKCHAIN_CHARTS`).
+Le hashprice vient de Coin Metrics (CC BY-NC), nommé à l'écran.
 """
 
 from __future__ import annotations
@@ -67,9 +72,11 @@ def _frais(valeur: float) -> str:
 
 
 def _badges(stats: dict, mempool, fees: dict | None = None,
-            epoch: dict | None = None):
-    """Hashrate, difficulté, rythme des blocs, prochain ajustement, mempool
-    et frais."""
+            epoch: dict | None = None, hashprice: dict | None = None,
+            verbose: bool = False):
+    """Hashrate, difficulté, rythme des blocs, prochain ajustement, mempool,
+    frais — et, en plein écran, le hashprice : la barre de titre de la
+    grille tient tout juste les six premiers, et le débordait de 123 px."""
     if not stats:
         return html.Span("réseau indisponible", style={"color": C["muted"]})
 
@@ -133,6 +140,27 @@ def _badges(stats: dict, mempool, fees: dict | None = None,
                             f"{_frais(fees['day'])} dans la journée — "
                             "la demande d'espace dans les blocs"),
         ]
+
+    if hashprice and verbose:
+        change = hashprice["change_30d"]
+        children += [
+            html.Span(" · hashprice ", style={"color": C["muted"]}),
+            html.Span(f"{hashprice['hashprice']:.1f} $/PH/j",
+                      style={"color": C["orange"] if hashprice["at_low"]
+                             else C["yellow"]},
+                      title=f"ce que rapporte un PH/s de calcul par jour, "
+                            f"moyenne de sept jours au "
+                            f"{hashprice['date']:%d/%m/%Y}"
+                            + (f" ; {change:+z.0f} % sur trente jours"
+                               if change is not None else "")
+                            + f" ; plus bas de l'année "
+                            f"{hashprice['low_365']:.1f}"
+                            + (" — il y est : les mineurs les moins "
+                               "efficaces s'éteignent" if hashprice["at_low"]
+                               else "")
+                            + f" ; frais {hashprice['fee_share']:.1f} % du "
+                            "revenu — données Coin Metrics, CC BY-NC"),
+        ]
     return html.Span(children, style={"fontFamily": MONO})
 
 
@@ -151,11 +179,14 @@ def register(app, hub):
             epoch = hub.difficulty_epoch()
         except Exception:
             epoch = None
+        daily = hub.mvrv()
 
         return (
             build_chain_chart(hashrate, difficulty,
                               maximized=(maximized == "macro"),
                               ribbons=cycle.hash_ribbons(hashrate),
-                              days=365),
-            _badges(hub.chain_stats(), mempool, hub.chain_fees(), epoch),
+                              days=365, hashprice=cycle.hashprice(daily)),
+            _badges(hub.chain_stats(), mempool, hub.chain_fees(), epoch,
+                    cycle.hashprice_state(daily),
+                    verbose=(maximized == "macro")),
         )

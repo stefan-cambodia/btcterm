@@ -40,7 +40,7 @@ __all__ = ["Halving", "HALVINGS", "HALVING_INTERVAL", "BLOCK_MINUTES",
            "etf_supply", "btc_amount", "supply_text", "RETARGET_INTERVAL",
            "difficulty_estimate", "hash_ribbons", "MVRV_LOW", "MVRV_HIGH",
            "mvrv_state", "PUELL_LOW", "PUELL_HIGH", "PUELL_WINDOW", "puell",
-           "puell_state"]
+           "puell_state", "HASHPRICE_WINDOW", "hashprice", "hashprice_state"]
 
 #: Blocs entre deux halvings, et rythme visé par le protocole.
 HALVING_INTERVAL = 210_000
@@ -462,3 +462,63 @@ def puell_state(frame: Optional[pd.DataFrame]) -> Optional[dict]:
     return {"puell": value, "date": date,
             "rank": float((history < value).mean()) if len(history) else None,
             "halving": pd.Timestamp(recent[-1]) if recent else None}
+
+
+#: La fenêtre du hashprice, en jours : une semaine lisse le nombre de blocs
+#: trouvés d'un jour à l'autre.
+HASHPRICE_WINDOW = 7
+
+
+def hashprice(frame: Optional[pd.DataFrame],
+              window: int = HASHPRICE_WINDOW) -> pd.DataFrame:
+    """Le hashprice : ce que rapporte un PH/s de calcul par jour, en dollars.
+
+    (bitcoins émis + frais) × cours, sur le hashrate en PH/s — les colonnes
+    `issued_btc`, `fees_btc`, `price`, `hashrate` (TH/s) de Coin Metrics
+    (§ sources.fetch_mvrv). Rapport des sommes sur `window` jours plutôt
+    que moyenne des rapports : un jour à 111 blocs pèse ce qu'il pèse.
+    Rend `time`, `hashprice` et `fee_share` (la part des frais dans le
+    revenu, en %) ; vide sans les colonnes.
+
+    C'est la paie du mineur : un hashprice qui touche ses plus bas pousse
+    les machines les moins efficaces à s'éteindre — ce que les hash ribbons
+    voient ensuite au hashrate. Le 11 novembre 2026 : 31,5 $/PH/s/j, frais
+    sous 1 % du revenu.
+    """
+    columns = ("issued_btc", "fees_btc", "price", "hashrate")
+    if frame is None or frame.empty or not set(columns) <= set(frame):
+        return pd.DataFrame(columns=["time", "hashprice", "fee_share"])
+    work = frame.dropna(subset=list(columns))
+    work = work[work["hashrate"] > 0]
+    if work.empty:
+        return pd.DataFrame(columns=["time", "hashprice", "fee_share"])
+    coins = work["issued_btc"] + work["fees_btc"]
+    revenue = (coins * work["price"]).rolling(window, min_periods=window).sum()
+    power = (work["hashrate"] / 1_000).rolling(window, min_periods=window).sum()
+    fees = work["fees_btc"].rolling(window, min_periods=window).sum()
+    total = coins.rolling(window, min_periods=window).sum()
+    out = pd.DataFrame({"time": work["time"], "hashprice": revenue / power,
+                        "fee_share": fees / total * 100})
+    return out.dropna().reset_index(drop=True)
+
+
+def hashprice_state(frame: Optional[pd.DataFrame]) -> Optional[dict]:
+    """Le hashprice du dernier jour publié, son écart à trente jours, la
+    part des frais, et son plus bas de l'année — la paie du mineur, et où
+    elle en est. `None` sans série."""
+    series = hashprice(frame)
+    if series.empty:
+        return None
+    last = series.iloc[-1]
+    date = pd.Timestamp(last["time"])
+    before = series[series["time"] <= date - pd.Timedelta(days=30)]
+    year = series[series["time"] > date - pd.Timedelta(days=365)]
+    value = float(last["hashprice"])
+    previous = float(before["hashprice"].iloc[-1]) if not before.empty else None
+    return {"hashprice": value, "date": date,
+            "fee_share": float(last["fee_share"]),
+            "change_30d": ((value / previous - 1) * 100
+                           if previous else None),
+            "low_365": float(year["hashprice"].min()),
+            "at_low": value <= float(year["hashprice"].min()) * 1.02}
+

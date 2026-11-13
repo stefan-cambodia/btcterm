@@ -1960,9 +1960,15 @@ class MarketHub:
         point par jour ; vide si la source se tait et que le cache n'a
         rien."""
         try:
-            return self._cache.get("mvrv", 6 * 3600, sources.fetch_mvrv)
+            frame = self._cache.get("mvrv", 6 * 3600, sources.fetch_mvrv)
+            if "hashrate" not in frame:
+                # Un fichier du cache d'avant le hashprice : la source est
+                # relue tout de suite plutôt que dans six heures.
+                frame = self._cache.get("mvrv", 0, sources.fetch_mvrv)
+            return frame
         except Exception:
-            return pd.DataFrame(columns=["time", "mvrv", "price", "issuance"])
+            return pd.DataFrame(columns=["time", "mvrv", "price", "issuance",
+                                         "issued_btc", "fees_btc", "hashrate"])
 
     def difficulty_epoch(self, now: Optional[float] = None) -> Optional[dict]:
         """Le prochain ajustement de difficulté (§ cycle.difficulty_estimate).

@@ -727,6 +727,7 @@ def build_chain_chart(
     maximized: bool = False,
     ribbons: dict | None = None,
     days: int | None = None,
+    hashprice: pd.DataFrame | None = None,
 ) -> go.Figure:
     """Hashrate en aire, difficulté en marches, sur deux axes.
 
@@ -739,8 +740,20 @@ def build_chain_chart(
     du hashrate, les périodes de capitulation ombrées de rouge, et l'état
     en légende ; `days` borne l'affichage aux derniers jours — le hashrate
     se lit plus long, pour que la moyenne de 60 jours soit pleine.
+
+    En plein écran, `hashprice` (§ cycle.hashprice) prend un second
+    graphique dessous : la paie du mineur sur la même période.
     """
-    fig = go.Figure()
+    two = bool(maximized and hashprice is not None and not hashprice.empty
+               and not hashrate.empty)
+    if two:
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
+                            row_heights=[0.68, 0.32], vertical_spacing=0.06,
+                            specs=[[{"secondary_y": True}], [{}]])
+        main = dict(row=1, col=1)
+    else:
+        fig = go.Figure()
+        main = {}
     if days is not None and not hashrate.empty:
         horizon = pd.to_datetime(hashrate["time"]).max() - pd.Timedelta(days=days)
         hashrate = hashrate[pd.to_datetime(hashrate["time"]) >= horizon]
@@ -751,7 +764,7 @@ def build_chain_chart(
             mode="lines", line=dict(color=C["green"], width=1.5),
             fill="tozeroy", fillcolor="rgba(0,212,170,0.07)",
             hovertemplate="%{y:,.0f} EH/s<extra></extra>",
-        ))
+        ), **main)
 
     if ribbons is not None and not hashrate.empty:
         band = ribbons["frame"]
@@ -761,7 +774,8 @@ def build_chain_chart(
             fig.add_trace(go.Scatter(
                 x=band["time"], y=band[column] / 1e6, name=name, mode="lines",
                 line=dict(color=color, width=1.2, dash=dash),
-                hovertemplate=f"{name} %{{y:,.0f}} EH/s<extra></extra>"))
+                hovertemplate=f"{name} %{{y:,.0f}} EH/s<extra></extra>"),
+                **main)
         # Les capitulations : la moyenne courte sous la longue.
         under = (band["fast"] < band["slow"]).to_numpy()
         start = None
@@ -771,7 +785,7 @@ def build_chain_chart(
                 start = times[i]
             if start is not None and (not flag or i == len(under) - 1):
                 fig.add_vrect(x0=start, x1=times[i], line_width=0,
-                              fillcolor=C["red"], opacity=0.08)
+                              fillcolor=C["red"], opacity=0.08, **main)
                 start = None
         state = {"capitulation": ("capitulation", C["red"]),
                  "reprise": ("reprise", C["green"]),
@@ -785,11 +799,29 @@ def build_chain_chart(
             font=dict(family=MONO, size=9, color=state[1]))
 
     if not difficulty.empty:
-        fig.add_trace(go.Scatter(
+        trace = go.Scatter(
             x=difficulty["time"], y=difficulty["value"] / 1e12, name="difficulté",
             mode="lines", line=dict(color=C["purple"], width=1.6, shape="hv"),
-            yaxis="y2", hovertemplate="%{y:,.1f} T<extra></extra>",
-        ))
+            hovertemplate="%{y:,.1f} T<extra></extra>")
+        if two:
+            fig.add_trace(trace, row=1, col=1, secondary_y=True)
+        else:
+            trace.update(yaxis="y2")
+            fig.add_trace(trace)
+    if two:
+        start = pd.to_datetime(hashrate["time"]).min()
+        shown = hashprice[pd.to_datetime(hashprice["time"]) >= start]
+        fig.add_trace(go.Scatter(
+            x=shown["time"], y=shown["hashprice"], name="hashprice",
+            mode="lines", line=dict(color=C["yellow"], width=1.4),
+            customdata=shown["fee_share"],
+            hovertemplate=("%{y:.1f} $/PH/j · frais %{customdata:.1f} %"
+                           "<extra></extra>")), row=2, col=1)
+        fig.add_annotation(
+            text="hashprice : Coin Metrics (coinmetrics.io), CC BY-NC",
+            xref="paper", yref="paper", x=1, y=0, xanchor="right",
+            yanchor="bottom", showarrow=False,
+            font=dict(family=MONO, size=8, color=C["muted"]))
 
     axis_common = dict(gridcolor=C["grid"], zerolinecolor=C["grid"],
                        tickfont=dict(size=9, color=C["muted"]))
@@ -808,6 +840,11 @@ def build_chain_chart(
                     showgrid=False, tickfont=dict(size=9, color=C["purple"])),
         uirevision=uirevision,
     )
+    if two:
+        # Le second graphique au style du terminal, et son titre.
+        fig.update_xaxes(**axis_common)
+        fig.update_yaxes(title_text="hashprice ($/PH/j)", row=2, col=1,
+                         **axis_common)
     if hashrate.empty and difficulty.empty:
         fig.add_annotation(
             text="données de chaîne indisponibles", xref="paper", yref="paper",

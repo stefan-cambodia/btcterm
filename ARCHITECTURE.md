@@ -545,6 +545,14 @@ dépassaient vraiment, 69 M$ à 13:11 UTC (annoncée 1,87 Md$) et 13 M$ à 14:52
 UTC (annoncée 605 M$). Le seuil, posé avant le retour du flux Binance, se
 lit désormais sur des montants justes.
 
+**Un garde de vraisemblance** (`IMPLAUSIBLE_USD`, 50 M$) : une liquidation
+isolée au-delà s'écrit au journal du service, une fois par plateforme,
+symbole et heure. La plus grosse vue sur trois plateformes en un mois valait
+5,8 M$ ; les lignes coin-margined comptées en contrats montaient à 704 M$ —
+le garde les aurait dites dès la première minute, au lieu d'une synthèse
+lue le lendemain. Il signale sans rien jeter : un vrai krach peut le
+dépasser.
+
 ### 2.6 `macrocal` — le calendrier macro tenu à la main
 
 Aucune source publique satisfaisante n'existe pour un calendrier
@@ -1389,6 +1397,23 @@ réseau (`tests/test_cycle.py`) :
   sa ligne. Les données sont sous licence CC BY-NC 4.0 : usage non
   commercial, et « Coin Metrics » nommé là où elles s'affichent — sur le
   graphique et dans le tableau. Gardé six heures ;
+- `hashprice` / `hashprice_state` — la paie du mineur : ce que rapporte un
+  PH/s de calcul par jour, (émission + frais) × cours ÷ hashrate, des
+  métriques libres de Coin Metrics lues dans la même requête que le MVRV
+  (`IssTotNtv`, `FeeTotNtv`, `HashRate` en TH/s — `RevUSD` ne l'est pas).
+  Rapport des sommes sur sept jours (`HASHPRICE_WINDOW`) : un jour à 111
+  blocs pèse ce qu'il pèse. Coin Metrics déduit son hashrate des blocs
+  trouvés, si bien que le chiffre quotidien est déjà stable (31,4 à 32,4
+  la semaine du 5 novembre 2026). Les valeurs ont été comparées à
+  l'histoire : 400 $/PH/s/j au plus haut de 2021, 57 au creux de 2022, 40
+  en 2024, 28,3 au plus bas de 2026 ; 32,0 le 11 novembre, −19 % en trente
+  jours, les frais sous 1 % du revenu. `hashprice_state` dit aussi le plus
+  bas de l'année et s'il y est (à 2 % près) : les mineurs les moins
+  efficaces s'éteignent, ce que les hash ribbons voient ensuite. Au titre
+  d'ON-CHAIN en plein écran seulement — celui de la grille tenait tout
+  juste ses six chiffres, et le débordait de 123 px, ce qu'un contrôle
+  `ui_smoke` vérifie désormais —, et en courbe sous le hashrate. Un
+  fichier du cache d'avant ces colonnes est relu aussitôt (`hub.mvrv`) ;
 - `puell` / `puell_state` — le multiple de Puell : `IssTotUSD`, la valeur
   en dollars des bitcoins émis dans la journée (subvention seule ; les
   revenus frais compris, `RevUSD`, ne sont pas dans l'offre libre), sur sa
@@ -4009,6 +4034,8 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
 - ~~**Un cycle sans la paie des mineurs**~~ — fait le 12 novembre 2026
   (§2.15) : le multiple de Puell, vue et ligne du panneau CYCLE, et à la
   synthèse hors de ses bornes.
+- ~~**La paie des mineurs invisible**~~ — fait le 13 novembre 2026 (§2.15) :
+  le hashprice en plein écran d'ON-CHAIN, chiffre et courbe.
 - ~~**Des liquidations coin-margined comptées en contrats**~~ — constaté le
   13 novembre 2026 sur la synthèse du matin (« longs 5,63 Md$ ») ; fait
   (§2.5) : la quantité repasse en pièces à la réception, et les 381

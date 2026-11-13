@@ -31,6 +31,7 @@ distingue d'un marché calme que par la durée du silence.
 from __future__ import annotations
 
 import json
+import logging
 import re
 import threading
 import time
@@ -60,6 +61,8 @@ OKX_PUBLIC_WS = "wss://ws.okx.com/ws/v5/public"
 #: (`BTCUSDT_261225`). « Commence par BTC » laissait passer `BTCDOMUSDT`,
 #: le contrat de Binance sur l'indice de dominance, qui cote quelques
 #: milliers de points et n'est pas du bitcoin.
+log = logging.getLogger(__name__)
+
 BITCOIN_SYMBOLS = frozenset({"BTCUSDT", "BTCUSDC", "BTCUSD"})
 
 #: Les contrats coin-margined de Binance — « BTCUSD_PERP », « ETHUSD_261225 ».
@@ -75,6 +78,14 @@ _COIN_MARGINED = re.compile(r"([A-Z0-9]+)USD_(PERP|\d{6})")
 #: 2026 : trois contrats à 100 $, tous sur le bitcoin, vingt-sept à 10 $).
 COIN_CONTRACT_BTC = 100.0
 COIN_CONTRACT_OTHER = 10.0
+
+#: Montant au-delà duquel une liquidation isolée est invraisemblable, en
+#: dollars : plus de huit fois la plus grosse vue sur trois plateformes du
+#: 14 octobre au 13 novembre 2026 (5,8 M$, un BTCUSDT de Binance). Les lignes
+#: coin-margined comptées en contrats montaient à 704 M$ : ce garde les
+#: aurait dites dès la première minute. Il signale, il ne jette rien — un
+#: vrai krach peut le dépasser, et c'est alors au journal de le dire.
+IMPLAUSIBLE_USD = 50e6
 
 
 def coin_contract_size(symbol: str,
@@ -398,6 +409,7 @@ class LiquidationFeed(ExchangeConnector):
         """
         if event.price <= 0 or event.quantity <= 0:
             return
+        self._check_plausible(event)
         with self._lock:
             self.events.append(event)
             self._seen(event)
@@ -409,6 +421,25 @@ class LiquidationFeed(ExchangeConnector):
                 # Le journal peut échouer (disque plein, base verrouillée) ;
                 # le fil, lui, doit continuer à nourrir le panneau.
                 pass
+
+    def _check_plausible(self, event: Liquidation) -> None:
+        """Dit au journal du service une liquidation invraisemblable
+        (`IMPLAUSIBLE_USD`), une fois par plateforme et par symbole et par
+        heure : une unité mal lue en produit des dizaines d'un coup."""
+        if event.notional < IMPLAUSIBLE_USD:
+            return
+        key = (event.exchange, event.symbol)
+        now = time.time()
+        seen = getattr(self, "_implausible", None)
+        if seen is None:
+            seen = self._implausible = {}
+        if now - seen.get(key, 0.0) < 3600:
+            return
+        seen[key] = now
+        log.warning("liquidation invraisemblable : %s %s %s de %.1f M$ "
+                    "(prix %s, quantité %s) — unité ou taille de contrat à "
+                    "vérifier", event.exchange, event.symbol, event.side,
+                    event.notional / 1e6, event.price, event.quantity)
 
     def restore(self, events: Iterable[Liquidation]) -> int:
         """Repeuple la fenêtre d'événements **déjà connus**, sans les resignaler.

@@ -691,10 +691,15 @@ def fetch_mvrv(start: str = "2012-01-01") -> pd.DataFrame:
     prix réalisé s'en déduit (`price / mvrv`). `IssTotUSD` — la valeur en
     dollars des bitcoins créés ce jour-là, subvention de bloc seule — nourrit
     le multiple de Puell (§ cycle.puell) ; les revenus des mineurs frais
-    compris (`RevUSD`) ne sont pas dans l'offre libre. Retourne `time`,
-    `mvrv`, `price`, `issuance` ; lève si la source ne répond pas.
+    compris (`RevUSD`) ne sont pas dans l'offre libre — mais l'émission et
+    les frais en bitcoins (`IssTotNtv`, `FeeTotNtv`) et le hashrate
+    (`HashRate`, en TH/s) le sont, et font le hashprice (§ cycle.hashprice).
+    Retourne `time`, `mvrv`, `price`, `issuance`, `issued_btc`, `fees_btc`,
+    `hashrate` ; lève si la source ne répond pas.
     """
-    params = {"assets": "btc", "metrics": "CapMVRVCur,PriceUSD,IssTotUSD",
+    params = {"assets": "btc",
+              "metrics": ("CapMVRVCur,PriceUSD,IssTotUSD,IssTotNtv,FeeTotNtv,"
+                          "HashRate"),
               "frequency": "1d", "start_time": start, "page_size": 10_000}
     rows: list[dict] = []
     url: Optional[str] = COINMETRICS_API
@@ -721,6 +726,9 @@ def fetch_mvrv(start: str = "2012-01-01") -> pd.DataFrame:
         "mvrv": column("CapMVRVCur"),
         "price": column("PriceUSD"),
         "issuance": column("IssTotUSD"),
+        "issued_btc": column("IssTotNtv"),
+        "fees_btc": column("FeeTotNtv"),
+        "hashrate": column("HashRate"),
     })
     return frame.dropna(subset=["mvrv"]).sort_values("time").reset_index(drop=True)
 

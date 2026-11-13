@@ -802,8 +802,33 @@ def test_les_contrats_coin_margined_se_comptent_en_dollars():
         assert journal.rescale_coin_margined() == (0, None), "une fois seulement"
         assert not copie.exists(), "rien à corriger : pas de copie"
         journal.close()
+    # Le garde de vraisemblance : l'ancienne lecture se serait dite.
+    import logging
+    from btcterm import liquidations as module
+
+    class Capture(logging.Handler):
+        def __init__(self):
+            super().__init__()
+            self.lignes = []
+        def emit(self, record):
+            self.lignes.append(record.getMessage())
+
+    capture = Capture()
+    module.log.addHandler(capture)
+    try:
+        garde = LiquidationFeed()
+        for _ in range(3):
+            garde.record(Liquidation(time.time(), "BTCUSD_PERP", "long",
+                                     71525.5, 9837.0))
+        garde.record(Liquidation(time.time(), "BTCUSDT", "long", 71525.5, 800.0))
+        garde.record(Liquidation(time.time(), "ETHUSDT", "long", 2500.0, 10.0))
+    finally:
+        module.log.removeHandler(capture)
+    assert len(capture.lignes) == 2, capture.lignes
+    assert "BTCUSD_PERP" in capture.lignes[0] and "703.6 M$" in capture.lignes[0]
+    assert len(garde.latest(10)) == 5, "il signale, il ne jette rien"
     print("  ✓ coin-margined en dollars : flux, catalogue, correction unique "
-          "du journal après copie")
+          "du journal après copie ; l'invraisemblable se dit")
 
 
 if __name__ == "__main__":
