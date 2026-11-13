@@ -14,27 +14,30 @@ monétaire — le tout sous alertes configurables.
 
 *La grille par défaut — chandeliers Lightweight Charts avec moyennes, Bollinger
 et profil de volume, carnet Binance en direct, écarts d'arbitrage entre cinq
-plateformes, flux des ETF spot, fil de news scoré, cours contre masse
-monétaire.*
+plateformes et primes régionales, flux des ETF spot, fil de news scoré, cours
+contre masse monétaire.*
 
 ![Les onglets secondaires : profondeur comparée, liquidations, perpétuel, calendrier macro, dominance](docs/captures/grille-onglets.png)
 
 *Les mêmes cellules, autres onglets — profondeur cumulée des cinq carnets,
-liquidations Binance, Bybit et OKX, financement et open interest du
-perpétuel comparés sur trois plateformes, calendrier macro, dominance.*
+liquidations Binance, Bybit et OKX à partir de 10 k$ et la plus grosse de
+l'heure, financement et open interest du perpétuel comparés sur trois
+plateformes avec le positionnement de la foule contre celui des gros,
+calendrier macro et échéances d'options, dominance.*
 
 ![Le panneau prix en plein écran](docs/captures/plein-ecran.png)
 
 *Un panneau en plein écran d'un clic (ou d'un double-clic), Échap pour
-revenir ; ici le prix en 4 h avec ses signaux gradués et le profil de volume
-de la plage visible.*
+revenir ; ici le prix en 4 h avec ses signaux gradués, le profil de volume
+de la plage visible et, sur l'étiquette du dernier prix, le temps qui reste
+avant la clôture de la bougie.*
 
 ![Le prix en quinze minutes avec ses couches : niveaux clés et VWAP, gros ordres, carte du carnet, open interest](docs/captures/plein-ecran-couches.png)
 
-*Les couches du graphique du prix : niveaux clés, gamma flip et VWAP ancré
-(NIV), gros ordres en bulles (ORD), carte de chaleur du carnet sous les
-chandeliers (MURS, qui se remplit depuis le démarrage du service), open
-interest en volet (OI).*
+*Les couches du graphique du prix : niveaux clés, gamma flip, mouvement
+attendu par les options et VWAP ancré du jour (NIV), gros ordres en bulles
+(ORD), carte de chaleur du carnet sous les chandeliers (MURS, qui se remplit
+depuis le démarrage du service), open interest en volet (OI).*
 
 ![L'exposition gamma des teneurs de marché par strike, et son profil selon le prix](docs/captures/options-gex.png)
 
@@ -52,11 +55,11 @@ difficulté, mempool) a son onglet ; le prix en horaire.*
 ![La synthèse des dernières 24 h, le ruban des gros ordres, l'état des sources et les options](docs/captures/grille-synthese.png)
 
 *La synthèse dit la journée en une page — cours, perpétuel, liquidations,
-gros ordres, ETF, sentiment, volatilité, prime Coinbase, agenda, news —, et
-ce que le journal en a vu : ici 7 h 22 sur 24, le portable ayant dormi. Le
-ruban suit les gros ordres exécutés, SOURCES l'état de chaque flux, OPTIONS
-la volatilité implicite de Deribit ; le prix en cinq minutes, une semaine de
-bougies.*
+gros ordres, liquidité, ETF, sentiment, volatilité, primes Coinbase et
+coréenne, dominance, cycle, agenda, alertes, news —, et ce que le journal en
+a vu quand le portable a dormi. Le ruban suit les gros ordres exécutés,
+SOURCES l'état de chaque flux, OPTIONS la volatilité implicite de Deribit
+contre la réalisée ; le prix en cinq minutes.*
 
 Captures produites par `python tests/ui_captures.py docs/captures` sur le
 terminal en marche, réduites à 1600 px et 256 couleurs.
@@ -100,7 +103,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 
 | Panneau | Contenu | Rafraîchissement |
 |---|---|---|
-| **Prix** | chandeliers de 1 m à 1 M, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois), gros ordres en bulles, carte de chaleur du carnet, signaux, bascule `$`/`€`, échelle log, heure locale ou UTC, sous-graphiques optionnels dont le CVD et l'open interest, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
+| **Prix** | chandeliers de 1 m à 1 M, temps restant avant la clôture de la bougie, MA 9/26/200, Bollinger, POC + Value Area, niveaux clés (veille, semaine, mois, gamma flip, max pain, mouvement attendu ±1σ) et VWAP ancré à la période ou posé à la main (`A`), gros ordres en bulles, carte de chaleur du carnet, signaux, bascule `$`/`€`, échelle log, heure locale ou UTC, sous-graphiques optionnels dont le CVD et l'open interest, lecture au crosshair, alerte posée d'un Alt + clic, historique chargé au pan | bougie en temps réel (push), repli 2 s |
 | **Carnet** | 8 niveaux de chaque côté, spread, part des acheteurs, murs des cinq plateformes, âge du flux, choix de la plateforme, devise du panneau prix | 100 ms (push), 250 ms en repli |
 | **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ ; dessous, le solde horaire des gros ordres et la prime Coinbase journalisés (onglet du carnet) | 2 s · 5 min |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian et cadrées sur l'étendue médiane des carnets ; dessous, l'historique journalisé de la liquidité à ±0,1 % du prix (onglet du carnet) | 250 ms · 5 min |
@@ -109,9 +112,9 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
 | **Flux ETF** | entrées/sorties nettes des ETF spot ; en plein écran, cumul depuis le lancement, classement des émetteurs, fenêtre réglable (30 j / 90 j / 1 an / tout) et son net en bitcoins face à l'émission des mineurs (« ≈ -28.2 k BTC · 1.5× l'émission »). Un jour encore en cours de publication est dit « partiel », sa barre pâlie, les fonds attendus nommés au survol | 5 min |
 | **Position** | la position tenue, saisie à la main : résultat, distance au stop, multiple du risque ; taille qu'autorise un risque choisi, stop à quelques ATR ; résultat au bandeau. Rien ne quitte le navigateur (onglet des flux ETF) | 2 s |
-| **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; dessous, le positionnement — la part des longs de la foule contre celle de l'argent des gros ; financement, prime et open interest comparés sur Binance, Bybit et OKX , et le portage annualisé — financement de chaque plateforme et base du future Deribit à trois mois, dans la même unité (onglet des flux ETF) | 5 min |
+| **Perpétuel** | financement, open interest (prolongé par le journal) et part des comptes longs, sur canvas LWC ; dessous, le positionnement — la part des longs de la foule contre celle de l'argent des gros ; financement, prime et open interest comparés sur Binance, Bybit et OKX, et le portage annualisé — financement de chaque plateforme et base du future Deribit à trois mois, dans la même unité (onglet des flux ETF) | 5 min |
 | **News** | fil scoré + indice Fear & Greed, dont la courbe sur 90 jours en plein écran | 2 s en lecture, collecte toutes les 15 min |
-| **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF (et en bitcoins, face à l'émission), Fear & Greed, DVOL, skew et mouvement attendu, prime Coinbase, prime coréenne, dominance, cycle (halving, sommet, Mayer, MVRV), prochaines échéances macro, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
+| **Synthèse** | les dernières 24 h en une page : cours et journée glissante, financement et open interest et leur écart, liquidations et gros ordres journalisés, flux ETF (et en bitcoins, face à l'émission), Fear & Greed, DVOL et son rang sur un an, skew, exposition gamma et gamma flip, mouvement attendu, prime Coinbase, prime coréenne, dominance, cycle (halving, sommet, Mayer, MVRV, Puell quand il sort de sa bande), agenda — échéances macro, publications américaines de la semaine, échéances d'options —, alertes sonnées, news les mieux notées ; la couverture du journal dite en tête quand la machine a dormi (onglet des news) | 5 min |
 | **Calendrier** | prochaines échéances macro — FOMC, CPI, NFP, PCE —, grosses échéances d'options Deribit (montant, max pain, put/call) et publications américaines de la semaine selon Forex Factory (PPI, ventes au détail, inscriptions au chômage, discours de la Fed ; prévision et précédent), avec compte à rebours (onglet des news) | 5 min |
 | **Alertes** | sonneries et réglages : seuils de cours, mouvement brusque (2 % en 15 min), rafale de liquidations, financement extrême, news à fort score, écart d'arbitrage, écart à la MA 200, RSI extrême, signal gradué fort, clôture journalière de part et d'autre de la MA 200, franchissement du gamma flip des options, bascules du cycle (MVRV en zone extrême, capitulation des mineurs), échéance macro dans la demi-heure, glissement de dominance, jour de flux ETF, réseau chargé, bond de la volatilité implicite, déplacement du skew (onglet des news) | 2 s |
 | **Macro** | cours contre masse monétaire M2 (US) ou contre l'offre de stablecoins (`STB`), décalage réglable et corrélations | 5 min |
@@ -648,9 +651,10 @@ panneau, OPTIONS — volatilité implicite contre réalisée, courbe des échéa
 et skew, open interest par strike et max pain, base des futures à échéance —,
 DVOL au bandeau et une alerte quand la volatilité implicite bondit ; puis un
 dix-huitième, MARCHÉS, qui dit si le bitcoin bouge avec les actions, l'or ou
-le dollar. Depuis, le terminal en compte vingt et un avec le RUBAN des gros
-ordres et le CYCLE, qui situe le cours depuis le halving et depuis le sommet,
-et les alertes partent jusqu'au téléphone par ntfy.
+le dollar. Depuis, le terminal en compte vingt-deux, PROFONDEUR comprise,
+avec le RUBAN des gros ordres et le CYCLE, qui situe le cours depuis le
+halving et depuis le sommet, et les alertes partent jusqu'au téléphone par
+ntfy.
 Ce même journal a ensuite compté cinquante-quatre resynchronisations
 Kraken en une matinée, et nommé la cause qu'on croyait fortuite : le flux
 décrit une fenêtre de vingt-cinq niveaux, le carnet en gardait cent, et
@@ -690,6 +694,25 @@ reçoit une alerte d'un Alt + clic ; le terminal se conduit au clavier, et le
 bandeau nomme les sources en panne au lieu de les laisser à `journalctl`. Le
 panneau ANALYSE, enfin, met les signaux du graphique à l'épreuve de l'historique,
 contre la référence de rester simplement investi.
+
+Les 12 et 13 novembre 2026, le terminal a surtout gagné des lectures, et
+corrigé ce que leur relecture a montré. Le fil de Binance, muet depuis un
+mois, livre de nouveau ses liquidations — l'adresse avait perdu sa route.
+Le graphique du prix porte les gros ordres en bulles, l'open interest, la
+carte de chaleur du carnet, le VWAP ancré, le temps restant avant la clôture
+de la bougie et le mouvement attendu par les options ; OPTIONS dit
+l'exposition gamma des teneurs et son flip, ON-CHAIN les hash ribbons, le
+prochain ajustement et le hashprice, CYCLE le MVRV et le multiple de Puell,
+l'arbitrage la prime coréenne, le perpétuel la foule contre les gros, le
+calendrier les publications américaines de la semaine. La synthèse du
+13 au matin annonçait 5,63 Md$ de longs liquidés pour une baisse de 3,5 % :
+les contrats coin-margined de Binance étaient comptés en contrats, et non en
+dollars — le fil et le journal sont corrigés. Les alertes ne resonnent plus
+à chaque redémarrage du service, les totaux des liquidations couvrent enfin
+l'heure entière au lieu de vingt minutes, et une alerte de mouvement brusque
+— 2 % en un quart d'heure, cinq fois par mois sur l'année écoulée — a
+rejoint les autres. Le détail, et ce qui reste à revoir, est au point de
+reprise d'[`ARCHITECTURE.md`](ARCHITECTURE.md#ce-qui-manque-encore).
 
 ## Outils complémentaires
 
@@ -768,7 +791,7 @@ L'installation n'est d'ailleurs pas un prérequis : les scripts trouvent
 ```bash
 python tests/test_indicators_parity.py   # indicateurs identiques à l'origine
 python tests/test_news_scoring.py        # scoring et collecte des news, sources en défaut nommées
-python tests/test_liquidations.py        # flux de liquidations, badge de grille compté
+python tests/test_liquidations.py        # flux de liquidations : coin-margined, totaux sur la durée, table filtrée, badge de grille compté
 python tests/test_orderbook.py           # carnets : niveaux fantômes, synchronisation Binance et OKX, profondeur, liquidité journalisée
 python tests/test_arbitrage.py           # arbitrage : net des deux frais taker, frais vérifiés à la source
 python tests/test_lwc_vwap.py            # VWAP ancré : ancrage, périodes UTC, moyenne et bandes pondérées
@@ -784,7 +807,7 @@ python tests/test_push.py                # pousseur WebSocket, sans navigateur
 python tests/test_journal.py             # journal : événements, épisodes, rétention, univers de capitalisation
 python tests/test_history.py             # historique du cours : disque, rattrapage, panne
 python tests/test_analysis.py            # bilan des signaux : futur, référence, sens, export ; niveaux clés
-python tests/test_alerts.py              # alertes : seuils, fronts, cadences, carnets creux
+python tests/test_alerts.py              # alertes : seuils, mouvement brusque, fronts et hystérésis, cadences, état gardé au redémarrage
 python tests/test_wsgi.py                # fabrique gunicorn du régime service
 python tests/test_lwc_serialize.py       # contrat de série du rendu du prix
 python tests/test_lwc_api.py             # /api/klines : pagination, marge de calcul de chaque page, repli démo
@@ -858,7 +881,13 @@ carnet vivant l'horloge coupée, agrandissement acheminé par le WebSocket),
 alertes comprises (cloche au bandeau, seuil posé et retiré par ses puces) —
 et le dialogue de disposition : un
 panneau déménagé arrive dans sa cellule, en repart au rangement d'origine, et
-le déménagement survit au rechargement. Il sait déposer des captures, suppose
+le déménagement survit au rechargement. Chaque onglet y passe aussi : aucun
+graphique blanc à l'ouverture, des barres de titre qui tiennent dans leur
+cellule, les gestes du graphique du prix (lecture au crosshair, zoom au cadre
+borné au pane, mesure, VWAP ancré à la main, compte à rebours de la bougie,
+heure locale ou UTC), les primes régionales, le positionnement du perpétuel,
+le rang du DVOL, la table des liquidations à son seuil — et sans exposant
+dans ses prix. Il sait déposer des captures, suppose
 le terminal déjà lancé (`--url` pour un port d'essai), et s'ignore si Firefox
 est absent.
 
@@ -941,9 +970,11 @@ les unités systemd `--user` pour un `fetch` automatique toutes les 30 minutes.
 
 La ligne de commande prend un panneau (`etf`, `perp`, `analyse`, `alertes`…), un
 intervalle (`15m`, `4h`, `1M`), `eur`, `usd`, `log`, `signaux`, un sous-graphique
-(`cvd`, `rsi`, `crsi`, `vol`, `profil`), les niveaux clés (`niv` ou
-`niveaux`), `capture`, `ligne`, `ancre`, `effacer` (toutes
-les lignes et les ancres) ou un seuil de cours en dollars (`alerte 80000`). Une commande inconnue reste à l'écran, en rouge.
+(`cvd`, `rsi`, `crsi`, `vol`, `profil`), une couche du graphique (`niv` ou
+`niveaux`, `ord`, `oi`, `murs`, `carte` pour celle des liquidations),
+`capture`, `ligne`, `ancre` (ou `avwap`), `effacer` (toutes les lignes et les
+ancres), `aide`, ou un seuil de cours en dollars (`alerte 80000`). Une commande
+inconnue reste à l'écran, en rouge.
 
 ## Notes
 

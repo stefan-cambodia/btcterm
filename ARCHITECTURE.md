@@ -25,7 +25,7 @@ de commande qui couvrent ce que le terminal n'a pas encore absorbé.
   calculs d'indicateurs, connexions aux plateformes, collecte, moteur
   d'arbitrage — vit dans `btcterm/`.
 - **Le terminal** ([§3](#3-le-terminal-terminal)) : une application Dash unique
-  regroupant vingt et un panneaux sur une grille de six cellules — une cellule pouvant
+  regroupant vingt-deux panneaux sur une grille de six cellules — une cellule pouvant
   en héberger plusieurs, choisis par onglets —, avec trois régimes de
   rafraîchissement doublés d'un canal push pour les panneaux rapides, un hub
   qui n'ouvre qu'une connexion par plateforme et un collecteur de news en
@@ -869,7 +869,7 @@ de l'open interest compris.
 
 Douze panneaux qu'il faut balayer des yeux couvraient la surveillance
 active ; la passive demande l'inverse — que le terminal prévienne.
-`AlertEngine` évalue quatorze règles dans la boucle d'observation du hub
+`AlertEngine` évalue vingt règles dans la boucle d'observation du hub
 (1 s), toutes nourries par ce que le hub tient déjà, sans aucune
 connexion nouvelle :
 
@@ -969,9 +969,21 @@ chaud à la minute — c'est sur lui que le bandeau lit DVOL sans réseau :
   de trois instantanés — au retour d'une panne de Deribit, le 10 novembre,
   un instantané isolé a donné −6,0 entre deux lectures à −3,1 —, et les deux
   bouts doivent être frais, le présent dans la demi-heure, la référence
-  entre 23 et 30 heures : après une longue veille, la règle se tait.
+  entre 23 et 30 heures : après une longue veille, la règle se tait ;
+- **carnets creux** — la liquidité offerte à portée du prix, plateformes
+  réunies, tombe de plus du seuil (40 %) sous sa moyenne de la journée
+  (`_check_liquidity`) : un carnet creux n'amortit pas le mouvement qui
+  vient. Six heures de relevés au moins, la médiane de trois relevés de la
+  demi-heure pour le présent, et seules les plateformes présentes toute la
+  journée ;
+- **source en défaut** — un lien temps réel coupé, une source REST ou une
+  tâche de fond en panne depuis plus d'un quart d'heure
+  (`SOURCE_DOWN_AFTER`), une fois par épisode, et une seconde fois au
+  rétablissement (`_check_sources`). Débrayée par défaut : sur un portable,
+  un réseau qui filtre une plateforme sonnerait pour rien ; à cocher sur le
+  serveur.
 
-Les deux dernières sont des événements datés, comme le signal gradué,
+Les quatre suivantes sont des événements datés, comme le signal gradué,
 mais tirés de ce que le bilan du panneau ANALYSE (§3.14) et le
 calendrier (§2.6) ont appris au terminal :
 
@@ -1005,11 +1017,11 @@ calendrier (§2.6) ont appris au terminal :
   (§2.6, Forex Factory) sonnent aussi ; les moyennes — inscriptions au
   chômage, discours — non.
 
-Toutes deux portent leur date dans leur message : relues du journal au
-redémarrage (voir plus bas), elles ne sont pas rejouées. Chacune se
-débraye d'une case, comme le signal gradué — qui reste armé par défaut
-malgré ce que le bilan en dit : c'est un réglage de l'utilisateur, pas
-un défaut du terminal.
+La tendance journalière et l'échéance proche portent leur date dans leur
+message : relues du journal au redémarrage (voir plus bas), elles ne sont
+pas rejouées. Chacune des quatre se débraye d'une case, comme le signal
+gradué — qui reste armé par défaut malgré ce que le bilan en dit : c'est
+un réglage de l'utilisateur, pas un défaut du terminal.
 
 Les règles d'état sonnent sur le **front montant** et pas avant un
 délai de garde de 10 minutes : une condition qui dure ne sonne qu'une
@@ -3172,10 +3184,11 @@ suivante.
 
 **Où en est-on.** Les cinq étapes sont faites — socle extrait, couche de rendu
 tranchée, données mutualisées, doublons supprimés, couverture complète :
-dix-huit panneaux couvrent le prix, la liquidité, l'arbitrage, les
-liquidations, les flux ETF, le marché à terme, les options, les news, le
-calendrier macro, la macro, les marchés traditionnels, la dominance, la chaîne
-et la relecture de séance. La piste de confort laissée ouverte à la pause
+vingt-deux panneaux couvrent le prix, le carnet, sa profondeur et le ruban
+des gros ordres, l'arbitrage, les liquidations, les flux ETF, le marché à
+terme, les options, les news, le calendrier macro, la macro, les marchés
+traditionnels, la dominance, la chaîne, le cycle, la position tenue, la
+synthèse de la journée, l'état des sources et la relecture de séance. La piste de confort laissée ouverte à la pause
 précédente — une disposition de grille configurable — est faite (§3.6) :
 chaque panneau se range dans la cellule de son choix, et le rangement
 survit au rechargement. Le dernier chantier, resté conditionnel depuis
@@ -3434,9 +3447,58 @@ des manques constatés à la clôture et depuis — chacun à ouvrir quand l'usa
 fera sentir, aucun ne conditionnant les autres. Celui qui reste ouvert est
 en fin de section, et ne presse pas.
 
-**Point de reprise** (11 novembre 2026, au soir) : `main` porte tout le
-travail de la journée, poussé lot par lot, le service tourne sur ce code, et
-les contrôles passent — les vingt-neuf fichiers de tests et `ui_smoke.py`,
+**Point de reprise** (13 novembre 2026, au matin) : `main` porte tout le
+travail des 12 et 13 novembre, poussé lot par lot ; le service tourne sur ce
+code, les contrôles passent — les trente-cinq fichiers de tests et
+`ui_smoke.py` —, et les captures du README comme la démo statique ont été
+refaites le 13 au matin.
+
+Le 12, le terminal a surtout gagné des lectures. Le fil de Binance, muet
+depuis un mois, a été rendu à sa route (§2.5). Le graphique du prix a reçu
+les gros ordres en bulles, l'open interest en volet, la carte de chaleur du
+carnet, le VWAP ancré à la période puis à la main (touche `A`), le temps qui
+reste avant la clôture de la bougie et le mouvement attendu par les options
+(±1σ). Le panneau OPTIONS a gagné l'exposition gamma des teneurs et son
+gamma flip — niveau clé et alerte —, ON-CHAIN les hash ribbons et le
+prochain ajustement, CYCLE le MVRV et le multiple de Puell, l'arbitrage la
+prime coréenne, le perpétuel le positionnement de la foule contre celui des
+gros, ANALYSE la carte des heures. Les flux ETF se lisent en bitcoins face à
+l'émission, et les séries lentes survivent au redémarrage.
+
+Le 13, la synthèse du matin, lue avec un œil de trader, annonçait 5,63 Md$
+de longs liquidés pour une baisse de 3,5 % : les contrats coin-margined de
+Binance étaient comptés en contrats et non en dollars. Le fil a été corrigé,
+puis le journal, avec l'accord de l'utilisateur (381 lignes, une copie
+d'abord). La relecture des alertes a suivi : chaque redémarrage du service
+refaisait sonner ce qui sonnait déjà — l'état des règles et les réglages se
+gardent désormais sur disque (§2.8) — ; les totaux des liquidations ne
+couvraient que vingt minutes, et la table ne montrait que des liquidations de
+quelques dollars (§2.5). Une alerte manquait, la plus attendue d'un terminal :
+le mouvement brusque, 2 % en un quart d'heure, calibrée sur un an de bougies
+d'une minute. S'y ajoutent les publications américaines de la semaine au
+calendrier (Forex Factory), le rang du DVOL sur un an et le hashprice.
+
+Ce qui reste à revoir tient à des seuils posés sans recul. Celui des
+rafales de liquidations (10 M$ en cinq minutes) a été posé quand Bybit et
+OKX livraient seuls ; il se lit depuis le 13 novembre sur trois plateformes,
+des montants justes et des totaux complets — quelques jours sans coupure
+diront s'il faut le relever. Ceux des carnets creux (quarante pour cent sous
+la moyenne) et du skew (deux points en 24 h) attendent quelques semaines de
+journal ; l'alerte des carnets creux, comme celle d'une source en défaut,
+n'a encore sonné que dans ses tests. « Blocs lents » sonne à 12,0 minutes
+pile, sur son seuil : la règle n'a pas d'hystérésis, et si elle se met à
+sonner en rafale, elle prendra celle du mouvement brusque. Seul le
+mouvement brusque a été calibré sur l'historique avant d'être posé.
+
+Le filtre des contrats hors cryptomonnaies de Binance, qui ne pouvait se
+vérifier tant que le fil de Binance restait muet, a été vu agir le
+12 novembre 2026, une fois l'adresse du fil corrigée (§2.5). L'actif intermittent de la capitalisation est écarté par son nom
+(`sources.INTERMITTENT`) : un autre qui se mettrait à clignoter ne le serait
+qu'à la lecture des anciennes lignes, pas à la collecte.
+
+**Le point précédent** (11 novembre 2026, au soir) : `main` portait tout le
+travail de la journée, poussé lot par lot, le service tournait sur ce code, et
+les contrôles passaient — les vingt-neuf fichiers de tests et `ui_smoke.py`,
 sur une machine chargée. La journée n'a rien eu d'un plan : l'existant relu à
 l'écran, sur le service en marche, puis ce que cette relecture rendait
 possible. D'abord les défauts — un titre qui débordait, une profondeur
@@ -3451,18 +3513,6 @@ le serveur à venir l'alerte sur une source en défaut et `/api/health`. Les
 gaps du CME, ajoutés aux niveaux clés l'après-midi, ont été retirés le soir :
 le CME cote en continu depuis mai 2026. Le détail est dans les listes ci-dessous,
 entrée par entrée.
-
-Ce qui reste à revoir tient à des seuils posés sans recul : celui des carnets
-creux (quarante pour cent sous la moyenne) le jour même où l'historique
-commence, celui du skew (deux points en 24 h) — quelques semaines de journal
-les étalonneront. Et à ce qui n'a pas pu se vérifier d'ici : l'alerte sur une
-source en défaut et celle des carnets creux n'ont sonné que dans leurs tests.
-Le filtre des contrats hors cryptomonnaies de Binance était du nombre, le fil
-de Binance restant muet ; il a été vu agir le 12 novembre 2026, une fois
-l'adresse du fil corrigée (§2.5).
-L'actif intermittent de la capitalisation est écarté par son nom
-(`sources.INTERMITTENT`) : un autre qui se mettrait à clignoter ne le serait
-qu'à la lecture des anciennes lignes, pas à la collecte.
 
 **Pour l'analyse :**
 
