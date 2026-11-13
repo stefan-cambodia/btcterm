@@ -66,6 +66,7 @@ def _shared_stores() -> list:
         dcc.Store(id="push-sink-expanded"),
         dcc.Store(id="push-sink-exchange"),
         dcc.Store(id="push-sink-currency"),
+        dcc.Store(id="push-sink-liq"),
         # Alertes : les réglages survivent au rechargement et réarment
         # le moteur au chargement ; le fil et ses puits sont globaux —
         # la sonnerie navigateur doit retentir même panneau replié.

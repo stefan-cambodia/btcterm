@@ -754,7 +754,16 @@ def test_changement_de_tendance_journaliere():
     e._check_trend(hub, None, regle, T0)
     e._check_trend(hub, None, regle, T0 + 60)
     assert len(flips()) == 1, "la même clôture a resonné"
-    assert "au-dessus" in flips()[0].message
+    assert "au-dessus de la MA 200 journalière" in flips()[0].message
+
+    #: Et dans l'autre sens, la phrase se tient — le journal a gardé « sous
+    #: de la MA 200 » le 13 novembre 2026.
+    bas = AlertEngine()
+    bas.configure(DEFAULT_CONFIG)
+    hub.frame = serie([110.0, 80.0, 79.0])
+    bas._check_trend(hub, None, bas.config, T0)
+    (chute,) = [a for a in bas.alerts if a.kind == "flip"]
+    assert " sous la MA 200 journalière (80 $)" in chute.message, chute.message
 
     #: La bougie en cours seule ne décide de rien : elle flotte.
     autre = AlertEngine()

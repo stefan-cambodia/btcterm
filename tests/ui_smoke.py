@@ -1324,7 +1324,41 @@ def run(capture_dir: Path | None, url: str = URL) -> int:
         # mais il doit alors le dire — et jamais rester muet.
         check("le fil dit son état", len(liq["badges"]) > 8, liq["badges"][:44])
         check("le tableau dit le sien", len(liq["table"]) > 4, liq["table"][:44])
-        check("les prix s'y écrivent en clair", "e+" not in liq["table"])
+        check("les prix s'y écrivent en clair",
+              "e+" not in liq["table"] and "e-" not in liq["table"])
+
+        # Le seuil de la table : 10 k$ au départ, 100 k$ d'un clic — chaque
+        # montant affiché passe alors le seuil, ou la table dit qu'aucun ne
+        # le passe. La ligne de réglage tient dans la cellule.
+        reglage = browser.js("""
+            const choix = document.querySelector('#liq-threshold input:checked');
+            const ligne = document.getElementById('liq-top').parentElement;
+            return {valeur: choix ? choix.value : null,
+                    deborde: ligne.scrollWidth - ligne.clientWidth};
+        """)
+        check("la table part de 10 k$", reglage["valeur"] == "10 k",
+              str(reglage["valeur"]))
+        check("la ligne de réglage tient dans la cellule",
+              reglage["deborde"] <= 1, f"{reglage['deborde']} px de trop")
+        browser.js("""
+            Array.from(document.querySelectorAll('#liq-threshold input'))
+                 .find(i => i.value === '100 k').click();
+        """)
+        filtree = browser.wait_for("""(() => {
+            const t = document.getElementById('liq-table');
+            return !!t && (t.textContent.includes('≥ 100 k$')
+                || Array.from(t.querySelectorAll('tr')).every(r => {
+                    const m = r.lastElementChild.textContent;
+                    return m.includes('M') || parseFloat(m) >= 100;
+                }));
+        })()""", timeout=10)
+        check("100 k$ ne laisse que les grosses", filtree,
+              browser.js("return document.getElementById('liq-table')"
+                         ".textContent.slice(0, 60);"))
+        browser.js("""
+            Array.from(document.querySelectorAll('#liq-threshold input'))
+                 .find(i => i.value === '10 k').click();
+        """)
 
         print("\nOnglet alertes")
         browser.js("""

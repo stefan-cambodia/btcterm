@@ -17,14 +17,22 @@ aussi. Mais un lien qui tient sans rien livrer depuis un quart d'heure
 — Binance l'a fait des mois, écouté à une adresse que la scission de ses
 flux futures avait vidée —, et le badge le nomme, en jaune, pas en
 rouge, le fil vivant encore par les autres plateformes.
+
+**La table filtre, les totaux non.** Neuf liquidations sur dix pèsent
+moins de 10 k$ — des altcoins à quelques dollars, quatorze pour cent du
+volume — et la table de huit lignes n'en montrait guère d'autres. Elle
+part donc de 10 k$, se règle à 100 k$ ou à tout, et peut ne garder que le
+bitcoin ; les totaux du titre comptent tout, et la ligne sous le titre
+nomme la plus grosse liquidation de l'heure.
 """
 
 from __future__ import annotations
 
+import math
 import time
 from datetime import datetime
 
-from dash import Input, Output, html
+from dash import Input, Output, dcc, html
 
 from ..fx import DOLLARS, display
 from ..theme import C, MONO, PANEL_STYLE, TABLE_STYLE, TITLE_STYLE
@@ -45,6 +53,11 @@ SILENCE = 15 * 60
 
 SIDE_LABEL = {"long": ("LONG", C["red"]), "short": ("SHORT", C["green"])}
 
+#: Seuils de la table, en dollars, et celui par défaut : la table montre
+#: ce qui pèse, les totaux comptent tout.
+THRESHOLDS = {"tout": 0, "10 k": 10_000, "100 k": 100_000}
+DEFAULT_THRESHOLD = "10 k"
+
 #: Étiquette courte de la plateforme, dans la table — les mêmes
 #: abréviations que le sélecteur du carnet.
 EXCHANGE_TAG = {"Binance": "BIN", "Bybit": "BYB", "OKX": "OKX"}
@@ -58,7 +71,36 @@ def layout(title=None):
                       style={"fontSize": "9px", "whiteSpace": "nowrap",
                              "marginLeft": "10px"}),
         ], style=TITLE_STYLE),
-        html.Div(id="liq-table", style={"flex": "1", "overflowY": "auto"}),
+        # Sous le titre, comme au ruban : la plus grosse de l'heure, et
+        # les réglages de la table.
+        html.Div([
+            html.Span(id="liq-top", style={"overflow": "hidden",
+                                           "textOverflow": "ellipsis"}),
+            html.Div([
+                dcc.RadioItems(
+                    id="liq-threshold",
+                    options=[{"label": k, "value": k} for k in THRESHOLDS],
+                    value=DEFAULT_THRESHOLD, inline=True,
+                    className="tf-radio",
+                    persistence=True, persistence_type="local",
+                ),
+                dcc.Checklist(
+                    id="liq-btc",
+                    options=[{"label": "BTC", "value": "btc"}],
+                    value=[], inline=True, className="tf-check",
+                    style={"marginLeft": "6px"},
+                    persistence=True, persistence_type="local",
+                ),
+            ], style={"display": "flex", "flexShrink": "0",
+                      "marginLeft": "8px"},
+                title="la table : liquidations de ce montant et plus, "
+                      "le bitcoin seul — les totaux du titre comptent tout"),
+        ], style={"display": "flex", "justifyContent": "space-between",
+                  "alignItems": "center", "fontFamily": MONO,
+                  "fontSize": "9px", "padding": "0 6px 4px",
+                  "whiteSpace": "nowrap"}),
+        html.Div(id="liq-table", style={"flex": "1", "overflowY": "auto",
+                                        "minHeight": "0"}),
     ], style=PANEL_STYLE)
 
 
@@ -217,14 +259,20 @@ def _badges_compact(feed, fx=DOLLARS):
 
 def _prix(valeur: float) -> str:
     """Un prix lisible d'un bout à l'autre du fil : un bitcoin à 79 090 $,
-    un ether à 4 322 $, un solana à 180.25 $, un dogecoin à 0.2345 $ — le
-    nombre de décimales suit la taille du prix. Quatre chiffres
-    significatifs pour tout le monde écrivaient le bitcoin `7.909e+04`."""
+    un ether à 4 322 $, un solana à 180.25 $, un dogecoin à 0.2345 $, un
+    pepe à 0.000004626 $ — le nombre de décimales suit la taille du prix.
+    Quatre chiffres significatifs pour tout le monde écrivaient le bitcoin
+    `7.909e+04` ; sous le dix-millième, `.4g` écrivait encore le pepe
+    `4.626e-06` (capture du 13 novembre 2026)."""
     if valeur >= 1000:
         return f"{valeur:,.0f}"
     if valeur >= 1:
         return f"{valeur:.2f}"
-    return f"{valeur:.4g}"
+    if valeur <= 0:
+        return "0"
+    # Quatre chiffres significatifs, en décimales et jamais en exposant.
+    decimales = max(4, 3 - math.floor(math.log10(valeur)))
+    return f"{valeur:.{decimales}f}"
 
 
 def _row(event, fx=DOLLARS):
@@ -247,43 +295,84 @@ def _row(event, fx=DOLLARS):
     ])
 
 
-def render(hub, expanded: bool, currency=None):
-    """Table et badges des liquidations, prêts à poser dans le panneau.
+def _top(feed, fx=DOLLARS):
+    """La plus grosse liquidation de l'heure, toutes paires : ce que la
+    table ne garde pas forcément à l'écran, et ce qu'on cherche d'abord."""
+    event = feed.largest(WINDOW)
+    if event is None:
+        return html.Span("")
+    label, color = SIDE_LABEL.get(event.side, ("?", C["muted"]))
+    paire = event.symbol.replace("USDT", "")
+    return html.Span([
+        html.Span("max 1 h ", style={"color": C["muted"]}),
+        html.Span(f"{paire} {label.lower()} ", style={"color": C["text"]}),
+        html.Span(_montant(event.notional * fx.rate, fx.unit),
+                  style={"color": color}),
+        html.Span(f" · {EXCHANGE_TAG.get(event.exchange, event.exchange)} "
+                  f"{datetime.fromtimestamp(event.time):%H:%M}",
+                  style={"color": C["muted"]}),
+    ], title=fx.title(
+        f"la plus grosse liquidation de l'heure : {event.symbol} "
+        f"{label.lower()} à {_prix(event.price * fx.rate)}, "
+        f"{_montant(event.notional * fx.rate, fx.unit)} ({event.exchange})"))
+
+
+def _empty(feed, minimum: float, bitcoin: bool) -> str:
+    """Ce que dit une table vide : flux absent, marché calme, ou filtre
+    que rien de récent ne passe."""
+    age = feed.last_event_age()
+    if not feed.connected:
+        return "en attente du flux…"
+    if age is None:
+        return "marché calme — aucune liquidation reçue"
+    if minimum or bitcoin:
+        quoi = " ".join(filter(None, (
+            "BTC" if bitcoin else "",
+            f"≥ {_montant(minimum)}" if minimum else "")))
+        return f"aucune liquidation {quoi} récente"
+    return f"rien depuis {int(age // 60)} min"
+
+
+def render(hub, expanded: bool, currency=None,
+           threshold: str | None = DEFAULT_THRESHOLD,
+           bitcoin: bool = False):
+    """Table, badges et plus grosse de l'heure, prêts à poser dans le panneau.
 
     Fonction pure vis-à-vis du rendu, partagée entre le callback Dash et
-    le pousseur WebSocket.
+    le pousseur WebSocket. `threshold` est une clé de `THRESHOLDS` ; une
+    clé inconnue vaut le seuil par défaut.
     """
     fx = display(hub, currency)
     feed = hub.liquidations
     limit = ROWS_MAX if expanded else ROWS
-    events = feed.latest(limit)
+    minimum = THRESHOLDS.get(threshold, THRESHOLDS[DEFAULT_THRESHOLD])
+    events = feed.latest(limit, minimum=minimum, bitcoin=bitcoin)
 
     if not events:
-        age = feed.last_event_age()
-        attente = ("en attente du flux…" if not feed.connected else
-                   "marché calme — aucune liquidation reçue"
-                   if age is None else
-                   f"rien depuis {int(age // 60)} min")
-        table = html.Div(attente, style={
+        table = html.Div(_empty(feed, minimum, bitcoin), style={
             "color": C["muted"], "fontFamily": MONO,
             "fontSize": "11px", "padding": "12px"})
     else:
         table = html.Table([html.Tbody([_row(e, fx) for e in events])],
                            style=TABLE_STYLE)
 
-    return table, _badges(feed, fx, verbose=expanded)
+    return table, _badges(feed, fx, verbose=expanded), _top(feed, fx)
 
 
 def register(app, hub):
     @app.callback(
         Output("liq-table", "children"),
         Output("liq-badges", "children"),
+        Output("liq-top", "children"),
         Input("tick-fast", "n_intervals"),
         # `expanded` désigne le panneau agrandi, plus sa cellule : depuis
         # la disposition configurable, les liquidations peuvent vivre
         # ailleurs que dans la cellule de l'arbitrage.
         Input("expanded", "data"),
         Input("currency", "data"),
+        Input("liq-threshold", "value"),
+        Input("liq-btc", "value"),
     )
-    def _refresh(_tick, expanded, currency):
-        return render(hub, expanded == "liq", currency)
+    def _refresh(_tick, expanded, currency, threshold, btc):
+        return render(hub, expanded == "liq", currency, threshold,
+                      bool(btc))

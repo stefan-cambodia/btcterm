@@ -407,14 +407,30 @@ par la plateforme. Ces fermetures arrivent par rafales, et ces rafales
 expliquent une partie des mèches du graphique du cours.
 
 `LiquidationFeed` écoute `!forceOrder@arr` — toutes les paires, sans clé —
-et garde une **fenêtre glissante** de 500 événements en mémoire :
+et garde une **fenêtre glissante** de 5 000 événements en mémoire :
 l'indicateur de tension du moment. Chaque événement retenu est aussi
 signalé par un rappel `on_event`, où le hub branche le journal (§2.7) —
-la fenêtre nourrit le panneau, le journal la séance. Le fil expose les derniers événements, les totaux par côté sur une
-heure, et la part des paires Bitcoin dans ce total, qui distingue une
-cascade locale d'une cascade de marché.
+la fenêtre nourrit le panneau, le journal la séance. Le fil expose les
+derniers événements, filtrés au besoin par montant et au seul bitcoin, les
+totaux par côté sur une heure, la part des paires Bitcoin dans ce total,
+qui distingue une cascade locale d'une cascade de marché, et la plus grosse
+liquidation de la fenêtre.
 
-Cinq points méritent attention.
+Plusieurs points méritent attention.
+
+**Les totaux ne se lisent pas dans la fenêtre.** Elle était bornée à
+500 événements, et les totaux s'y calculaient : le titre du panneau disait
+« 1 h » sur vingt minutes. Le fil reçoit 1 285 liquidations par heure en
+moyenne (12 et 13 novembre 2026), 9 564 dans l'heure de la cascade du 12 au
+soir, et 1 370 en cinq minutes à 20:08 — l'alerte de rafale (§2.8) lisait
+alors ses cinq minutes sur moins de deux. Relevé le 13 novembre au matin :
+« L 1.1 M$ · S 306 k$ » au titre, 1,48 M$ et 899 k$ au journal pour la même
+heure. Les montants s'additionnent désormais à part, par pas de dix secondes
+(`TOTALS_STEP`) gardés deux heures, nourris par `record` comme par
+`restore` : une fenêtre se lit à dix secondes près quel que soit le débit,
+et chaque pas retient sa plus grosse liquidation (`largest`). La fenêtre
+d'événements ne sert plus qu'à la table, et passe à 5 000 pour qu'il en
+reste assez au-dessus du seuil qu'elle applique.
 
 **Le sens.** Une vente forcée ferme une position *longue*, un achat forcé
 une position *courte*. L'inverser donnerait un panneau qui raconte le
@@ -2228,8 +2244,10 @@ Trois décisions structurent le canal :
   aussi en régime d'interrogation, à chaque retentative.
 
 Le rendu dépend d'un état qui vit côté navigateur — plateforme du carnet,
-panneau agrandi, devise. Trois callbacks clientside le relaient à push.js, qui l'annonce
-au serveur à chaque changement ; le pousseur suit ainsi les mêmes entrées que
+panneau agrandi, devise, et depuis le 13 novembre 2026 le seuil et la case
+BTC de la table des liquidations. Quatre callbacks clientside le relaient à
+push.js, qui l'annonce au serveur à chaque changement — le serveur ne retient
+qu'un seuil de sa liste et un vrai booléen ; le pousseur suit ainsi les mêmes entrées que
 les callbacks qu'il double, et vide son cache d'envoi quand l'état change. Le
 plein écran a au passage clarifié son vocabulaire : le Store `maximized`
 retient la *cellule* agrandie, un Store dérivé `expanded` dit quel *panneau*
@@ -4269,6 +4287,18 @@ qu'à la lecture des anciennes lignes, pas à la collecte.
   actions, l'or ou le pétrole (SOXL, NVDA, XAU, CL…), et aucun n'a
   atteint le journal, qui comptait alors 88 liquidations Binance sur
   22 cryptomonnaies. Le catalogue en compte désormais 237.
+
+- ~~**Des totaux de l'heure sur vingt minutes**~~ — fait le 13 novembre
+  2026 : les totaux des liquidations se calculaient dans la fenêtre de
+  500 événements, qui couvrait vingt minutes en marché ordinaire et deux en
+  cascade ; ils s'additionnent désormais par pas de dix secondes, à part
+  (§2.5). La table, envahie de liquidations de quelques dollars sur des
+  altcoins — neuf sur dix pèsent moins de 10 k$ —, part de 10 k$, se règle à
+  100 k$ ou à tout, peut ne garder que le bitcoin, et nomme la plus grosse de
+  l'heure. La capture qui a suivi montrait un PEPE à `4.626e-06` : les prix
+  sous le dix-millième s'écrivent désormais en décimales, et `ui_smoke.py`
+  refuse l'exposant dans les deux sens. Le même matin, l'alerte de tendance
+  avait écrit « clôture … sous de la MA 200 » : la préposition suit le sens.
 
 **À trancher :**
 

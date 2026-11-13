@@ -105,7 +105,7 @@ de la synthèse du matin suivent celle du serveur. Le bandeau affiche
 | **Ruban** | les gros ordres exécutés sur Binance, Coinbase et Bybit au comptant, avec le côté de celui qui a agressé ; part des achats agressifs sur 5 min au titre, seuil réglable 100 k$ / 250 k$ / 1 M$ ; dessous, le solde horaire des gros ordres et la prime Coinbase journalisés (onglet du carnet) | 2 s · 5 min |
 | **Profondeur** | profondeur cumulée des 5 plateformes superposées, recentrées en % du prix médian et cadrées sur l'étendue médiane des carnets ; dessous, l'historique journalisé de la liquidité à ±0,1 % du prix (onglet du carnet) | 250 ms · 5 min |
 | **Arbitrage** | écarts inter-plateformes nets des frais taker du premier palier (Kraken 0,80 %, Coinbase 0,60 %, les autres 0,10 %), triés par rentabilité ; sous le titre, les primes régionales — Coinbase, et la Corée (Upbit) décomposée en won et bitcoin | 250 ms, primes 2 s |
-| **Liquidations** | positions fermées de force — Binance, toutes paires, OKX, tous ses perpétuels sur cryptomonnaies, et Bybit, dix grandes paires —, totaux de l'heure, fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
+| **Liquidations** | positions fermées de force — Binance, toutes paires, OKX, tous ses perpétuels sur cryptomonnaies, et Bybit, dix grandes paires —, totaux de l'heure et plus grosse liquidation de l'heure ; la table part de 10 k$ (réglable : tout, 10 k, 100 k ; case BTC pour le bitcoin seul), fenêtre relue du journal au démarrage (onglet de l'arbitrage) | 250 ms |
 | **Journal** | relecture des 24 h : alertes sonnées, épisodes d'arbitrage, bilan des liquidations (onglet de l'arbitrage) | 2 s |
 | **Flux ETF** | entrées/sorties nettes des ETF spot ; en plein écran, cumul depuis le lancement, classement des émetteurs, fenêtre réglable (30 j / 90 j / 1 an / tout) et son net en bitcoins face à l'émission des mineurs (« ≈ -28.2 k BTC · 1.5× l'émission »). Un jour encore en cours de publication est dit « partiel », sa barre pâlie, les fonds attendus nommés au survol | 5 min |
 | **Position** | la position tenue, saisie à la main : résultat, distance au stop, multiple du risque ; taille qu'autorise un risque choisi, stop à quelques ATR ; résultat au bandeau. Rien ne quitte le navigateur (onglet des flux ETF) | 2 s |
@@ -127,7 +127,9 @@ Les **liquidations** sont le pendant du perpétuel : quand une position à levie
 ne couvre plus sa marge, la plateforme la ferme au marché, et ces fermetures
 arrivent par rafales qui expliquent une partie des mèches du graphique. Le flux
 est épisodique — plusieurs minutes de silence ne signalent aucune panne, et le
-panneau distingue un flux coupé d'un marché calme.
+panneau distingue un flux coupé d'un marché calme. Neuf liquidations sur dix
+pèsent moins de 10 k$ — des altcoins à quelques dollars — : la table part de
+ce seuil, quand les totaux du titre comptent tout.
 
 Le **perpétuel** se lit avec le carnet : le taux de financement est le loyer que
 les longs paient aux shorts toutes les huit heures, l'open interest mesure la

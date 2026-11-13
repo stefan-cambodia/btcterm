@@ -151,7 +151,7 @@ def test_pousseur_branche():
     assert "/push" in rules, "route /push absente du serveur Flask"
     assert "expanded." in CALLBACK_KEYS, "Store expanded sans callback"
     for sink in ("push-sink-expanded", "push-sink-exchange",
-                 "push-sink-currency"):
+                 "push-sink-currency", "push-sink-liq"):
         assert sink in APP_IDS, f"{sink} absent de la page"
         assert f"{sink}." in CALLBACK_KEYS, f"{sink} sans relais clientside"
     print("  ✓ route /push posée, relais d'état branchés")

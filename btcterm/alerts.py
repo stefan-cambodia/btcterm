@@ -618,8 +618,10 @@ class AlertEngine:
             known = any(a.kind == "flip" and day in a.message
                         for a in self.alerts)
         if not known:
-            sens = "au-dessus" if above else "sous"
-            self._fire("flip", f"clôture du {day} {sens} de la MA 200 "
+            # « sous de la MA 200 », écrit tel quel au journal le
+            # 13 novembre 2026 : la préposition suit le sens.
+            sens = "au-dessus de" if above else "sous"
+            self._fire("flip", f"clôture du {day} {sens} la MA 200 "
                                 f"journalière ({df['close'].iloc[-2]:,.0f} $)",
                        now)
 

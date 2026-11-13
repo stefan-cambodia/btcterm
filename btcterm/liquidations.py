@@ -44,7 +44,7 @@ from .exchanges import ExchangeConnector
 __all__ = ["Liquidation", "LiquidationFeed", "BybitLiquidationConnector",
            "OKXLiquidationConnector", "BYBIT_SYMBOLS", "MAP_BINS", "price_map",
            "is_bitcoin", "BITCOIN_SQL",
-           "coin_contract_size"]
+           "coin_contract_size", "TOTALS_STEP"]
 
 #: La route `/market` est obligatoire : depuis la scission des flux futures
 #: de Binance (annoncée le 6 mars 2026, ancienne adresse retirée le
@@ -86,6 +86,18 @@ COIN_CONTRACT_OTHER = 10.0
 #: aurait dites dès la première minute. Il signale, il ne jette rien — un
 #: vrai krach peut le dépasser, et c'est alors au journal de le dire.
 IMPLAUSIBLE_USD = 50e6
+
+#: Pas des totaux glissants, en secondes, et leur profondeur. Les totaux
+#: ne se lisent plus dans la fenêtre d'événements : bornée en nombre, elle
+#: couvrait vingt minutes en marché ordinaire (1 285 liquidations par heure
+#: en moyenne les 12 et 13 novembre 2026) et trois en cascade — 1 370 en
+#: cinq minutes le 12 à 20:08. Le titre disait « 1 h » sur vingt minutes, et
+#: l'alerte de rafale lisait cinq minutes sur moins de deux. Les montants
+#: s'additionnent donc à part, par pas de dix secondes, sur deux heures —
+#: le double de la plus longue fenêtre demandée : une fenêtre se lit à dix
+#: secondes près, quel que soit le débit.
+TOTALS_STEP = 10
+TOTALS_HORIZON = 2 * 3600
 
 
 def coin_contract_size(symbol: str,
@@ -166,9 +178,13 @@ class LiquidationFeed(ExchangeConnector):
 
     name = "Liquidations"
 
-    #: Nombre d'événements conservés. À raison de quelques dizaines par
-    #: minute en marché agité, cela couvre le dernier quart d'heure.
-    MAX_EVENTS = 500
+    #: Nombre d'événements conservés, pour la table du panneau : trois à
+    #: quatre heures en marché ordinaire, une demi-heure en cascade. Neuf
+    #: sur dix pèsent moins de 10 k$ ; le panneau les filtre, et il lui en
+    #: faut assez pour remplir sa table au-dessus de 100 k$ — trois cent
+    #: quarante-sept par jour, le 13 novembre 2026. Les totaux n'en
+    #: dépendent plus (`TOTALS_STEP`).
+    MAX_EVENTS = 5000
 
     def __init__(self, maxlen: int = MAX_EVENTS, **kwargs):
         super().__init__(book=None, **kwargs)
@@ -192,6 +208,9 @@ class LiquidationFeed(ExchangeConnector):
         #: silences) : la rebâtir dix fois par seconde valait près de la
         #: moitié d'une trame.
         self.version = 0
+        #: Totaux par pas de `TOTALS_STEP` secondes : clé du pas →
+        #: [longs, shorts, bitcoin, nombre, plus grosse liquidation].
+        self._steps: dict[int, list] = {}
         #: Rappel appelé à chaque événement retenu — même convention que
         #: les collectes de newsdb : c'est l'appelant qui décide quoi en
         #: faire (le hub y branche le journal). Une erreur du rappel ne
@@ -267,32 +286,66 @@ class LiquidationFeed(ExchangeConnector):
 
     # ── Lecture ─────────────────────────────────────────────
 
-    def latest(self, limit: int = 12) -> list[Liquidation]:
-        """Les dernières liquidations, la plus récente d'abord."""
+    def latest(self, limit: int = 12, minimum: float = 0.0,
+               bitcoin: bool = False) -> list[Liquidation]:
+        """Les dernières liquidations, la plus récente d'abord.
+
+        `minimum` écarte celles qui pèsent moins, en dollars ; `bitcoin`
+        ne garde que les contrats sur le bitcoin. La lecture part de la
+        fin et s'arrête à `limit` : filtrer ne coûte que ce qu'on montre.
+        """
+        found: list[Liquidation] = []
         with self._lock:
-            return list(self.events)[-limit:][::-1]
+            for event in reversed(self.events):
+                if event.notional >= minimum and (
+                        not bitcoin or is_bitcoin(event.symbol)):
+                    found.append(event)
+                    if len(found) >= limit:
+                        break
+        return found
+
+    def _tally(self, event: Liquidation) -> None:
+        """Ajoute un événement aux totaux de son pas. Sous le verrou."""
+        key = int(event.time // TOTALS_STEP)
+        step = self._steps.get(key)
+        if step is None:
+            step = self._steps[key] = [0.0, 0.0, 0.0, 0, None]
+            # Un pas neuf toutes les dix secondes au plus : l'élagage des
+            # pas sortis de l'horizon ne coûte rien à ce rythme.
+            cutoff = key - TOTALS_HORIZON // TOTALS_STEP
+            for old in [k for k in self._steps if k < cutoff]:
+                del self._steps[old]
+        notional = event.notional
+        step[0 if event.side == "long" else 1] += notional
+        if is_bitcoin(event.symbol):
+            step[2] += notional
+        step[3] += 1
+        if step[4] is None or notional > step[4].notional:
+            step[4] = event
+
+    def _window(self, window: float) -> list[list]:
+        edge = int((time.time() - window) // TOTALS_STEP)
+        with self._lock:
+            return [step for key, step in self._steps.items() if key >= edge]
 
     def totals(self, window: float = 3600) -> dict[str, float]:
         """Montants liquidés sur la fenêtre, par côté et pour le Bitcoin.
 
         `btc` ne compte que les contrats sur le bitcoin (`is_bitcoin`) :
         c'est ce qui distingue une cascade locale d'une cascade de marché.
+        La fenêtre se lit à `TOTALS_STEP` secondes près, sur tout ce que
+        le fil a reçu — pas sur les seuls événements que garde sa table.
         """
-        limite = time.time() - window
-        longs = shorts = btc = 0.0
-        with self._lock:
-            evenements = [e for e in self.events if e.time >= limite]
+        steps = self._window(window)
+        return {"long": sum(s[0] for s in steps),
+                "short": sum(s[1] for s in steps),
+                "btc": sum(s[2] for s in steps),
+                "count": sum(s[3] for s in steps)}
 
-        for event in evenements:
-            if event.side == "long":
-                longs += event.notional
-            else:
-                shorts += event.notional
-            if is_bitcoin(event.symbol):
-                btc += event.notional
-
-        return {"long": longs, "short": shorts, "btc": btc,
-                "count": len(evenements)}
+    def largest(self, window: float = 3600) -> Optional[Liquidation]:
+        """La plus grosse liquidation de la fenêtre, toutes paires."""
+        biggest = [s[4] for s in self._window(window) if s[4] is not None]
+        return max(biggest, key=lambda e: e.notional, default=None)
 
     def last_event_age(self, link: Optional[str] = None) -> Optional[float]:
         """Secondes écoulées depuis la dernière liquidation reçue.
@@ -412,6 +465,7 @@ class LiquidationFeed(ExchangeConnector):
         self._check_plausible(event)
         with self._lock:
             self.events.append(event)
+            self._tally(event)
             self._seen(event)
             self.version += 1
         if self.on_event is not None:
@@ -462,6 +516,7 @@ class LiquidationFeed(ExchangeConnector):
                 if event.price <= 0 or event.quantity <= 0:
                     continue
                 self.events.append(event)
+                self._tally(event)
                 self._seen(event)
                 kept += 1
             self.version += 1

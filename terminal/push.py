@@ -111,7 +111,9 @@ PUSH_BOOK_INTERVAL = PUSH_INTERVAL
 BOOT = uuid.uuid4().hex
 
 DEFAULT_STATE = {"exchange": "Binance", "expanded": None,
-                 "currency": "USD", "price_interval": None}
+                 "currency": "USD", "price_interval": None,
+                 "liq_threshold": liquidations.DEFAULT_THRESHOLD,
+                 "liq_btc": False}
 
 
 def _frame(hub, state: dict, depth: bool = True,
@@ -131,10 +133,12 @@ def _frame(hub, state: dict, depth: bool = True,
         "arb-count": {"children": arb_count},
     }
     if liq:
-        liq_table, liq_badges = liquidations.render(
-            hub, state["expanded"] == "liq", state["currency"])
+        liq_table, liq_badges, liq_top = liquidations.render(
+            hub, state["expanded"] == "liq", state["currency"],
+            state["liq_threshold"], state["liq_btc"])
         frame["liq-table"] = {"children": liq_table}
         frame["liq-badges"] = {"children": liq_badges}
+        frame["liq-top"] = {"children": liq_top}
     if book:
         frame["book-data"] = {"data": orderbook.book_payload(
             hub, state["exchange"], state["expanded"] == "book",
@@ -211,6 +215,12 @@ def _merge(state: dict, raw: str | bytes) -> dict:
             interval is None
             or (isinstance(interval, str) and interval in KLINE_FREQ)):
         merged["price_interval"] = interval
+    # Les réglages de la table des liquidations : un seuil proposé par le
+    # panneau, un booléen — rien d'autre ne passe.
+    if message.get("liq_threshold") in liquidations.THRESHOLDS:
+        merged["liq_threshold"] = message["liq_threshold"]
+    if isinstance(message.get("liq_btc"), bool):
+        merged["liq_btc"] = message["liq_btc"]
     return merged
 
 
@@ -218,7 +228,8 @@ def register(app, hub) -> None:
     """Pose la route `/push` et le relais d'état qui va avec.
 
     L'état dont le rendu dépend vit côté Dash — les Stores `expanded` et
-    `currency`, le sélecteur du carnet. Trois callbacks clientside le
+    `currency`, le sélecteur du carnet, les réglages de la table des
+    liquidations. Quatre callbacks clientside le
     relaient à push.js, qui l'annonce au serveur : le pousseur n'invente
     rien, il suit les mêmes entrées que les callbacks qu'il double.
 
@@ -250,6 +261,18 @@ def register(app, hub) -> None:
         " return window.dash_clientside.no_update; }",
         Output("push-sink-currency", "data"),
         Input("currency", "data"),
+    )
+    # Comme le sélecteur du carnet, les réglages des liquidations ne
+    # s'annoncent que panneau monté ; d'ici là, le serveur rend les défauts
+    # du layout.
+    app.clientside_callback(
+        "function (threshold, btc) {"
+        " if (window.btcPush) { window.btcPush.state({liq_threshold:"
+        " threshold || null, liq_btc: !!(btc && btc.length)}); }"
+        " return window.dash_clientside.no_update; }",
+        Output("push-sink-liq", "data"),
+        Input("liq-threshold", "value"),
+        Input("liq-btc", "value"),
     )
 
     @app.server.get("/api/boot")

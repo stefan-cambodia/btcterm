@@ -43,7 +43,7 @@ from terminal.push import (DEFAULT_STATE,  # noqa: E402
                            _price_target)
 
 CIBLES = {"book-data", "depth-chart", "arb-table", "arb-count",
-          "liq-table", "liq-badges"}
+          "liq-table", "liq-badges", "liq-top"}
 
 
 def hub_garni(levels: int = DEPTH_MAX + 2) -> MarketHub:
@@ -209,6 +209,35 @@ def test_frame_suit_l_etat():
     assert lignes(agrandi["liq-table"]) == ROWS_MAX
     assert lignes(replie["liq-table"]) < lignes(agrandi["liq-table"])
     print("  ✓ plateforme suivie, agrandissements carnet et liquidations")
+
+
+def test_les_reglages_des_liquidations_passent_par_le_canal():
+    """Seuil et case BTC du panneau : annoncés par le navigateur, validés
+    par le serveur, et rendus — la trame suit la table du callback."""
+    etat = dict(DEFAULT_STATE)
+    assert etat["liq_threshold"] == "10 k" and etat["liq_btc"] is False
+    etat = _merge(etat, json.dumps({"liq_threshold": "100 k",
+                                    "liq_btc": True}))
+    assert etat["liq_threshold"] == "100 k" and etat["liq_btc"] is True
+    # Rien d'inventé : un seuil hors liste, un booléen qui n'en est pas un.
+    garde = _merge(etat, json.dumps({"liq_threshold": "1 G",
+                                     "liq_btc": "oui"}))
+    assert garde == etat
+
+    from test_liquidations import message
+    hub = hub_garni()
+    hub.liquidations._handle(message(symbol="ETHUSDT", price="3000",
+                                     qty="50"))               # 150 k$
+    hub.liquidations._handle(message(qty="1"))                # 64 000 $
+    tout = serialise(_frame(hub, dict(DEFAULT_STATE)))
+    gros = serialise(_frame(hub, {**DEFAULT_STATE,
+                                  "liq_threshold": "100 k"}))
+    btc = serialise(_frame(hub, {**DEFAULT_STATE, "liq_btc": True}))
+    assert "64,000" in tout["liq-table"] and "ETH" in tout["liq-table"]
+    assert "64,000" not in gros["liq-table"] and "ETH" in gros["liq-table"]
+    assert "ETH" not in btc["liq-table"] and "64,000" in btc["liq-table"]
+    assert "150 k$" in tout["liq-top"]
+    print("  ✓ seuil et case BTC annoncés, validés, rendus")
 
 
 def test_le_carnet_suit_la_devise():

@@ -103,6 +103,64 @@ def test_fenetre_bornee():
     print("  ✓ fenêtre bornée à sa taille, les plus récentes conservées")
 
 
+def test_les_totaux_ne_dependent_pas_de_la_fenetre():
+    """Les totaux comptent tout ce que le fil a reçu sur la fenêtre de
+    temps, pas les seuls événements que garde sa table : bornée à 500, elle
+    couvrait vingt minutes en marché ordinaire, et le titre disait « 1 h ».
+    Le 12 novembre 2026 à 20:08, 1 370 liquidations en cinq minutes : l'alerte
+    de rafale en lisait moins de deux."""
+    feed = LiquidationFeed(maxlen=5)
+    for i in range(20):
+        feed._handle(message(qty="1"))                       # 64 000 $ chacune
+    feed._handle(message(side="BUY", qty="2", when=time.time() - 1800))
+    # Hors de l'heure, et hors des cinq minutes.
+    feed._handle(message(qty="3", when=time.time() - 5400))
+    assert len(feed.events) == 5
+    heure = feed.totals(3600)
+    assert heure["count"] == 21, heure
+    assert heure["long"] == 20 * 64_000 and heure["short"] == 128_000, heure
+    cinq = feed.totals(300)
+    assert cinq["count"] == 20 and cinq["short"] == 0, cinq
+    # Deux heures de profondeur : l'événement d'il y a 1 h 30 compte encore.
+    assert feed.totals(7200)["count"] == 22
+    print("  ✓ totaux sur la durée, pas sur la taille de la fenêtre")
+
+
+def test_la_plus_grosse_de_l_heure():
+    feed = LiquidationFeed()
+    assert feed.largest(3600) is None
+    feed._handle(message(qty="1"))
+    feed._handle(message(symbol="ETHUSDT", side="BUY", price="3000",
+                         qty="100"))                         # 300 000 $
+    feed._handle(message(qty="2", when=time.time() - 7000))  # 128 000 $, hors
+    feed._handle(message(qty="0.1"))
+    grosse = feed.largest(3600)
+    assert (grosse.symbol, grosse.side, grosse.notional) == (
+        "ETHUSDT", "short", 300_000), grosse
+    print("  ✓ la plus grosse liquidation de l'heure, toutes paires")
+
+
+def test_la_table_filtre_les_poussieres():
+    """Neuf liquidations sur dix pèsent moins de 10 k$ : la table montre ce
+    qui pèse, et peut ne garder que le bitcoin."""
+    feed = LiquidationFeed()
+    feed._handle(message(qty="1"))                            # 64 000 $
+    feed._handle(message(symbol="JCTUSDT", price="0.0022", qty="2700"))
+    feed._handle(message(symbol="ETHUSDT", price="3000", qty="50"))  # 150 k$
+    feed._handle(message(qty="0.1"))                          # 6 400 $
+    assert [e.symbol for e in feed.latest(5)] == [
+        "BTCUSDT", "ETHUSDT", "JCTUSDT", "BTCUSDT"]
+    assert [e.notional for e in feed.latest(5, minimum=10_000)] == [
+        150_000, 64_000]
+    assert [e.symbol for e in feed.latest(5, minimum=100_000)] == ["ETHUSDT"]
+    assert [e.notional for e in feed.latest(5, bitcoin=True)] == [
+        6_400, 64_000]
+    assert feed.latest(5, minimum=100_000, bitcoin=True) == []
+    # La limite vaut pour ce qui passe le filtre, pas pour ce qui est lu.
+    assert len(feed.latest(1, minimum=10_000)) == 1
+    print("  ✓ seuil et bitcoin seul, la limite comptée après le filtre")
+
+
 def test_etat_de_connexion():
     feed = LiquidationFeed()
     assert not feed.connected
@@ -136,6 +194,11 @@ def test_rendu_du_panneau():
     assert panneau._prix(4321.5) == "4,322"
     assert panneau._prix(180.254) == "180.25"
     assert panneau._prix(0.23456) == "0.2346"
+    # Ni exposant vers le bas : les « memecoins » cotent au millionième.
+    assert panneau._prix(0.06633) == "0.06633"
+    assert panneau._prix(0.004608) == "0.004608"
+    assert panneau._prix(4.626e-06) == "0.000004626"
+    assert panneau._prix(0.0) == "0"
 
     assert panneau._montant(1_250_000) == "1.25 M$"
     assert panneau._montant(64_000) == "64 k$"
@@ -318,10 +381,17 @@ def test_badge_de_grille_tient_dans_sa_cellule():
             else:
                 feed.last_seen[nom] = maintenant
         if montant:
-            for cote in ("long", "short"):
-                feed.events.append(Liquidation(
-                    time=maintenant, symbol="ETHUSDT", side=cote,
-                    price=1.0, quantity=montant, exchange="OKX"))
+            # Par `restore`, comme le journal au démarrage : les totaux se
+            # tiennent à part de la fenêtre, et un ajout direct dans
+            # `events` ne les nourrirait pas.
+            feed.restore(Liquidation(
+                time=maintenant, symbol="ETHUSDT", side=cote,
+                price=1.0, quantity=montant, exchange="OKX")
+                for cote in ("long", "short"))
+            # `restore` date aussi le dernier événement d'OKX : un lien
+            # muet doit le rester.
+            for nom in muets:
+                feed.last_seen.pop(nom, None)
         return feed
 
     attendus = {
@@ -353,6 +423,36 @@ def test_badge_de_grille_tient_dans_sa_cellule():
     assert "Binance muet depuis 20 min" in plein and "Bybit muet" in plein
     print("  ✓ le badge de la grille tient en "
           f"{panneau.COMPACT_MAX} caractères, liens muets compris")
+
+
+def test_le_panneau_filtre_et_nomme_la_plus_grosse():
+    """La table suit le seuil et la case BTC ; le titre compte tout ; la
+    ligne sous le titre nomme la plus grosse de l'heure ; une table vide
+    par le filtre le dit, au lieu de « rien depuis 0 min »."""
+    from types import SimpleNamespace
+
+    feed = LiquidationFeed()
+    feed.mark("Binance", True)
+    feed._handle(message(symbol="JCTUSDT", price="0.0022", qty="2700"))
+    feed._handle(message(symbol="ETHUSDT", side="BUY", price="3000",
+                         qty="40"))                           # 120 k$
+    feed._handle(message(qty="0.1"))                          # 6 400 $
+    hub = SimpleNamespace(liquidations=feed)
+
+    table, badges, top = panneau.render(hub, False)            # 10 k par défaut
+    assert "ETH" in _texte(table) and "JCT" not in _texte(table)
+    assert "6 k$" not in _texte(table)
+    assert "S 120 k$" in _texte(badges), _texte(badges)        # tout compté
+    assert _texte(top).startswith("max 1 h ETH short 120 k$ · BIN"), \
+        _texte(top)
+    tout = _texte(panneau.render(hub, False, None, "tout")[0])
+    assert "JCT" in tout and "6 k$" in tout
+    vide = _texte(panneau.render(hub, False, None, "100 k", True)[0])
+    assert vide == "aucune liquidation BTC ≥ 100 k$ récente", vide
+    # Un seuil inconnu — un réglage d'une version future — vaut le défaut.
+    assert _texte(panneau.render(hub, False, None, "1 M")[0]) == \
+        _texte(table)
+    print("  ✓ la table filtre, le titre compte tout, la plus grosse nommée")
 
 
 def test_panneau_etiquette_la_plateforme():
